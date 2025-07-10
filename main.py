@@ -8,6 +8,7 @@ from openai import OpenAI
 import random
 import asyncio
 import json
+from fastapi import Form
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -221,3 +222,42 @@ def ask_gpt_summary(text: str) -> str:
     result = response.choices[0].message.content.strip()
     print("[ask_gpt_summary] ✅ GPT özeti alındı:\n", result)
     return result
+
+
+
+
+# PDF metni üzerinden soru cevap
+@app.post("/ask-pdf-question/")
+async def ask_pdf_question(pdf_text: str = Form(...), question: str = Form(...)):
+    print("[/ask-pdf-question] 🤖 Soru alındı:", question)
+    print("[/ask-pdf-question] 📄 PDF metni uzunluğu:", len(pdf_text))
+
+    prompt = f"""
+Sen PDF belgesi içeriğini analiz eden bir asistansın. Kullanıcının sorusu aşağıda. Sadece PDF içeriğine dayanarak cevap ver:
+
+📄 PDF içeriği:
+\"\"\"
+{pdf_text[:4000]}
+\"\"\"
+
+❓ Soru:
+{question}
+
+💬 Cevabın:
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "Sen uzman bir PDF içeriği analistisin, sadece verilen içerikten faydalan."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        answer = response.choices[0].message.content.strip()
+        print("[/ask-pdf-question] ✅ Yanıt alındı:", answer)
+        return JSONResponse(content={"answer": answer})
+
+    except Exception as e:
+        print("[/ask-pdf-question] ❌ Hata:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
