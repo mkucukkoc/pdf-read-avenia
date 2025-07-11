@@ -186,7 +186,7 @@ async def summarize_pdf(file: UploadFile):
         os.remove(temp_path)
         print("[/summarize-pdf] 🧹 Geçici dosya silindi.")
 
-        return JSONResponse(content={"summary": summary})
+        return JSONResponse(content={"summary": summary, "full_text": text})
     except Exception as e:
         print("[/summarize-pdf] ❗️Exception:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
