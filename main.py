@@ -36,7 +36,7 @@ service_account_info = json.loads(decoded_json)
 if not firebase_admin._apps:
     cred = credentials.Certificate(service_account_info)
     firebase_admin.initialize_app(cred, {
-        'storageBucket': 'aveniaapp.appspot.com'
+        'storageBucket': 'aveniaapp.firebasestorage.app'
     })
 
 
