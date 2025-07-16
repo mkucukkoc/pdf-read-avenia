@@ -6,3 +6,7 @@ pypdf==3.17.4
 requests==2.31.0
 python-dotenv==1.0.1
 python-multipart==0.0.9
+python-docx
+openpyxl
+python-pptx
+firebase-admin
