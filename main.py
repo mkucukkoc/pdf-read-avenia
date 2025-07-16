@@ -430,36 +430,68 @@ async def generate_excel(data: DocRequest):
         print("[/generate-excel] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-
+# Yeni generate-ppt endpoint'i (görsel + başlık + içerik destekli)
+from pptx.util import Inches
 
 @app.post("/generate-ppt")
 async def generate_ppt(data: DocRequest):
+    print("[/generate-ppt] 🌟 Sunum isteği alındı.")
     try:
-        print("[/generate-ppt] 🎯 İstek alındı.")
-        print("[/generate-ppt] 🧠 GPT'den içerik isteniyor...")
-
+        print("[/generate-ppt] 🧬 GPT'den prompt formatında sunum metni isteniyor...")
         completion = client.chat.completions.create(
             model="gpt-4",
-            messages=[{"role": "user", "content": data.prompt}],
+            messages=[
+                {"role": "system", "content": "Lütfen her slaytı aşağıdaki formatta düzenle:\n# Slide 1\nTitle: \nContent: \nImage: "},
+                {"role": "user", "content": data.prompt}
+            ],
             max_tokens=1500
         )
         generated_text = completion.choices[0].message.content.strip()
-        print("[/generate-ppt] ✅ GPT'den gelen içerik:", generated_text[:300])
+        print("[/generate-ppt] 📚 GPT metni alındı. Uzunluk:", len(generated_text))
+
+        # Prompt'u parse et
+        slides = parse_ppt_prompt(generated_text)
+        print(f"[/generate-ppt] ✅ {len(slides)} slayt parse edildi.")
 
         prs = Presentation()
-        slide_layout = prs.slide_layouts[1]  # Title + content
+        slide_layout = prs.slide_layouts[1]  # Title + Content
 
-        for paragraph in generated_text.split("\n"):
-            if paragraph.strip():
-                slide = prs.slides.add_slide(slide_layout)
-                slide.shapes.title.text = "Avenia Sunumu"
-                slide.placeholders[1].text = paragraph.strip()
+        for i, slide in enumerate(slides):
+            print(f"[/generate-ppt] 📄 Slayt {i+1}: {slide['title'][:50]}...")
+            s = prs.slides.add_slide(slide_layout)
+            s.shapes.title.text = slide['title']
+            s.placeholders[1].text = slide['content']
 
-        temp_path = tempfile.gettempdir()
+            # Image varsa, DALL-E ile çek
+            if slide['image']:
+                try:
+                    dalle_response = client.images.generate(
+                        model="dall-e-3",
+                        prompt=slide['image'],
+                        n=1,
+                        size="1024x1024"
+                    )
+                    image_url = dalle_response.data[0].url
+                    print(f"[/generate-ppt] 📸 Görsel URL alındı: {image_url}")
+
+                    image_data = requests.get(image_url).content
+                    image_path = os.path.join(tempfile.gettempdir(), f"image_{uuid.uuid4().hex}.png")
+                    with open(image_path, "wb") as f:
+                        f.write(image_data)
+
+                    left = Inches(5.5)
+                    top = Inches(1.5)
+                    height = Inches(3)
+                    s.shapes.add_picture(image_path, left, top, height=height)
+                    print("[/generate-ppt] 📊 Görsel slayta eklendi.")
+
+                except Exception as e:
+                    print("[/generate-ppt] ❌ Görsel oluşturulamadı:", str(e))
+
         filename = f"generated_{uuid.uuid4().hex}.pptx"
-        filepath = os.path.join(temp_path, filename)
+        filepath = os.path.join(tempfile.gettempdir(), filename)
         prs.save(filepath)
-        print(f"[/generate-ppt] 💾 Sunum kaydedildi: {filepath}")
+        print(f"[/generate-ppt] 📂 Sunum dosyası kaydedildi: {filepath}")
 
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_ppts/{filename}")
@@ -467,11 +499,28 @@ async def generate_ppt(data: DocRequest):
         blob.make_public()
         print("[/generate-ppt] ☁️ Firebase'e yüklendi. URL:", blob.public_url)
 
-        return {
-            "status": "success",
-            "file_url": blob.public_url
-        }
+        return {"status": "success", "file_url": blob.public_url}
 
     except Exception as e:
         print("[/generate-ppt] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def parse_ppt_prompt(text: str):
+    slides = []
+    current_slide = {"title": "", "content": "", "image": ""}
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("# Slide"):
+            if current_slide["title"] or current_slide["content"]:
+                slides.append(current_slide)
+            current_slide = {"title": "", "content": "", "image": ""}
+        elif line.startswith("Title:"):
+            current_slide["title"] = line[6:].strip()
+        elif line.startswith("Content:"):
+            current_slide["content"] = line[8:].strip()
+        elif line.startswith("Image:"):
+            current_slide["image"] = line[6:].strip()
+    if current_slide["title"] or current_slide["content"]:
+        slides.append(current_slide)
+    return slides
