@@ -412,36 +412,45 @@ async def generate_excel(data: DocRequest):
 
 @app.post("/generate-ppt")
 async def generate_ppt(data: DocRequest):  # Aynı request yapısını kullanıyoruz
+    print("[/generate-ppt] 🎯 İstek alındı.")
     try:
         # 1. GPT'den içerik al
+        print("[/generate-ppt] 🧠 GPT'den içerik isteniyor...")
         completion = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "user", "content": data.prompt}],
             max_tokens=1500
         )
         generated_text = completion['choices'][0]['message']['content']
+        print("[/generate-ppt] ✅ GPT içeriği alındı, uzunluk:", len(generated_text))
+        print("[/generate-ppt] 🔍 İlk 300 karakter:\n", generated_text[:300])
 
         # 2. PowerPoint oluştur
+        print("[/generate-ppt] 🧩 PowerPoint dosyası oluşturuluyor...")
         prs = Presentation()
         slide_layout = prs.slide_layouts[1]  # Title + content
 
-        for paragraph in generated_text.split("\n"):
+        for i, paragraph in enumerate(generated_text.split("\n")):
             if paragraph.strip():
                 slide = prs.slides.add_slide(slide_layout)
                 slide.shapes.title.text = "Avenia Sunumu"
                 slide.placeholders[1].text = paragraph.strip()
+                print(f"[/generate-ppt] ➕ Slide {i+1} eklendi: {paragraph.strip()[:100]}")
 
         # 3. Geçici dosyaya kaydet
         temp_path = tempfile.gettempdir()
         filename = f"generated_{uuid.uuid4().hex}.pptx"
         filepath = os.path.join(temp_path, filename)
         prs.save(filepath)
+        print("[/generate-ppt] 💾 PPT dosyası kaydedildi:", filepath)
 
         # 4. Firebase Storage’a yükle
+        print("[/generate-ppt] ☁️ Firebase Storage’a yükleniyor...")
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_ppts/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
+        print("[/generate-ppt] 📤 Firebase’a yüklendi, erişim linki:", blob.public_url)
 
         # 5. URL’i dön
         return {
@@ -450,4 +459,5 @@ async def generate_ppt(data: DocRequest):  # Aynı request yapısını kullanıy
         }
 
     except Exception as e:
+        print("[/generate-ppt] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
