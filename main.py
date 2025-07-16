@@ -460,7 +460,7 @@ async def generate_ppt(data: DocRequest):
         prs = Presentation()
         slide_layout = prs.slide_layouts[1]  # Title + Content
 
-            for i, slide in enumerate(slides):
+        for i, slide in enumerate(slides):
             print(f"[/generate-ppt] 📄 Slayt {i+1}: {slide['title'][:50]}...")
             s = prs.slides.add_slide(slide_layout)
 
