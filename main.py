@@ -10,10 +10,30 @@ import asyncio
 import json
 from fastapi import Form
 from io import BytesIO
+import tempfile
+import uuid
+from docx import Document
+from pydantic import BaseModel
+import firebase_admin
+from firebase_admin import credentials, storage
+from openpyxl import Workbook
+from pptx import Presentation
+import uuid
+import tempfile
+import firebase_admin
+from firebase_admin import credentials, storage
+
 
 
 from dotenv import load_dotenv
 load_dotenv()
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-service-account.json")  # Bu dosya dizininde olmalı
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': 'aveniaapp.appspot.com'
+    })
+
 
 
 app = FastAPI()
@@ -300,3 +320,130 @@ async def summarize_pdf_url(payload: dict = Body(...)):
         print("[/summarize-pdf-url] ❌ Hata:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+class DocRequest(BaseModel):
+    prompt: str
+
+@app.post("/generate-doc")
+async def generate_doc(data: DocRequest):
+    try:
+        # 1. GPT'den içerik al
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": data.prompt}],
+            max_tokens=1500
+        )
+        generated_text = completion.choices[0].message.content.strip()
+
+        # 2. Word belgesi oluştur
+        doc = Document()
+        doc.add_heading('Avenia Belgesi', 0)
+        for paragraph in generated_text.split("\n"):
+            doc.add_paragraph(paragraph.strip())
+
+        # 3. Geçici dosyaya kaydet
+        temp_path = tempfile.gettempdir()
+        filename = f"generated_{uuid.uuid4().hex}.docx"
+        filepath = os.path.join(temp_path, filename)
+        doc.save(filepath)
+
+        # 4. Firebase Storage’a yükle
+        bucket = storage.bucket()
+        blob = bucket.blob(f"generated_docs/{filename}")
+        blob.upload_from_filename(filepath)
+        blob.make_public()
+
+        # 5. URL’i dön
+        return {
+            "status": "success",
+            "file_url": blob.public_url
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/generate-excel")
+async def generate_excel(data: DocRequest):
+    try:
+        # 1. GPT'den içerik al
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": data.prompt}],
+            max_tokens=1500
+        )
+        generated_text = completion.choices[0].message.content.strip()
+
+        # 2. Excel dosyası oluştur
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Avenia"
+
+        # Satır satır hücrelere yaz (başlık ve içerik olarak ayrılabilir)
+        for i, line in enumerate(generated_text.split("\n")):
+            ws.cell(row=i+1, column=1, value=line.strip())
+
+        # 3. Geçici dosya olarak kaydet
+        temp_path = tempfile.gettempdir()
+        filename = f"generated_{uuid.uuid4().hex}.xlsx"
+        filepath = os.path.join(temp_path, filename)
+        wb.save(filepath)
+
+        # 4. Firebase Storage’a yükle
+        bucket = storage.bucket()
+        blob = bucket.blob(f"generated_excels/{filename}")
+        blob.upload_from_filename(filepath)
+        blob.make_public()
+
+        # 5. URL’i dön
+        return {
+            "status": "success",
+            "file_url": blob.public_url
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.post("/generate-ppt")
+async def generate_ppt(data: DocRequest):  # Aynı request yapısını kullanıyoruz
+    try:
+        # 1. GPT'den içerik al
+        completion = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": data.prompt}],
+            max_tokens=1500
+        )
+        generated_text = completion['choices'][0]['message']['content']
+
+        # 2. PowerPoint oluştur
+        prs = Presentation()
+        slide_layout = prs.slide_layouts[1]  # Title + content
+
+        for paragraph in generated_text.split("\n"):
+            if paragraph.strip():
+                slide = prs.slides.add_slide(slide_layout)
+                slide.shapes.title.text = "Avenia Sunumu"
+                slide.placeholders[1].text = paragraph.strip()
+
+        # 3. Geçici dosyaya kaydet
+        temp_path = tempfile.gettempdir()
+        filename = f"generated_{uuid.uuid4().hex}.pptx"
+        filepath = os.path.join(temp_path, filename)
+        prs.save(filepath)
+
+        # 4. Firebase Storage’a yükle
+        bucket = storage.bucket()
+        blob = bucket.blob(f"generated_ppts/{filename}")
+        blob.upload_from_filename(filepath)
+        blob.make_public()
+
+        # 5. URL’i dön
+        return {
+            "status": "success",
+            "file_url": blob.public_url
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
