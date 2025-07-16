@@ -23,6 +23,10 @@ import tempfile
 import firebase_admin
 from firebase_admin import credentials, storage
 import base64
+from pptx.util import Pt
+from pptx.dml.color import RGBColor
+import datetime
+
 
 
 from dotenv import load_dotenv
@@ -456,11 +460,44 @@ async def generate_ppt(data: DocRequest):
         prs = Presentation()
         slide_layout = prs.slide_layouts[1]  # Title + Content
 
-        for i, slide in enumerate(slides):
+            for i, slide in enumerate(slides):
             print(f"[/generate-ppt] 📄 Slayt {i+1}: {slide['title'][:50]}...")
             s = prs.slides.add_slide(slide_layout)
-            s.shapes.title.text = slide['title']
-            s.placeholders[1].text = slide['content']
+
+            # 🔤 Başlık
+            title_shape = s.shapes.title
+            title_shape.text = slide['title']
+            title_shape.text_frame.paragraphs[0].font.size = Pt(32)
+            title_shape.text_frame.paragraphs[0].font.bold = True
+            title_shape.text_frame.paragraphs[0].font.name = 'Calibri'
+            title_shape.text_frame.paragraphs[0].font.color.rgb = RGBColor(91, 55, 183)  # Mor
+
+            # 📘 İçerik
+            content_shape = s.placeholders[1]
+            content_shape.text = slide['content']
+            for paragraph in content_shape.text_frame.paragraphs:
+                paragraph.font.size = Pt(20)
+                paragraph.font.name = 'Calibri'
+                paragraph.font.color.rgb = RGBColor(97, 97, 97)  # Gri
+
+            # 🕓 Sağ üst köşeye tarih
+            textbox = s.shapes.add_textbox(Inches(8), Inches(0.1), Inches(2), Inches(0.3))
+            tf = textbox.text_frame
+            tf.text = datetime.datetime.now().strftime("%d %B %Y")
+            tf.paragraphs[0].font.size = Pt(12)
+            tf.paragraphs[0].font.name = 'Calibri'
+            tf.paragraphs[0].font.color.rgb = RGBColor(160, 160, 160)
+
+            # 🖼 Logo (sol alt köşe)
+            logo_path = "avenia_logo.png"  # Bu dosya backend dizininde olmalı
+            if os.path.exists(logo_path):
+                try:
+                    s.shapes.add_picture(logo_path, Inches(0.1), Inches(5.3), height=Inches(0.5))
+                except Exception as e:
+                    print(f"[/generate-ppt] ⚠️ Logo eklenemedi: {e}")
+
+            # 🎨 Görsel üretimi ve eklenmesi (önceki kodda kaldığı gibi)
+
 
             # Image varsa, DALL-E ile çek
             if slide['image']:
@@ -509,18 +546,21 @@ async def generate_ppt(data: DocRequest):
 def parse_ppt_prompt(text: str):
     slides = []
     current_slide = {"title": "", "content": "", "image": ""}
+
     for line in text.splitlines():
         line = line.strip()
-        if line.startswith("# Slide"):
+        if line.lower().startswith("# slide"):
             if current_slide["title"] or current_slide["content"]:
                 slides.append(current_slide)
             current_slide = {"title": "", "content": "", "image": ""}
-        elif line.startswith("Title:"):
-            current_slide["title"] = line[6:].strip()
-        elif line.startswith("Content:"):
-            current_slide["content"] = line[8:].strip()
-        elif line.startswith("Image:"):
-            current_slide["image"] = line[6:].strip()
+        elif line.lower().startswith("title:"):
+            current_slide["title"] = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("content:"):
+            current_slide["content"] = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("image:"):
+            current_slide["image"] = line.split(":", 1)[1].strip()
+
     if current_slide["title"] or current_slide["content"]:
         slides.append(current_slide)
+
     return slides
