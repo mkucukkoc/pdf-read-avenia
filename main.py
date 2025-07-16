@@ -22,18 +22,22 @@ import uuid
 import tempfile
 import firebase_admin
 from firebase_admin import credentials, storage
-
+import base64
 
 
 from dotenv import load_dotenv
 load_dotenv()
 
+FIREBASE_SERVICE_ACCOUNT_BASE64=os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64")
+
+decoded_json = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_BASE64).decode('utf-8')
+service_account_info = json.loads(decoded_json)
+
 if not firebase_admin._apps:
-    cred = credentials.Certificate("firebase-service-account.json")  # Bu dosya dizininde olmalı
+    cred = credentials.Certificate(service_account_info)
     firebase_admin.initialize_app(cred, {
         'storageBucket': 'aveniaapp.appspot.com'
     })
-
 
 
 app = FastAPI()
