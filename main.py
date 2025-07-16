@@ -329,32 +329,43 @@ class DocRequest(BaseModel):
 
 @app.post("/generate-doc")
 async def generate_doc(data: DocRequest):
+    print("[/generate-doc] 📝 İstek alındı.")
     try:
         # 1. GPT'den içerik al
+        print("[/generate-doc] 🧠 GPT'den içerik alınıyor...")
         completion = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": data.prompt}],
             max_tokens=1500
         )
         generated_text = completion.choices[0].message.content.strip()
+        print("[/generate-doc] ✅ GPT içeriği alındı, uzunluk:", len(generated_text))
+        print("[/generate-doc] 🔍 İlk 300 karakter:\n", generated_text[:300])
 
         # 2. Word belgesi oluştur
+        print("[/generate-doc] 📄 Word belgesi oluşturuluyor...")
         doc = Document()
         doc.add_heading('Avenia Belgesi', 0)
-        for paragraph in generated_text.split("\n"):
-            doc.add_paragraph(paragraph.strip())
+        for i, paragraph in enumerate(generated_text.split("\n")):
+            cleaned = paragraph.strip()
+            if cleaned:
+                doc.add_paragraph(cleaned)
+                print(f"[/generate-doc] ➕ Paragraf {i+1}: {cleaned[:100]}")
 
         # 3. Geçici dosyaya kaydet
         temp_path = tempfile.gettempdir()
         filename = f"generated_{uuid.uuid4().hex}.docx"
         filepath = os.path.join(temp_path, filename)
         doc.save(filepath)
+        print("[/generate-doc] 💾 Word dosyası kaydedildi:", filepath)
 
         # 4. Firebase Storage’a yükle
+        print("[/generate-doc] ☁️ Firebase Storage’a yükleniyor...")
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_docs/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
+        print("[/generate-doc] 📤 Yükleme başarılı, link:", blob.public_url)
 
         # 5. URL’i dön
         return {
@@ -363,41 +374,51 @@ async def generate_doc(data: DocRequest):
         }
 
     except Exception as e:
+        print("[/generate-doc] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @app.post("/generate-excel")
 async def generate_excel(data: DocRequest):
+    print("[/generate-excel] 🎯 İstek alındı.")
     try:
         # 1. GPT'den içerik al
+        print("[/generate-excel] 🧠 GPT'den içerik isteniyor...")
         completion = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": data.prompt}],
             max_tokens=1500
         )
         generated_text = completion.choices[0].message.content.strip()
+        print("[/generate-excel] ✅ GPT içeriği alındı, uzunluk:", len(generated_text))
+        print("[/generate-excel] 🔍 İlk 300 karakter:\n", generated_text[:300])
 
         # 2. Excel dosyası oluştur
+        print("[/generate-excel] 📊 Excel dosyası oluşturuluyor...")
         wb = Workbook()
         ws = wb.active
         ws.title = "Avenia"
 
-        # Satır satır hücrelere yaz (başlık ve içerik olarak ayrılabilir)
         for i, line in enumerate(generated_text.split("\n")):
-            ws.cell(row=i+1, column=1, value=line.strip())
+            cleaned_line = line.strip()
+            if cleaned_line:
+                ws.cell(row=i+1, column=1, value=cleaned_line)
+                print(f"[/generate-excel] ➕ Satır {i+1} eklendi: {cleaned_line[:100]}")
 
         # 3. Geçici dosya olarak kaydet
         temp_path = tempfile.gettempdir()
         filename = f"generated_{uuid.uuid4().hex}.xlsx"
         filepath = os.path.join(temp_path, filename)
         wb.save(filepath)
+        print("[/generate-excel] 💾 Excel dosyası kaydedildi:", filepath)
 
         # 4. Firebase Storage’a yükle
+        print("[/generate-excel] ☁️ Firebase Storage’a yükleniyor...")
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_excels/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
+        print("[/generate-excel] 📤 Firebase’a yüklendi, erişim linki:", blob.public_url)
 
         # 5. URL’i dön
         return {
@@ -406,6 +427,7 @@ async def generate_excel(data: DocRequest):
         }
 
     except Exception as e:
+        print("[/generate-excel] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
