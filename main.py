@@ -438,7 +438,7 @@ async def generate_ppt(data: DocRequest):  # Aynı request yapısını kullanıy
     try:
         # 1. GPT'den içerik al
         print("[/generate-ppt] 🧠 GPT'den içerik isteniyor...")
-        completion = openai.ChatCompletion.create(
+        completion = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": data.prompt}],
             max_tokens=1500
