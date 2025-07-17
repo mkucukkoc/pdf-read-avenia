@@ -24,7 +24,7 @@ import firebase_admin
 from firebase_admin import credentials, storage
 import base64
 import datetime
-from pptx.util import Inches
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 import os, uuid, datetime, tempfile, requests
 from fastapi import HTTPException
