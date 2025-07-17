@@ -29,6 +29,11 @@ import os, uuid, tempfile, requests
 from fastapi import HTTPException
 import random
 import mimetypes
+import requests
+from fastapi import APIRouter
+
+
+router = APIRouter()
 
 
 from dotenv import load_dotenv
@@ -622,3 +627,25 @@ async def speech_to_text(data: dict = Body(...)):
     except Exception as e:
         print("[/stt] ❗️İşlem sırasında hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/stt/quota")
+def check_stt_quota():
+    headers = {
+        "xi-api-key": ELEVENLABS_API_KEY
+    }
+
+    response = requests.get("https://api.elevenlabs.io/v1/user/subscription", headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        return {
+            "plan": data.get("tier"),
+            "character_limit": data.get("character_limit"),
+            "character_count": data.get("character_count"),
+            "next_character_reset_unix": data.get("next_character_count_reset_unix"),
+        }
+    else:
+        return JSONResponse(status_code=response.status_code, content={"error": response.text})
+
+app.include_router(router)
+
