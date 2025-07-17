@@ -23,10 +23,10 @@ import tempfile
 import firebase_admin
 from firebase_admin import credentials, storage
 import base64
-import datetime
+from datetime import datetime
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-import os, uuid, datetime, tempfile, requests
+import os, uuid, tempfile, requests
 from fastapi import HTTPException
 from google.cloud import storage
 
@@ -494,7 +494,7 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
             # 🕓 Tarih (sağ üst)
             date_box = s.shapes.add_textbox(Inches(8), Inches(0.1), Inches(2), Inches(0.3))
             dtf = date_box.text_frame
-            dtf.text = datetime.datetime.now().strftime("%d %B %Y")
+            dtf.text = datetime.now().strftime("%d %B %Y")
             dtf.paragraphs[0].font.size = Pt(12)
             dtf.paragraphs[0].font.name = 'Calibri'
             dtf.paragraphs[0].font.color.rgb = RGBColor(160, 160, 160)
