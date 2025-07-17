@@ -57,6 +57,9 @@ app = FastAPI()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+TTS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default voice
+
 
 async def wait_for_video_ready(video_id, retries=30, delay=5):
     status_url = f"https://api.dev.runwayml.com/v1/tasks/{video_id}"  # ✅ doğru endpoint
@@ -581,7 +584,6 @@ def parse_ppt_prompt(text: str):
 
 
 
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
 # Firebase init
 # 🔊 Yeni endpoint: Speech-to-Text
@@ -649,3 +651,60 @@ def check_stt_quota():
 
 app.include_router(router)
 
+
+@app.post("/tts-chat")
+async def tts_chat(payload: dict = Body(...)):
+    """
+    Chat geçmişini sese çevirir.
+    Beklenen payload formatı:
+    {
+        "messages": [
+            {"role": "user", "content": "Selam"},
+            {"role": "assistant", "content": "Merhaba! Size nasıl yardımcı olabilirim?"}
+        ]
+    }
+    """
+    messages = payload.get("messages", [])
+    if not messages:
+        raise HTTPException(status_code=400, detail="Chat mesajları eksik.")
+
+    # Mesajları birleştir
+    combined_text = ""
+    for msg in messages:
+        role = "Sen" if msg["role"] == "user" else "Asistan"
+        combined_text += f"{role}: {msg['content']}\n"
+
+    print("[/tts-chat] 🔊 Toplam metin uzunluğu:", len(combined_text))
+    print("[/tts-chat] 📜 İlk 300 karakter:\n", combined_text[:300])
+
+    # ElevenLabs endpoint'i
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{TTS_VOICE_ID}"
+    headers = {
+        "xi-api-key": ELEVENLABS_API_KEY,
+        "Content-Type": "application/json"
+    }
+
+    body = {
+        "text": combined_text[:4000],  # 4000 karakter sınırı
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.4,
+            "similarity_boost": 0.75
+        }
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=body)
+
+        if response.status_code == 200:
+            audio_bytes = response.content
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            print("[/tts-chat] ✅ Başarıyla ses üretildi.")
+            return {"audio_base64": audio_base64}
+        else:
+            print("[/tts-chat] ❌ Hata:", response.text)
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    except Exception as e:
+        print("[/tts-chat] ❗️ Exception:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
