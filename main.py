@@ -21,14 +21,13 @@ from pptx import Presentation
 import uuid
 import tempfile
 import firebase_admin
-from firebase_admin import credentials, storage
 import base64
 from datetime import datetime
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 import os, uuid, tempfile, requests
 from fastapi import HTTPException
-from google.cloud import storage
+from google.cloud import storage as gcs_storage
 
 
 
@@ -551,7 +550,7 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
         prs.save(filepath)
         print(f"[/generate-ppt] 📂 Sunum dosyası kaydedildi: {filepath}")
 
-        bucket = storage.bucket()
+        bucket = gcs_storage.bucket()
         blob = bucket.blob(f"generated_ppts/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
