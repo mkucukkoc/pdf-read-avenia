@@ -23,9 +23,12 @@ import tempfile
 import firebase_admin
 from firebase_admin import credentials, storage
 import base64
-from pptx.util import Pt
-from pptx.dml.color import RGBColor
 import datetime
+from pptx.util import Inches
+from pptx.dml.color import RGBColor
+import os, uuid, datetime, tempfile, requests
+from fastapi import HTTPException
+from google.cloud import storage
 
 
 
@@ -434,8 +437,7 @@ async def generate_excel(data: DocRequest):
         print("[/generate-excel] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-# Yeni generate-ppt endpoint'i (görsel + başlık + içerik destekli)
-from pptx.util import Inches
+# Yeni generate-ppt endpoint'i (görsel + başlık + içerik destekli
 
 @app.post("/generate-ppt")
 async def generate_ppt(data: DocRequest):
@@ -445,7 +447,14 @@ async def generate_ppt(data: DocRequest):
         completion = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "Lütfen her slaytı aşağıdaki formatta düzenle:\n# Slide 1\nTitle: \nContent: \nImage: "},
+                {
+                    "role": "system",
+                    "content": """Sen bir sunum üreticisisin. Her slaytı şu formatta ver:
+# Slide X
+Title: ...
+Content: ...
+Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir kadın", "modern ofis manzarası")"""
+                },
                 {"role": "user", "content": data.prompt}
             ],
             max_tokens=1500
@@ -458,48 +467,61 @@ async def generate_ppt(data: DocRequest):
         print(f"[/generate-ppt] ✅ {len(slides)} slayt parse edildi.")
 
         prs = Presentation()
-        slide_layout = prs.slide_layouts[1]  # Title + Content
+
+        # Açılış slaytı
+        splash = prs.slides.add_slide(prs.slide_layouts[0])
+        splash.shapes.title.text = f"📊 {data.prompt[:60]}..."
+        splash.placeholders[1].text = "Bu sunum Avenia tarafından otomatik üretildi."
 
         for i, slide in enumerate(slides):
             print(f"[/generate-ppt] 📄 Slayt {i+1}: {slide['title'][:50]}...")
-            s = prs.slides.add_slide(slide_layout)
+            s = prs.slides.add_slide(prs.slide_layouts[6])  # boş şablon
+
+            # 🎨 Arka plan rengi
+            fill = s.background.fill
+            fill.solid()
+            fill.fore_color.rgb = RGBColor(245, 245, 245)
 
             # 🔤 Başlık
-            title_shape = s.shapes.title
-            title_shape.text = slide['title']
-            title_shape.text_frame.paragraphs[0].font.size = Pt(32)
-            title_shape.text_frame.paragraphs[0].font.bold = True
-            title_shape.text_frame.paragraphs[0].font.name = 'Calibri'
-            title_shape.text_frame.paragraphs[0].font.color.rgb = RGBColor(91, 55, 183)  # Mor
+            title_box = s.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(8), Inches(1))
+            tf = title_box.text_frame
+            tf.text = slide['title']
+            tf.paragraphs[0].font.size = Pt(32)
+            tf.paragraphs[0].font.bold = True
+            tf.paragraphs[0].font.name = 'Segoe UI'
+            tf.paragraphs[0].font.color.rgb = RGBColor(91, 55, 183)
 
-            # 📘 İçerik
-            content_shape = s.placeholders[1]
-            content_shape.text = slide['content']
-            for paragraph in content_shape.text_frame.paragraphs:
-                paragraph.font.size = Pt(20)
-                paragraph.font.name = 'Calibri'
-                paragraph.font.color.rgb = RGBColor(97, 97, 97)  # Gri
-
-            # 🕓 Sağ üst köşeye tarih
-            textbox = s.shapes.add_textbox(Inches(8), Inches(0.1), Inches(2), Inches(0.3))
-            tf = textbox.text_frame
-            tf.text = datetime.datetime.now().strftime("%d %B %Y")
-            tf.paragraphs[0].font.size = Pt(12)
-            tf.paragraphs[0].font.name = 'Calibri'
-            tf.paragraphs[0].font.color.rgb = RGBColor(160, 160, 160)
+            # 🕓 Tarih (sağ üst)
+            date_box = s.shapes.add_textbox(Inches(8), Inches(0.1), Inches(2), Inches(0.3))
+            dtf = date_box.text_frame
+            dtf.text = datetime.datetime.now().strftime("%d %B %Y")
+            dtf.paragraphs[0].font.size = Pt(12)
+            dtf.paragraphs[0].font.name = 'Calibri'
+            dtf.paragraphs[0].font.color.rgb = RGBColor(160, 160, 160)
 
             # 🖼 Logo (sol alt köşe)
-            logo_path = "avenia_logo.png"  # Bu dosya backend dizininde olmalı
+            logo_path = "avenia_logo.png"
             if os.path.exists(logo_path):
                 try:
                     s.shapes.add_picture(logo_path, Inches(0.1), Inches(5.3), height=Inches(0.5))
                 except Exception as e:
                     print(f"[/generate-ppt] ⚠️ Logo eklenemedi: {e}")
 
-            # 🎨 Görsel üretimi ve eklenmesi (önceki kodda kaldığı gibi)
+            # 📘 İçerik (sol)
+            if slide['content']:
+                left_content = Inches(0.5)
+                top_content = Inches(1.5)
+                width_content = Inches(4.5)
+                height_content = Inches(4)
+                content_box = s.shapes.add_textbox(left_content, top_content, width_content, height_content)
+                ctf = content_box.text_frame
+                ctf.text = slide['content']
+                for p in ctf.paragraphs:
+                    p.font.size = Pt(18)
+                    p.font.name = 'Calibri'
+                    p.font.color.rgb = RGBColor(80, 80, 80)
 
-
-            # Image varsa, DALL-E ile çek
+            # 🎨 Görsel (sağ)
             if slide['image']:
                 try:
                     dalle_response = client.images.generate(
@@ -516,12 +538,11 @@ async def generate_ppt(data: DocRequest):
                     with open(image_path, "wb") as f:
                         f.write(image_data)
 
-                    left = Inches(5.5)
-                    top = Inches(1.5)
-                    height = Inches(3)
-                    s.shapes.add_picture(image_path, left, top, height=height)
+                    left_img = Inches(5.2)
+                    top_img = Inches(1.5)
+                    height_img = Inches(3.5)
+                    s.shapes.add_picture(image_path, left_img, top_img, height=height_img)
                     print("[/generate-ppt] 📊 Görsel slayta eklendi.")
-
                 except Exception as e:
                     print("[/generate-ppt] ❌ Görsel oluşturulamadı:", str(e))
 
