@@ -27,7 +27,8 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 import os, uuid, tempfile, requests
 from fastapi import HTTPException
-
+import random
+import mimetypes
 
 
 from dotenv import load_dotenv
@@ -46,6 +47,7 @@ if not firebase_admin._apps:
 
 
 app = FastAPI()
+
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -436,60 +438,65 @@ async def generate_excel(data: DocRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Yeni generate-ppt endpoint'i (görsel + başlık + içerik destekli
+def generate_random_style():
+    bg_colors = [RGBColor(255, 255, 255), RGBColor(240, 248, 255), RGBColor(230, 230, 250), RGBColor(255, 245, 238)]
+    title_colors = [RGBColor(91, 55, 183), RGBColor(0, 102, 204), RGBColor(220, 20, 60)]
+    fonts = ['Segoe UI', 'Calibri', 'Arial', 'Verdana']
+    content_fonts = ['Calibri', 'Georgia', 'Tahoma']
+    font_sizes = [Pt(18), Pt(20), Pt(22)]
+
+    return {
+        "bg_color": random.choice(bg_colors),
+        "title_color": random.choice(title_colors),
+        "title_font": random.choice(fonts),
+        "content_font": random.choice(content_fonts),
+        "content_font_size": random.choice(font_sizes),
+    }
+
+
 
 @app.post("/generate-ppt")
 async def generate_ppt(data: DocRequest):
     print("[/generate-ppt] 🌟 Sunum isteği alındı.")
     try:
-        print("[/generate-ppt] 🧬 GPT'den prompt formatında sunum metni isteniyor...")
         completion = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {
-                    "role": "system",
-                    "content": """Sen bir sunum üreticisisin. Her slaytı şu formatta ver:
+                {"role": "system", "content": """Sen bir sunum üreticisisin. Her slaytı şu formatta ver:
 # Slide X
 Title: ...
 Content: ...
-Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir kadın", "modern ofis manzarası")"""
-                },
+Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: \"kitap okuyan bir kadın\")"""},
                 {"role": "user", "content": data.prompt}
             ],
             max_tokens=1500
         )
         generated_text = completion.choices[0].message.content.strip()
-        print("[/generate-ppt] 📚 GPT metni alındı. Uzunluk:", len(generated_text))
-
-        # Prompt'u parse et
         slides = parse_ppt_prompt(generated_text)
-        print(f"[/generate-ppt] ✅ {len(slides)} slayt parse edildi.")
 
         prs = Presentation()
-
-        # Açılış slaytı
         splash = prs.slides.add_slide(prs.slide_layouts[0])
         splash.shapes.title.text = f"📊 {data.prompt[:60]}..."
         splash.placeholders[1].text = "Bu sunum Avenia tarafından otomatik üretildi."
 
         for i, slide in enumerate(slides):
             print(f"[/generate-ppt] 📄 Slayt {i+1}: {slide['title'][:50]}...")
-            s = prs.slides.add_slide(prs.slide_layouts[6])  # boş şablon
+            s = prs.slides.add_slide(prs.slide_layouts[6])
 
-            # 🎨 Arka plan rengi
+            style = generate_random_style()  # prompt'tan tema yoksa rastgele seç
+
             fill = s.background.fill
             fill.solid()
-            fill.fore_color.rgb = RGBColor(245, 245, 245)
+            fill.fore_color.rgb = style["bg_color"]
 
-            # 🔤 Başlık
             title_box = s.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(8), Inches(1))
             tf = title_box.text_frame
             tf.text = slide['title']
             tf.paragraphs[0].font.size = Pt(32)
             tf.paragraphs[0].font.bold = True
-            tf.paragraphs[0].font.name = 'Segoe UI'
-            tf.paragraphs[0].font.color.rgb = RGBColor(91, 55, 183)
+            tf.paragraphs[0].font.name = style["title_font"]
+            tf.paragraphs[0].font.color.rgb = style["title_color"]
 
-            # 🕓 Tarih (sağ üst)
             date_box = s.shapes.add_textbox(Inches(8), Inches(0.1), Inches(2), Inches(0.3))
             dtf = date_box.text_frame
             dtf.text = datetime.now().strftime("%d %B %Y")
@@ -497,7 +504,6 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
             dtf.paragraphs[0].font.name = 'Calibri'
             dtf.paragraphs[0].font.color.rgb = RGBColor(160, 160, 160)
 
-            # 🖼 Logo (sol alt köşe)
             logo_path = "avenia_logo.png"
             if os.path.exists(logo_path):
                 try:
@@ -505,21 +511,15 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
                 except Exception as e:
                     print(f"[/generate-ppt] ⚠️ Logo eklenemedi: {e}")
 
-            # 📘 İçerik (sol)
             if slide['content']:
-                left_content = Inches(0.5)
-                top_content = Inches(1.5)
-                width_content = Inches(4.5)
-                height_content = Inches(4)
-                content_box = s.shapes.add_textbox(left_content, top_content, width_content, height_content)
+                content_box = s.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(4.5), Inches(4))
                 ctf = content_box.text_frame
                 ctf.text = slide['content']
                 for p in ctf.paragraphs:
-                    p.font.size = Pt(18)
-                    p.font.name = 'Calibri'
+                    p.font.size = style["content_font_size"]
+                    p.font.name = style["content_font"]
                     p.font.color.rgb = RGBColor(80, 80, 80)
 
-            # 🎨 Görsel (sağ)
             if slide['image']:
                 try:
                     dalle_response = client.images.generate(
@@ -529,38 +529,28 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
                         size="1024x1024"
                     )
                     image_url = dalle_response.data[0].url
-                    print(f"[/generate-ppt] 📸 Görsel URL alındı: {image_url}")
-
                     image_data = requests.get(image_url).content
                     image_path = os.path.join(tempfile.gettempdir(), f"image_{uuid.uuid4().hex}.png")
                     with open(image_path, "wb") as f:
                         f.write(image_data)
-
-                    left_img = Inches(5.2)
-                    top_img = Inches(1.5)
-                    height_img = Inches(3.5)
-                    s.shapes.add_picture(image_path, left_img, top_img, height=height_img)
-                    print("[/generate-ppt] 📊 Görsel slayta eklendi.")
+                    s.shapes.add_picture(image_path, Inches(5.2), Inches(1.5), height=Inches(3.5))
                 except Exception as e:
                     print("[/generate-ppt] ❌ Görsel oluşturulamadı:", str(e))
 
         filename = f"generated_{uuid.uuid4().hex}.pptx"
         filepath = os.path.join(tempfile.gettempdir(), filename)
         prs.save(filepath)
-        print(f"[/generate-ppt] 📂 Sunum dosyası kaydedildi: {filepath}")
 
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_ppts/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
-        print("[/generate-ppt] ☁️ Firebase'e yüklendi. URL:", blob.public_url)
 
         return {"status": "success", "file_url": blob.public_url}
 
     except Exception as e:
         print("[/generate-ppt] ❌ Hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
-
 
 def parse_ppt_prompt(text: str):
     slides = []
@@ -583,3 +573,52 @@ def parse_ppt_prompt(text: str):
         slides.append(current_slide)
 
     return slides
+
+
+
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+
+# Firebase init
+# 🔊 Yeni endpoint: Speech-to-Text
+
+@app.post("/stt")
+async def speech_to_text(data: dict = Body(...)):
+    print("[/stt] 🎤 İstek alındı.")
+
+    base64_audio = data.get("base64")
+    if not base64_audio:
+        print("[/stt] ⚠️ Ses verisi (base64) bulunamadı.")
+        return {"error": "Ses verisi eksik"}
+
+    try:
+        print("[/stt] 🧬 Base64 ses verisi decode ediliyor...")
+        audio_bytes = base64.b64decode(base64_audio)
+        print(f"[/stt] ✅ Decode işlemi başarılı. Boyut: {len(audio_bytes)} byte")
+
+        # multipart/form-data formatında gönderim
+        files = {
+            "file": ("audio.m4a", audio_bytes, "audio/m4a"),
+            "model_id": (None, "scribe_v1"),
+        }
+
+        print("[/stt] 📡 ElevenLabs STT API'ye istek gönderiliyor...")
+        response = requests.post(
+            "https://api.elevenlabs.io/v1/speech-to-text",
+            headers={ "xi-api-key": ELEVENLABS_API_KEY },
+            files=files
+        )
+
+        print(f"[/stt] 🧾 API yanıt kodu: {response.status_code}")
+
+        if response.status_code == 200:
+            result = response.json()
+            transcribed_text = result.get("text")
+            print("[/stt] ✅ Çözümleme başarılı. Metin:", transcribed_text)
+            return {"text": transcribed_text}
+        else:
+            print("[/stt] ❌ API hatası:", response.text)
+            return {"error": response.text}
+
+    except Exception as e:
+        print("[/stt] ❗️İşlem sırasında hata oluştu:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
