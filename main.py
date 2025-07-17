@@ -550,7 +550,8 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
         prs.save(filepath)
         print(f"[/generate-ppt] 📂 Sunum dosyası kaydedildi: {filepath}")
 
-        bucket = gcs_storage.bucket()
+        storage_client = gcs_storage.Client()
+        bucket = storage_client.bucket("aveniaapp.firebasestorage.app")
         blob = bucket.blob(f"generated_ppts/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
