@@ -322,19 +322,21 @@ async def ask_file_question(
     print("[/ask-file-question] 📄 İçerik uzunluğu:", len(file_text))
 
     prompt = f"""
-Sen bir {file_type.upper()} dosyası analistisin. Kullanıcı bu dosyayı sana yükledi ve içeriğine dair bir soru sordu.
+Aşağıda bir {file_type.upper()} dosyasının içeriği bulunmaktadır. Kullanıcı bu içeriğe dayanarak bir soru sordu.
 
-Dosya içeriği:
+Lütfen sadece verilen içerikten yararlanarak doğru, detaylı ve anlaşılır bir cevap ver.
+
+📄 Dosya içeriği:
 \"\"\"
 {file_text[:4000]}
 \"\"\"
 
-Kullanıcının sorusu:
+❓ Soru:
 \"\"\"
 {question}
 \"\"\"
 
-Sadece verilen içerikten yararlanarak detaylı, anlaşılır ve doğru bir cevap ver.
+💬 Cevap:
 """
 
     try:
@@ -343,7 +345,7 @@ Sadece verilen içerikten yararlanarak detaylı, anlaşılır ve doğru bir ceva
             messages=[
                 {
                     "role": "system",
-                    "content": f"Sen {file_type} dosya içeriğini anlayan ve analiz eden akıllı bir asistansın. Sadece içerikteki metne göre yorum yap."
+                    "content": f"Sana bir {file_type} dosyasının metinsel içeriği verildi. Sadece bu içeriğe dayanarak soruları yanıtla. Tahmin yürütme veya içerik dışında yorum yapma."
                 },
                 {
                     "role": "user",
