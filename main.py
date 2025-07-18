@@ -268,9 +268,6 @@ def ask_gpt_summary(text: str) -> str:
     print("[ask_gpt_summary] ✅ GPT özeti alındı:\n", result)
     return result
 
-
-
-
 # PDF metni üzerinden soru cevap
 @app.post("/ask-pdf-question/")
 async def ask_pdf_question(pdf_text: str = Form(...), question: str = Form(...)):
@@ -308,6 +305,59 @@ Sen PDF belgesi içeriğini analiz eden bir asistansın. Kullanıcının sorusu 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+from fastapi import FastAPI, Form, HTTPException
+from fastapi.responses import JSONResponse
+from openai import OpenAI
+import os
+
+
+@app.post("/ask-file-question/")
+async def ask_file_question(
+    file_text: str = Form(...),
+    question: str = Form(...),
+    file_type: str = Form(default="genel")  # örnek: 'PDF', 'Word', 'Excel', 'PPT'
+):
+    print("[/ask-file-question] 🧠 Soru geldi:", question)
+    print("[/ask-file-question] 📄 Dosya tipi:", file_type)
+    print("[/ask-file-question] 📄 İçerik uzunluğu:", len(file_text))
+
+    prompt = f"""
+Sen bir {file_type.upper()} dosyası analistisin. Kullanıcı bu dosyayı sana yükledi ve içeriğine dair bir soru sordu.
+
+Dosya içeriği:
+\"\"\"
+{file_text[:4000]}
+\"\"\"
+
+Kullanıcının sorusu:
+\"\"\"
+{question}
+\"\"\"
+
+Sadece verilen içerikten yararlanarak detaylı, anlaşılır ve doğru bir cevap ver.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"Sen {file_type} dosya içeriğini anlayan ve analiz eden akıllı bir asistansın. Sadece içerikteki metne göre yorum yap."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+        answer = response.choices[0].message.content.strip()
+        print("[/ask-file-question] ✅ Yanıt üretildi.")
+        return JSONResponse(content={"answer": answer})
+
+    except Exception as e:
+        print("[/ask-file-question] ❌ Hata:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/summarize-pdf-url/")
