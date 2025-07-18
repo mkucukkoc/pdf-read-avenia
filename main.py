@@ -845,33 +845,62 @@ async def summarize_word_from_url(data: dict):
 
 @app.post("/summarize-ppt-url/")
 async def summarize_ppt_from_url(data: dict):
-    from pptx import Presentation
+    print("🚀 [summarize-ppt-url] Endpoint tetiklendi")
+    print("📦 Gelen data:", data)
 
     url = data.get("url")
     if not url:
+        print("❌ URL bulunamadı!")
         raise HTTPException(status_code=400, detail="URL not provided")
 
     file_path = "temp.pptx"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            with open(file_path, "wb") as f:
-                f.write(await resp.read())
+    print(f"📥 Sunum indiriliyor: {url}")
 
-    prs = Presentation(file_path)
-    full_text = ""
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                full_text += shape.text + "\n"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    print(f"❌ Dosya indirilemedi. HTTP status: {resp.status}")
+                    raise HTTPException(status_code=500, detail="File download failed")
+                with open(file_path, "wb") as f:
+                    f.write(await resp.read())
+        print("✅ Dosya indirildi:", file_path)
+    except Exception as e:
+        print("❌ Dosya indirme hatası:", e)
+        raise HTTPException(status_code=500, detail="Download error")
 
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "Bu PowerPoint sunumunun içeriğini özetle:"},
-            {"role": "user", "content": full_text[:3000]}
-        ]
-    )
-    return { "full_text": response.choices[0].message.content }
+    try:
+        prs = Presentation(file_path)
+        full_text = ""
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    full_text += shape.text + "\n"
+
+        print("📝 Sunumdan çıkarılan içerik (ilk 200 karakter):")
+        print(full_text[:200] or "[boş]")
+
+        os.remove(file_path)
+    except Exception as e:
+        print("❌ PPTX okuma hatası:", e)
+        raise HTTPException(status_code=500, detail="PowerPoint parse error")
+
+    try:
+        print("🤖 GPT-4 ile özetleniyor...")
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "Bu PowerPoint sunumunun içeriğini özetle:"},
+                {"role": "user", "content": full_text[:3000]}
+            ]
+        )
+        summary = response.choices[0].message.content
+        print("✅ GPT özeti başarıyla alındı (ilk 200 karakter):")
+        print(summary[:200])
+        return {"full_text": summary}
+    except Exception as e:
+        print("❌ GPT özetleme hatası:", e)
+        raise HTTPException(status_code=500, detail="GPT summarization error")
 
 
 @app.post("/summarize-html-url/")
