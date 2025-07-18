@@ -33,7 +33,8 @@ import mimetypes
 import requests
 from fastapi import APIRouter
 from fastapi import UploadFile
-
+import aiohttp
+from docx import Document
 
 
 router = APIRouter()
@@ -813,32 +814,36 @@ async def summarize_excel_from_url(data: dict):
 
 @app.post("/summarize-word-url/")
 async def summarize_word_from_url(data: dict):
+
     url = data.get("url")
+    print("📥 Dosya URL:", url)
     if not url:
         raise HTTPException(status_code=400, detail="URL not provided")
     
-    # Dosyayı indir
     file_path = "temp.docx"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
+            if resp.status != 200:
+                raise HTTPException(status_code=500, detail=f"Dosya indirilemedi: {resp.status}")
             with open(file_path, "wb") as f:
                 f.write(await resp.read())
+    
+    print("📦 Dosya indirildi:", file_path)
+    full_text = extract_text_from_docx(file_path)
 
-    # Word içeriğini oku
-    import docx
-    doc = docx.Document(file_path)
-    full_text = "\n".join([para.text for para in doc.paragraphs])
+    print("📄 Word dosyası ilk 300 karakter:", full_text[:300])  # LOG EKLENDİ
+    print("📄 Word içeriği karakter sayısı:", len(full_text))
 
-    # GPT ile özetle
+
+    if not full_text.strip():
+        raise HTTPException(status_code=500, detail="❌ Word içeriği boş")
+
     response = client.chat.completions.create(
         model="gpt-4",
-        messages=[{
-            "role": "system",
-            "content": "Lütfen aşağıdaki Word belgesini özetle:"
-        }, {
-            "role": "user",
-            "content": full_text[:3000]  # Max token sınırı
-        }]
+        messages=[
+            {"role": "system", "content": "Lütfen aşağıdaki Word belgesini özetle:"},
+            {"role": "user", "content": full_text[:3000]}
+        ]
     )
     summary = response.choices[0].message.content
     return { "full_text": summary }
@@ -986,3 +991,22 @@ async def summarize_txt_from_url(data: dict):
         ]
     )
     return { "full_text": response.choices[0].message.content }
+
+
+def extract_text_from_docx(file_path):
+    doc = Document(file_path)
+    text_parts = []
+
+    # Paragraflar
+    for para in doc.paragraphs:
+        if para.text.strip():
+            text_parts.append(para.text.strip())
+
+    # Tablolar
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = "\t".join(cell.text.strip() for cell in row.cells)
+            if row_text:
+                text_parts.append(row_text)
+
+    return "\n".join(text_parts)
