@@ -728,55 +728,6 @@ async def tts_chat(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-
-# 1. Forced Alignment (kelime seviyesinde zamanlama)
-@app.post("/forced-alignment")
-async def forced_alignment(payload: dict = Body(...)):
-    """
-    payload = {
-        "audio_base64": "...",
-        "text": "..."
-    }
-    """
-    audio_b64 = payload.get("audio_base64")
-    text = payload.get("text")
-    if not audio_b64 or not text:
-        raise HTTPException(status_code=400, detail="Ses veya metin eksik")
-
-    headers = {"xi-api-key": ELEVENLABS_API_KEY}
-    files = {
-        "audio": ("audio.wav", base64.b64decode(audio_b64), "audio/wav"),
-        "text": (None, text),
-    }
-
-    response = requests.post("https://api.elevenlabs.io/v1/forced-alignment", headers=headers, files=files)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-
-
-# 2. Pronunciation Dictionaries
-@app.post("/pronunciation-dictionary")
-async def get_pronunciation(word: str = Body(..., embed=True)):
-    headers = {"xi-api-key": ELEVENLABS_API_KEY}
-    response = requests.get(f"https://api.elevenlabs.io/v1/pronunciation-dictionary/{word}", headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-
-
-# 3. Sound Effects (örnek ses efekti listesi)
-@app.get("/sound-effects")
-async def list_sound_effects():
-    headers = {"xi-api-key": ELEVENLABS_API_KEY}
-    response = requests.get("https://api.elevenlabs.io/v1/sound-effects", headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-
 @app.post("/audio-isolation")
 async def audio_isolation(data: dict = Body(...)):
     """
