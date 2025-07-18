@@ -775,3 +775,184 @@ async def audio_isolation(data: dict = Body(...)):
     except Exception as e:
         print("[/audio-isolation] ❗️ Hata:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/summarize-excel-url/")
+async def summarize_excel_from_url(data: dict):
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+    
+    # Dosyayı indir
+    file_path = "temp.xlsx"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            with open(file_path, "wb") as f:
+                f.write(await resp.read())
+
+    # Excel içeriğini oku
+    import pandas as pd
+    df = pd.read_excel(file_path)
+    description = df.describe(include='all').to_string()
+
+    # GPT ile özetle
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{
+            "role": "system",
+            "content": "Aşağıdaki Excel verilerini analiz et ve anlamlı bir özet çıkar:"
+        }, {
+            "role": "user",
+            "content": description
+        }]
+    )
+    summary = response.choices[0].message.content
+    return { "full_text": summary }
+
+
+@app.post("/summarize-word-url/")
+async def summarize_word_from_url(data: dict):
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+    
+    # Dosyayı indir
+    file_path = "temp.docx"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            with open(file_path, "wb") as f:
+                f.write(await resp.read())
+
+    # Word içeriğini oku
+    import docx
+    doc = docx.Document(file_path)
+    full_text = "\n".join([para.text for para in doc.paragraphs])
+
+    # GPT ile özetle
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[{
+            "role": "system",
+            "content": "Lütfen aşağıdaki Word belgesini özetle:"
+        }, {
+            "role": "user",
+            "content": full_text[:3000]  # Max token sınırı
+        }]
+    )
+    summary = response.choices[0].message.content
+    return { "full_text": summary }
+
+
+@app.post("/summarize-ppt-url/")
+async def summarize_ppt_from_url(data: dict):
+    from pptx import Presentation
+
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+
+    file_path = "temp.pptx"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            with open(file_path, "wb") as f:
+                f.write(await resp.read())
+
+    prs = Presentation(file_path)
+    full_text = ""
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                full_text += shape.text + "\n"
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "Bu PowerPoint sunumunun içeriğini özetle:"},
+            {"role": "user", "content": full_text[:3000]}
+        ]
+    )
+    return { "full_text": response.choices[0].message.content }
+
+
+@app.post("/summarize-html-url/")
+async def summarize_html_from_url(data: dict):
+    from bs4 import BeautifulSoup
+
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            html = await resp.text()
+
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text()
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "Bu web sayfasının içeriğini özetle:"},
+            {"role": "user", "content": text[:3000]}
+        ]
+    )
+    return { "full_text": response.choices[0].message.content }
+
+
+@app.post("/summarize-json-url/")
+async def summarize_json_from_url(data: dict):
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            json_data = await resp.json()
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "Bu JSON verisinin ne ifade ettiğini açıkla:"},
+            {"role": "user", "content": json.dumps(json_data)[:3000]}
+        ]
+    )
+    return { "full_text": response.choices[0].message.content }
+
+
+@app.post("/summarize-csv-url/")
+async def summarize_csv_from_url(data: dict):
+    import pandas as pd
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+
+    df = pd.read_csv(url)
+    summary = df.describe(include='all').to_string()
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "Bu CSV dosyasını analiz et ve önemli verileri özetle:"},
+            {"role": "user", "content": summary}
+        ]
+    )
+    return { "full_text": response.choices[0].message.content }
+
+@app.post("/summarize-txt-url/")
+async def summarize_txt_from_url(data: dict):
+    url = data.get("url")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL not provided")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            content = await resp.text()
+
+    response = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "Aşağıdaki metni özetle:"},
+            {"role": "user", "content": content[:3000]}
+        ]
+    )
+    return { "full_text": response.choices[0].message.content }
