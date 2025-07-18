@@ -31,6 +31,8 @@ import random
 import mimetypes
 import requests
 from fastapi import APIRouter
+from fastapi import UploadFile
+
 
 
 router = APIRouter()
@@ -598,6 +600,19 @@ async def speech_to_text(data: dict = Body(...)):
         return {"error": "Ses verisi eksik"}
 
     try:
+        # 🎧 Gürültü temizleme (Audio Isolation)
+        print("[/stt] 🔄 Audio Isolation çağrılıyor...")
+        isolation_response = requests.post(
+            "https://avenia.onrender.com/audio-isolation",
+            json={ "base64": base64_audio }
+        )
+
+        if isolation_response.status_code == 200:
+            base64_audio = isolation_response.json().get("audio_base64", base64_audio)
+            print("[/stt] 🎛 Gürültüsüz sesle devam ediliyor.")
+        else:
+            print("[/stt] ⚠️ Audio Isolation başarısız, orijinal ses kullanılacak.")
+
         print("[/stt] 🧬 Base64 ses verisi decode ediliyor...")
         audio_bytes = base64.b64decode(base64_audio)
         print(f"[/stt] ✅ Decode işlemi başarılı. Boyut: {len(audio_bytes)} byte")
@@ -629,6 +644,7 @@ async def speech_to_text(data: dict = Body(...)):
     except Exception as e:
         print("[/stt] ❗️İşlem sırasında hata oluştu:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/stt/quota")
 def check_stt_quota():
@@ -671,8 +687,10 @@ async def tts_chat(payload: dict = Body(...)):
     # Mesajları birleştir
     combined_text = ""
     for msg in messages:
-        role = "Sen" if msg["role"] == "user" else "Asistan"
-        combined_text += f"{role}: {msg['content']}\n"
+        if msg["role"] == "user":
+            combined_text += f"Sen: {msg['content']}\n"
+        elif msg["role"] == "assistant":
+            combined_text += f"{msg['content']}\n"  # "Asistan:" eklenmedi
 
     print("[/tts-chat] 🔊 Toplam metin uzunluğu:", len(combined_text))
     print("[/tts-chat] 📜 İlk 300 karakter:\n", combined_text[:300])
@@ -707,4 +725,102 @@ async def tts_chat(payload: dict = Body(...)):
 
     except Exception as e:
         print("[/tts-chat] ❗️ Exception:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# 1. Forced Alignment (kelime seviyesinde zamanlama)
+@app.post("/forced-alignment")
+async def forced_alignment(payload: dict = Body(...)):
+    """
+    payload = {
+        "audio_base64": "...",
+        "text": "..."
+    }
+    """
+    audio_b64 = payload.get("audio_base64")
+    text = payload.get("text")
+    if not audio_b64 or not text:
+        raise HTTPException(status_code=400, detail="Ses veya metin eksik")
+
+    headers = {"xi-api-key": ELEVENLABS_API_KEY}
+    files = {
+        "audio": ("audio.wav", base64.b64decode(audio_b64), "audio/wav"),
+        "text": (None, text),
+    }
+
+    response = requests.post("https://api.elevenlabs.io/v1/forced-alignment", headers=headers, files=files)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+
+# 2. Pronunciation Dictionaries
+@app.post("/pronunciation-dictionary")
+async def get_pronunciation(word: str = Body(..., embed=True)):
+    headers = {"xi-api-key": ELEVENLABS_API_KEY}
+    response = requests.get(f"https://api.elevenlabs.io/v1/pronunciation-dictionary/{word}", headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+
+# 3. Sound Effects (örnek ses efekti listesi)
+@app.get("/sound-effects")
+async def list_sound_effects():
+    headers = {"xi-api-key": ELEVENLABS_API_KEY}
+    response = requests.get("https://api.elevenlabs.io/v1/sound-effects", headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+@app.post("/audio-isolation")
+async def audio_isolation(data: dict = Body(...)):
+    """
+    Kullanıcıdan gelen base64 ses verisini arka plan gürültüsünden arındırır.
+    Dönüş olarak temizlenmiş base64 ses verir.
+    """
+    print("[/audio-isolation] 🎧 İstek alındı.")
+
+    base64_audio = data.get("base64")
+    if not base64_audio:
+        raise HTTPException(status_code=400, detail="Ses verisi (base64) eksik.")
+
+    try:
+        print("[/audio-isolation] 📥 Base64 decode ediliyor...")
+        audio_bytes = base64.b64decode(base64_audio)
+        print(f"[/audio-isolation] ✅ Ses dosyası decode edildi, boyut: {len(audio_bytes)} byte")
+
+        # Multipart form veri oluştur
+        files = {
+            "file": ("input.m4a", audio_bytes, "audio/m4a")
+        }
+
+        headers = {
+            "xi-api-key": ELEVENLABS_API_KEY
+        }
+
+        print("[/audio-isolation] 🧼 ElevenLabs Audio Isolation API'ye istek gönderiliyor...")
+        response = requests.post(
+            "https://api.elevenlabs.io/v1/audio/isolate",
+            headers=headers,
+            files=files
+        )
+
+        print(f"[/audio-isolation] 🧾 Yanıt kodu: {response.status_code}")
+
+        if response.status_code == 200:
+            isolated_audio = response.content
+            audio_base64 = base64.b64encode(isolated_audio).decode("utf-8")
+            print("[/audio-isolation] ✅ Gürültüsüz ses başarıyla elde edildi.")
+            return {"audio_base64": audio_base64}
+        else:
+            print("[/audio-isolation] ❌ API hatası:", response.text)
+            raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    except Exception as e:
+        print("[/audio-isolation] ❗️ Hata:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
