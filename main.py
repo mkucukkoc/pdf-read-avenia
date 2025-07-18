@@ -12,6 +12,7 @@ from fastapi import Form
 from io import BytesIO
 import tempfile
 import uuid
+import aiohttp
 from docx import Document
 from pydantic import BaseModel
 import firebase_admin
