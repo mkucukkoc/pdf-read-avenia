@@ -57,7 +57,7 @@ if not firebase_admin._apps:
 
 app = FastAPI()
 
-
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
@@ -258,7 +258,7 @@ def ask_gpt_summary(text: str) -> str:
     print("[ask_gpt_summary] 🔍 İlk 500 karakter:\n", prompt[:500])
 
     response = client.chat.completions.create(
-        model="gpt-4o",
+        model=DEFAULT_MODEL,
         messages=[
             {"role": "system", "content": "Sen profesyonel bir özetleyicisin."},
             {"role": "user", "content": prompt},
@@ -290,7 +290,7 @@ Sen PDF belgesi içeriğini analiz eden bir asistansın. Kullanıcının sorusu 
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": "Sen uzman bir PDF içeriği analistisin, sadece verilen içerikten faydalan."},
                 {"role": "user", "content": prompt}
@@ -341,7 +341,7 @@ Lütfen sadece verilen içerikten yararlanarak doğru, detaylı ve anlaşılır 
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=DEFAULT_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -405,7 +405,7 @@ async def generate_doc(data: DocRequest):
         # 1. GPT'den içerik al
         print("[/generate-doc] 🧠 GPT'den içerik alınıyor...")
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model=DEFAULT_MODEL,
             messages=[{"role": "user", "content": data.prompt}],
             max_tokens=1500
         )
@@ -456,7 +456,7 @@ async def generate_excel(data: DocRequest):
         # 1. GPT'den içerik al
         print("[/generate-excel] 🧠 GPT'den içerik isteniyor...")
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model=DEFAULT_MODEL,
             messages=[{"role": "user", "content": data.prompt}],
             max_tokens=1500
         )
@@ -524,7 +524,7 @@ async def generate_ppt(data: DocRequest):
     print("[/generate-ppt] 🌟 Sunum isteği alındı.")
     try:
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model=DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": """Sen bir sunum üreticisisin. Her slaytı şu formatta ver:
 # Slide X
@@ -851,7 +851,7 @@ async def summarize_excel_from_url(data: dict):
 
     # GPT ile özetle
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=DEFAULT_MODEL,
         messages=[{
             "role": "system",
             "content": "Aşağıdaki Excel verilerini analiz et ve anlamlı bir özet çıkar:"
@@ -891,7 +891,7 @@ async def summarize_word_from_url(data: dict):
         raise HTTPException(status_code=500, detail="❌ Word içeriği boş")
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=DEFAULT_MODEL,
         messages=[
             {"role": "system", "content": "Lütfen aşağıdaki Word belgesini özetle:"},
             {"role": "user", "content": full_text[:3000]}
@@ -946,7 +946,7 @@ async def summarize_ppt_from_url(data: dict):
     try:
         print("🤖 GPT-4 ile özetleniyor...")
         response = client.chat.completions.create(
-            model="gpt-4",
+            model=DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": "Bu PowerPoint sunumunun içeriğini özetle:"},
                 {"role": "user", "content": full_text[:3000]}
@@ -977,7 +977,7 @@ async def summarize_html_from_url(data: dict):
     text = soup.get_text()
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=DEFAULT_MODEL,
         messages=[
             {"role": "system", "content": "Bu web sayfasının içeriğini özetle:"},
             {"role": "user", "content": text[:3000]}
@@ -997,7 +997,7 @@ async def summarize_json_from_url(data: dict):
             json_data = await resp.json()
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=DEFAULT_MODEL,
         messages=[
             {"role": "system", "content": "Bu JSON verisinin ne ifade ettiğini açıkla:"},
             {"role": "user", "content": json.dumps(json_data)[:3000]}
@@ -1017,7 +1017,7 @@ async def summarize_csv_from_url(data: dict):
     summary = df.describe(include='all').to_string()
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=DEFAULT_MODEL,
         messages=[
             {"role": "system", "content": "Bu CSV dosyasını analiz et ve önemli verileri özetle:"},
             {"role": "user", "content": summary}
@@ -1036,7 +1036,7 @@ async def summarize_txt_from_url(data: dict):
             content = await resp.text()
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=DEFAULT_MODEL,
         messages=[
             {"role": "system", "content": "Aşağıdaki metni özetle:"},
             {"role": "user", "content": content[:3000]}
