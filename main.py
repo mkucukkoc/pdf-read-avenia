@@ -35,6 +35,8 @@ from fastapi import APIRouter
 from fastapi import UploadFile
 import aiohttp
 from docx import Document
+from typing import List, Dict
+import math
 
 
 router = APIRouter()
@@ -389,14 +391,21 @@ async def summarize_pdf_url(payload: dict = Body(...)):
         print("[/summarize-pdf-url] 🧠 GPT özeti isteniyor...")
         summary = ask_gpt_summary(text)
 
-        return JSONResponse(content={"summary": summary, "full_text": text})
+        # --- Embedding kaydı ekle ---
+        file_id = str(uuid.uuid4())  # benzersiz dosya ID’si
+        save_embeddings_to_firebase(file_id, text ,summary)
+
+        # --- Yanıt ---
+        return JSONResponse(content={
+            "summary": summary,
+            "full_text": text,
+            "file_id": file_id
+        })
 
     except Exception as e:
         print("[/summarize-pdf-url] ❌ Hata:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-class DocRequest(BaseModel):
-    prompt: str
 
 @app.post("/generate-doc")
 async def generate_doc(data: DocRequest):
@@ -1062,3 +1071,98 @@ def extract_text_from_docx(file_path):
                 text_parts.append(row_text)
 
     return "\n".join(text_parts)
+
+
+
+    # ----------------------------
+# EMBEDDINGS DESTEKLİ ARAMA
+# ----------------------------
+
+
+# 1. Embedding oluşturma
+def create_embedding(text: str) -> List[float]:
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    )
+    return response.data[0].embedding
+
+# 2. Cosine similarity
+def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    dot = sum(a * b for a, b in zip(vec1, vec2))
+    norm1 = math.sqrt(sum(a * a for a in vec1))
+    norm2 = math.sqrt(sum(b * b for b in vec2))
+    return dot / (norm1 * norm2)
+
+# 3. PDF yüklenince embedding kaydetme (mevcut summarize_pdf_url sonrası çağır)
+# 3. PDF yüklenince embedding kaydetme (mevcut summarize_pdf_url sonrası çağır)
+def save_embeddings_to_firebase(file_id: str, file_text: str, summary: str):
+    from firebase_admin import firestore
+    db = firestore.client()
+
+    # ---- 1. Parçaları embeddings koleksiyonuna kaydet ----
+    chunks = [file_text[i:i+500] for i in range(0, len(file_text), 500)]
+
+    for idx, chunk in enumerate(chunks):
+        embedding = create_embedding(chunk)
+        db.collection("embeddings").add({
+            "file_id": file_id,
+            "chunk_index": idx,
+            "text": chunk,
+            "embedding": embedding
+        })
+
+    # ---- 2. Metadata’yı ayrı koleksiyona kaydet (files) ----
+    db.collection("files").document(file_id).set({
+        "file_id": file_id,
+        "summary": summary,
+        "full_text": file_text,
+        "type": "PDF",
+        "createdAt": firestore.SERVER_TIMESTAMP
+    })
+
+
+# 4. Yeni endpoint: embeddings tabanlı soru-cevap
+@app.post("/ask-with-embeddings/")
+async def ask_with_embeddings(question: str = Form(...), file_id: str = Form(...)):
+    """
+    - file_id: Hangi dosyadan arama yapılacağı
+    - question: Kullanıcının sorduğu soru
+    """
+
+    from firebase_admin import firestore
+    db = firestore.client()
+
+    # Soru embedding'i oluştur
+    q_embedding = create_embedding(question)
+
+    # İlgili dosyaya ait tüm embedding'leri çek
+    docs = db.collection("embeddings").where("file_id", "==", file_id).stream()
+    chunks = []
+    for doc in docs:
+        data = doc.to_dict()
+        score = cosine_similarity(q_embedding, data["embedding"])
+        chunks.append((score, data["text"]))
+
+    # En yakın 3 parçayı al
+    top_chunks = [text for score, text in sorted(chunks, key=lambda x: x[0], reverse=True)[:3]]
+    context = "\n".join(top_chunks)
+
+    # GPT ile cevap üret
+    prompt = f"""
+Aşağıdaki içerik yalnızca bağlamdır, cevap verirken sadece buna dayan:
+{context}
+
+Soru: {question}
+"""
+
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "Sen bağlam tabanlı bir asistanısın."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    answer = response.choices[0].message.content
+    return {"answer": answer, "context_used": top_chunks}
+
