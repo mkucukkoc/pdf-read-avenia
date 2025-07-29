@@ -1100,20 +1100,31 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     return dot / (norm1 * norm2)
 
 # 3. PDF yüklenince embedding kaydetme (mevcut summarize_pdf_url sonrası çağır)
-# 3. PDF yüklenince embedding kaydetme (mevcut summarize_pdf_url sonrası çağır)
 def save_embeddings_to_firebase(file_id: str, file_text: str, summary: str):
     from firebase_admin import firestore
     db = firestore.client()
+
+    # ---- 0. Summary'yi de ayrı bir chunk olarak kaydet ----
+    if summary and summary.strip():
+        summary_clean = " ".join(summary.split())  # basit temizlik
+        summary_embedding = create_embedding(summary_clean)
+        db.collection("embeddings").add({
+            "file_id": file_id,
+            "chunk_index": -1,   # summary için özel index
+            "text": summary_clean,
+            "embedding": summary_embedding
+        })
 
     # ---- 1. Parçaları embeddings koleksiyonuna kaydet ----
     chunks = [file_text[i:i+500] for i in range(0, len(file_text), 500)]
 
     for idx, chunk in enumerate(chunks):
-        embedding = create_embedding(chunk)
+        chunk_clean = " ".join(chunk.split())
+        embedding = create_embedding(chunk_clean)
         db.collection("embeddings").add({
             "file_id": file_id,
             "chunk_index": idx,
-            "text": chunk,
+            "text": chunk_clean,
             "embedding": embedding
         })
 
@@ -1162,7 +1173,7 @@ async def ask_with_embeddings(question: str = Form(...), file_id: str = Form(...
 
     # GPT ile cevap üret
     prompt = f"""
-Sadece aşağıdaki bağlama dayanarak soruya yanıt ver. Eğer bağlamda yanıt yoksa "Bu bilgiyi PDF içeriğinde bulamadım." de.
+aşağıdaki bağlama dayanarak soruya yanıt ver.Eğer doğrudan cevap yoksa, bağlamı özetle veya en yakın bilgiyi sun."
 
 Bağlam:
 {context}
