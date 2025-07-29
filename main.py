@@ -1178,6 +1178,6 @@ Soru: {question}
         ]
     )
     answer = response.choices[0].message.content
-    rint(f"[ask-with-embeddings] answer: {answer}, answer: {answer}")
+    print(f"[ask-with-embeddings] answer: {answer}, answer: {answer}")
     return {"answer": answer, "context_used": top_chunks}
 
