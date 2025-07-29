@@ -1156,6 +1156,8 @@ async def ask_with_embeddings(question: str = Form(...), file_id: str = Form(...
     print(f"[ask-with-embeddings] toplam chunk sayısı: {len(chunks)}")
     print(f"[ask-with-embeddings] top_chunks: {top_chunks}")
     print(f"[ask-with-embeddings] file_id: {file_id}, question: {question}")
+    print(f"[ask-with-embeddings] context: {context}, context: {context}")
+
 
 
     # GPT ile cevap üret
