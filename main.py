@@ -1140,6 +1140,7 @@ async def ask_with_embeddings(question: str = Form(...), file_id: str = Form(...
 
     # Soru embedding'i oluştur
     q_embedding = create_embedding(question)
+    
 
     # İlgili dosyaya ait tüm embedding'leri çek
     docs = db.collection("embeddings").where("file_id", "==", file_id).stream()
@@ -1152,10 +1153,16 @@ async def ask_with_embeddings(question: str = Form(...), file_id: str = Form(...
     # En yakın 3 parçayı al
     top_chunks = [text for score, text in sorted(chunks, key=lambda x: x[0], reverse=True)[:3]]
     context = "\n".join(top_chunks)
+    print(f"[ask-with-embeddings] toplam chunk sayısı: {len(chunks)}")
+    print(f"[ask-with-embeddings] top_chunks: {top_chunks}")
+    print(f"[ask-with-embeddings] file_id: {file_id}, question: {question}")
+
 
     # GPT ile cevap üret
     prompt = f"""
-Aşağıdaki içerik yalnızca bağlamdır, cevap verirken sadece buna dayan:
+Sadece aşağıdaki bağlama dayanarak soruya yanıt ver. Eğer bağlamda yanıt yoksa "Bu bilgiyi PDF içeriğinde bulamadım." de.
+
+Bağlam:
 {context}
 
 Soru: {question}
