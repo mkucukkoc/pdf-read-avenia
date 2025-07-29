@@ -37,6 +37,8 @@ import aiohttp
 from docx import Document
 from typing import List, Dict
 import math
+from pydantic import BaseModel
+
 
 
 router = APIRouter()
@@ -66,6 +68,9 @@ RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 TTS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default voice
 
+
+class DocRequest(BaseModel):
+    prompt: str
 
 async def wait_for_video_ready(video_id, retries=30, delay=5):
     status_url = f"https://api.dev.runwayml.com/v1/tasks/{video_id}"  # ✅ doğru endpoint
