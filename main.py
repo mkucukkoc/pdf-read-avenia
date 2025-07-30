@@ -396,9 +396,13 @@ async def summarize_pdf_url(payload: dict = Body(...)):
         print("[/summarize-pdf-url] 🧠 GPT özeti isteniyor...")
         summary = ask_gpt_summary(text)
 
+        user_id = payload.get("user_id")
+        chat_id = payload.get("chat_id")
+
         # --- Embedding kaydı ekle ---
         file_id = str(uuid.uuid4())  # benzersiz dosya ID’si
-        save_embeddings_to_firebase(file_id, text ,summary)
+        save_embeddings_to_firebase(user_id, chat_id, file_id, text, summary, file_type)
+
 
         # --- Yanıt ---
         return JSONResponse(content={
@@ -875,7 +879,14 @@ async def summarize_excel_from_url(data: dict):
         }]
     )
     summary = response.choices[0].message.content
-    return { "full_text": summary }
+
+    # Embedding kaydı
+    file_id = str(uuid.uuid4())
+    user_id = data.get("user_id")
+    chat_id = data.get("chat_id")
+    save_embeddings_to_firebase(user_id, chat_id, file_id, description, summary, "XLSX")
+
+    return { "summary": summary, "full_text": description, "file_id": file_id }
 
 
 @app.post("/summarize-word-url/")
@@ -896,6 +907,7 @@ async def summarize_word_from_url(data: dict):
     
     print("📦 Dosya indirildi:", file_path)
     full_text = extract_text_from_docx(file_path)
+    
 
     print("📄 Word dosyası ilk 300 karakter:", full_text[:300])  # LOG EKLENDİ
     print("📄 Word içeriği karakter sayısı:", len(full_text))
@@ -912,7 +924,13 @@ async def summarize_word_from_url(data: dict):
         ]
     )
     summary = response.choices[0].message.content
-    return { "full_text": summary }
+    # Embedding kaydı
+    file_id = str(uuid.uuid4())
+    user_id = data.get("user_id")
+    chat_id = data.get("chat_id")
+    save_embeddings_to_firebase(user_id, chat_id, file_id, full_text, summary, "DOCX")
+
+    return { "summary": summary, "full_text": full_text, "file_id": file_id }
 
 
 @app.post("/summarize-ppt-url/")
@@ -969,6 +987,9 @@ async def summarize_ppt_from_url(data: dict):
         summary = response.choices[0].message.content
         print("✅ GPT özeti başarıyla alındı (ilk 200 karakter):")
         print(summary[:200])
+        user_id = data.get("user_id")
+        chat_id = data.get("chat_id")
+        save_embeddings_to_firebase(user_id, chat_id, file_id, text, summary, "PPTX")
         return {"full_text": summary}
     except Exception as e:
         print("❌ GPT özetleme hatası:", e)
@@ -1056,7 +1077,16 @@ async def summarize_txt_from_url(data: dict):
             {"role": "user", "content": content[:3000]}
         ]
     )
-    return { "full_text": response.choices[0].message.content }
+
+    # Embedding kaydı
+    file_id = str(uuid.uuid4())
+
+    user_id = data.get("user_id")
+    chat_id = data.get("chat_id")
+    save_embeddings_to_firebase(user_id, chat_id, file_id, text, summary, "TXT")
+   
+
+    return { "summary": summary, "full_text": content, "file_id": file_id }
 
 
 def extract_text_from_docx(file_path):
@@ -1100,95 +1130,152 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     return dot / (norm1 * norm2)
 
 # 3. PDF yüklenince embedding kaydetme (mevcut summarize_pdf_url sonrası çağır)
-def save_embeddings_to_firebase(file_id: str, file_text: str, summary: str):
+def save_embeddings_to_firebase(user_id: str, chat_id: str, file_id: str, file_text: str, summary: str, file_type: str):
     from firebase_admin import firestore
     db = firestore.client()
 
-    # ---- 0. Summary'yi de ayrı bir chunk olarak kaydet ----
-    if summary and summary.strip():
-        summary_clean = " ".join(summary.split())  # basit temizlik
-        summary_embedding = create_embedding(summary_clean)
-        db.collection("embeddings").add({
-            "file_id": file_id,
-            "chunk_index": -1,   # summary için özel index
-            "text": summary_clean,
-            "embedding": summary_embedding
-        })
+    print(f"[save_embeddings_to_firebase] 📥 Başlatıldı")
+    print(f"   → user_id: {user_id}")
+    print(f"   → chat_id: {chat_id}")
+    print(f"   → file_id: {file_id}")
+    print(f"   → file_type: {file_type}")
+    print(f"   → file_text uzunluğu: {len(file_text) if file_text else 0}")
+    print(f"   → summary uzunluğu: {len(summary) if summary else 0}")
 
-    # ---- 1. Parçaları embeddings koleksiyonuna kaydet ----
+    # Base reference: embeddings/userId/chatId
+    base_ref = db.collection("embeddings").document(user_id).collection(chat_id)
+    print(f"[save_embeddings_to_firebase] 🔗 Firestore path: embeddings/{user_id}/{chat_id}")
+
+    # 1. Meta veriyi kaydet (chunk_index = -999)
+    try:
+        meta_doc = {
+            "file_id": file_id,
+            "chunk_index": -999,
+            "summary": summary,
+            "type": file_type,
+            "createdAt": firestore.SERVER_TIMESTAMP
+        }
+        base_ref.add(meta_doc)
+        print(f"[save_embeddings_to_firebase] ✅ Meta veri kaydedildi: {meta_doc}")
+    except Exception as e:
+        print(f"[save_embeddings_to_firebase] ❌ Meta kaydı hatası: {e}")
+
+    # 2. Summary’nin embedding’i
+    if summary and summary.strip():
+        try:
+            summary_clean = " ".join(summary.split())
+            print(f"[save_embeddings_to_firebase] 🔄 Summary temizlendi: {summary_clean[:100]}...")
+            summary_embedding = create_embedding(summary_clean)
+            print(f"[save_embeddings_to_firebase] 🧠 Summary embedding boyutu: {len(summary_embedding)}")
+
+            base_ref.add({
+                "file_id": file_id,
+                "chunk_index": -1,
+                "text": summary_clean,
+                "embedding": summary_embedding
+            })
+            print(f"[save_embeddings_to_firebase] ✅ Summary embedding kaydedildi (chunk_index=-1)")
+        except Exception as e:
+            print(f"[save_embeddings_to_firebase] ❌ Summary embedding hatası: {e}")
+
+    # 3. Chunk embedding’leri
     chunks = [file_text[i:i+500] for i in range(0, len(file_text), 500)]
+    print(f"[save_embeddings_to_firebase] 🔄 Toplam {len(chunks)} chunk üretildi")
 
     for idx, chunk in enumerate(chunks):
-        chunk_clean = " ".join(chunk.split())
-        embedding = create_embedding(chunk_clean)
-        db.collection("embeddings").add({
-            "file_id": file_id,
-            "chunk_index": idx,
-            "text": chunk_clean,
-            "embedding": embedding
-        })
+        try:
+            chunk_clean = " ".join(chunk.split())
+            print(f"[save_embeddings_to_firebase] → Chunk {idx} temizlendi (ilk 80 karakter): {chunk_clean[:80]}")
 
-    # ---- 2. Metadata’yı ayrı koleksiyona kaydet (files) ----
-    db.collection("files").document(file_id).set({
-        "file_id": file_id,
-        "summary": summary,
-        "full_text": file_text,
-        "type": "PDF",
-        "createdAt": firestore.SERVER_TIMESTAMP
-    })
+            embedding = create_embedding(chunk_clean)
+            print(f"[save_embeddings_to_firebase] 🧠 Chunk {idx} embedding boyutu: {len(embedding)}")
+
+            base_ref.add({
+                "file_id": file_id,
+                "chunk_index": idx,
+                "text": chunk_clean,
+                "embedding": embedding
+            })
+            print(f"[save_embeddings_to_firebase] ✅ Chunk {idx} kaydedildi")
+        except Exception as e:
+            print(f"[save_embeddings_to_firebase] ❌ Chunk {idx} hatası: {e}")
+
+    print("[save_embeddings_to_firebase] 🎉 Tüm kayıt işlemleri tamamlandı.")
 
 
 # 4. Yeni endpoint: embeddings tabanlı soru-cevap
 @app.post("/ask-with-embeddings/")
-async def ask_with_embeddings(question: str = Form(...), file_id: str = Form(...)):
-    """
-    - file_id: Hangi dosyadan arama yapılacağı
-    - question: Kullanıcının sorduğu soru
-    """
-
+async def ask_with_embeddings(
+    question: str = Form(...),
+    file_id: str = Form(...),
+    user_id: str = Form(...),
+    chat_id: str = Form(...)
+):
     from firebase_admin import firestore
     db = firestore.client()
 
-    # Soru embedding'i oluştur
-    q_embedding = create_embedding(question)
-    
+    print("\n[ask-with-embeddings] 📥 İstek alındı")
+    print(f"   → user_id: {user_id}")
+    print(f"   → chat_id: {chat_id}")
+    print(f"   → file_id: {file_id}")
+    print(f"   → question: {question}")
 
-    # İlgili dosyaya ait tüm embedding'leri çek
-    docs = db.collection("embeddings").where("file_id", "==", file_id).stream()
-    chunks = []
-    for doc in docs:
-        data = doc.to_dict()
-        score = cosine_similarity(q_embedding, data["embedding"])
-        chunks.append((score, data["text"]))
+    # Firestore Path
+    base_ref = db.collection("embeddings").document(user_id).collection(chat_id)
+    print(f"[ask-with-embeddings] 🔗 Firestore path: embeddings/{user_id}/{chat_id}")
 
-    # En yakın 3 parçayı al
+    # 1. Soru embedding oluştur
+    try:
+        q_embedding = create_embedding(question)
+        print(f"[ask-with-embeddings] 🧠 Soru embedding boyutu: {len(q_embedding)}")
+    except Exception as e:
+        print(f"[ask-with-embeddings] ❌ Soru embedding hatası: {e}")
+        raise
+
+    # 2. İlgili chunk'ları çek (meta hariç)
+    try:
+        docs = base_ref.where("file_id", "==", file_id).where("chunk_index", ">=", 0).stream()
+        print("[ask-with-embeddings] 🔄 Firestore'dan chunk'lar çekiliyor...")
+
+        chunks = []
+        for doc in docs:
+            data = doc.to_dict()
+            score = cosine_similarity(q_embedding, data["embedding"])
+            chunks.append((score, data["text"]))
+            print(f"   → Chunk skor: {score:.4f}, text (ilk 60): {data['text'][:60]}")
+    except Exception as e:
+        print(f"[ask-with-embeddings] ❌ Chunk okuma hatası: {e}")
+        raise
+
+    # 3. En yakın 3 chunk seç
     top_chunks = [text for score, text in sorted(chunks, key=lambda x: x[0], reverse=True)[:3]]
+    print(f"[ask-with-embeddings] 🏆 Seçilen top_chunks (adet: {len(top_chunks)}):")
+    for i, tc in enumerate(top_chunks):
+        print(f"   {i+1}. {tc[:100]}...")
+
+    # 4. GPT prompt hazırla
     context = "\n".join(top_chunks)
-    print(f"[ask-with-embeddings] toplam chunk sayısı: {len(chunks)}")
-    print(f"[ask-with-embeddings] top_chunks: {top_chunks}")
-    print(f"[ask-with-embeddings] file_id: {file_id}, question: {question}")
-    print(f"[ask-with-embeddings] context: {context}, context: {context}")
-
-
-
-    # GPT ile cevap üret
     prompt = f"""
-aşağıdaki bağlama dayanarak soruya yanıt ver.Eğer doğrudan cevap yoksa, bağlamı özetle veya en yakın bilgiyi sun."
-
-Bağlam:
+Bağlama dayanarak soruya yanıt ver. Doğrudan cevap yoksa en yakın bilgiyi özetle:
 {context}
 
 Soru: {question}
 """
+    print(f"[ask-with-embeddings] 📝 GPT'ye gönderilen prompt (ilk 300): {prompt[:300]}")
 
-    response = client.chat.completions.create(
-        model=DEFAULT_MODEL,
-        messages=[
-            {"role": "system", "content": "Sen bağlam tabanlı bir asistanısın."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    answer = response.choices[0].message.content
-    print(f"[ask-with-embeddings] answer: {answer}, answer: {answer}")
+    # 5. GPT çağır ve cevap döndür
+    try:
+        response = client.chat.completions.create(
+            model=DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": "Sen bağlam tabanlı bir asistansın."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        answer = response.choices[0].message.content
+        print(f"[ask-with-embeddings] ✅ GPT yanıtı (ilk 200): {answer[:200]}")
+    except Exception as e:
+        print(f"[ask-with-embeddings] ❌ GPT yanıt hatası: {e}")
+        raise
+
     return {"answer": answer, "context_used": top_chunks}
-
