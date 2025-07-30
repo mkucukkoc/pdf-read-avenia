@@ -989,7 +989,7 @@ async def summarize_ppt_from_url(data: dict):
         print(summary[:200])
         user_id = data.get("user_id")
         chat_id = data.get("chat_id")
-        save_embeddings_to_firebase(user_id, chat_id, file_id, text, summary, "PPTX")
+        save_embeddings_to_firebase(user_id, chat_id, file_id, full_text, summary, "PPTX")
         return {"full_text": summary}
     except Exception as e:
         print("❌ GPT özetleme hatası:", e)
