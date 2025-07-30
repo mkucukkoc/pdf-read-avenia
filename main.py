@@ -401,7 +401,7 @@ async def summarize_pdf_url(payload: dict = Body(...)):
 
         # --- Embedding kaydı ekle ---
         file_id = str(uuid.uuid4())  # benzersiz dosya ID’si
-        save_embeddings_to_firebase(user_id, chat_id, file_id, text, summary, file_type)
+        save_embeddings_to_firebase(user_id, chat_id, file_id, text, summary, "PDF")
 
 
         # --- Yanıt ---
