@@ -1234,15 +1234,16 @@ async def ask_with_embeddings(
 
     # 2. İlgili chunk'ları çek (meta hariç)
     try:
-        docs = base_ref.where("file_id", "==", file_id).where("chunk_index", ">=", 0).stream()
+        docs = base_ref.where("file_id", "==", file_id).stream()
         print("[ask-with-embeddings] 🔄 Firestore'dan chunk'lar çekiliyor...")
 
         chunks = []
         for doc in docs:
             data = doc.to_dict()
-            score = cosine_similarity(q_embedding, data["embedding"])
-            chunks.append((score, data["text"]))
-            print(f"   → Chunk skor: {score:.4f}, text (ilk 60): {data['text'][:60]}")
+            if data.get("chunk_index", 0) >= 0:  # Python’da filtre
+                score = cosine_similarity(q_embedding, data["embedding"])
+                chunks.append((score, data["text"]))
+                print(f"   → Chunk skor: {score:.4f}, text (ilk 60): {data['text'][:60]}")
     except Exception as e:
         print(f"[ask-with-embeddings] ❌ Chunk okuma hatası: {e}")
         raise
