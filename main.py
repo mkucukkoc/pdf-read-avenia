@@ -1,43 +1,28 @@
-from fastapi import FastAPI, UploadFile, HTTPException, Body
+from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter
 from fastapi.responses import JSONResponse
 from pypdf import PdfReader
-import os
-import requests
-import httpx
-from openai import OpenAI
-import random
-import asyncio
-import json
-from fastapi import Form
-from io import BytesIO
-import tempfile
-import uuid
-import aiohttp
 from docx import Document
-from pydantic import BaseModel
-import firebase_admin
-from firebase_admin import credentials, storage
 from openpyxl import Workbook
 from pptx import Presentation
-import uuid
-import tempfile
-import firebase_admin
-import base64
-from datetime import datetime
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-import os, uuid, tempfile, requests
-from fastapi import HTTPException
-import random
-import mimetypes
-import requests
-from fastapi import APIRouter
-from fastapi import UploadFile
-import aiohttp
-from docx import Document
-from typing import List, Dict
-import math
 from pydantic import BaseModel
+from typing import List, Dict
+from datetime import datetime
+import firebase_admin
+from firebase_admin import credentials, storage, firestore
+
+import os
+import tempfile
+import uuid
+import requests
+import httpx
+import aiohttp
+import random
+import json
+import math
+import mimetypes
+
 
 
 
@@ -1143,7 +1128,6 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
 
 # 3. PDF yüklenince embedding kaydetme (mevcut summarize_pdf_url sonrası çağır)
 def save_embeddings_to_firebase(user_id: str, chat_id: str, file_id: str, file_text: str, summary: str, file_type: str):
-    from firebase_admin import firestore
     db = firestore.client()
 
     print(f"[save_embeddings_to_firebase] 📥 Başlatıldı")
