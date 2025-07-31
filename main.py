@@ -998,7 +998,7 @@ async def summarize_ppt_from_url(data: dict):
         print(messages_ref,"messages_ref")
         messages_ref.add({
             "role": "assistant",
-            "content": summary_text,  # GPT özeti
+            "content": summary,  # GPT özeti
             "file_id": file_id,
             "timestamp": firestore.SERVER_TIMESTAMP
         })
