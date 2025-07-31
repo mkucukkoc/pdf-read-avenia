@@ -993,6 +993,15 @@ async def summarize_ppt_from_url(data: dict):
         print(chat_id,"chat_id")
         print(user_id,"user_id")
         save_embeddings_to_firebase(user_id, chat_id, file_id, full_text, summary, "PPTX")
+        messages_ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages")
+        print(messages_ref,"messages_ref")
+        messages_ref.add({
+            "role": "assistant",
+            "content": summary_text,  # GPT özeti
+            "file_id": file_id,
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+        print(messages_ref,"messages_ref")
         return {"full_text": summary}
     except Exception as e:
         print("❌ GPT özetleme hatası:", e)
