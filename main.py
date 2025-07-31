@@ -995,6 +995,9 @@ async def summarize_ppt_from_url(data: dict):
         db = firestore.client()
         save_embeddings_to_firebase(user_id, chat_id, file_id, full_text, summary, "PPTX")
         messages_ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages")
+        chat_ref = db.collection("users").document(user_id).collection("chats").document(chat_id)
+        chat_ref.update({"file_id": file_id})
+        print(f"[summarize-ppt-url] ✅ Chat doc file_id güncellendi: {file_id}")
         print(messages_ref,"messages_ref")
         messages_ref.add({
             "role": "assistant",
