@@ -992,6 +992,7 @@ async def summarize_ppt_from_url(data: dict):
         chat_id = data.get("chat_id")
         print(chat_id,"chat_id")
         print(user_id,"user_id")
+        db = firestore.client()
         save_embeddings_to_firebase(user_id, chat_id, file_id, full_text, summary, "PPTX")
         messages_ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages")
         print(messages_ref,"messages_ref")
