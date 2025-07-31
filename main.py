@@ -1,27 +1,42 @@
-from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter
+from fastapi import FastAPI, UploadFile, HTTPException, Body
 from fastapi.responses import JSONResponse
 from pypdf import PdfReader
-from docx import Document
-from openpyxl import Workbook
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.dml.color import RGBColor
-from pydantic import BaseModel
-from typing import List, Dict
-from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, storage, firestore
-
 import os
-import tempfile
-import uuid
 import requests
 import httpx
-import aiohttp
+from openai import OpenAI
 import random
+import asyncio
 import json
-import math
+from fastapi import Form
+from io import BytesIO
+import tempfile
+import uuid
+import aiohttp
+from docx import Document
+from pydantic import BaseModel
+import firebase_admin
+from firebase_admin import credentials, storage ,firestore
+from openpyxl import Workbook
+from pptx import Presentation
+import uuid
+import tempfile
+import base64
+from datetime import datetime
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+import os, uuid, tempfile, requests
+from fastapi import HTTPException
+import random
 import mimetypes
+import requests
+from fastapi import APIRouter
+from fastapi import UploadFile
+import aiohttp
+from docx import Document
+from typing import List, Dict
+import math
+from pydantic import BaseModel
 
 
 
