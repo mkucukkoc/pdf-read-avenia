@@ -1,43 +1,39 @@
-from fastapi import FastAPI, UploadFile, HTTPException, Body
-from fastapi.responses import JSONResponse
-from pypdf import PdfReader
 import os
-import requests
-import httpx
-from openai import OpenAI
+import io
+import re
+import json
+import math
+import uuid
+import base64
 import random
 import asyncio
-import json
-from fastapi import Form
-from io import BytesIO
 import tempfile
-import uuid
+from datetime import datetime
+from typing import List, Dict
+from io import BytesIO
+
+import requests
+import httpx
 import aiohttp
+import soundfile as sf
+import numpy as np
+import librosa
+import noisereduce as nr
+from pydub import AudioSegment, effects
 from docx import Document
-from pydantic import BaseModel
-import firebase_admin
-from firebase_admin import credentials, storage ,firestore
 from openpyxl import Workbook
 from pptx import Presentation
-import uuid
-import tempfile
-import base64
-from datetime import datetime
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-import os, uuid, tempfile, requests
-from fastapi import HTTPException
-import random
-import mimetypes
-import requests
-from fastapi import APIRouter
-from fastapi import UploadFile
-import aiohttp
-from docx import Document
-from typing import List, Dict
-import math
+from pypdf import PdfReader
+from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from dotenv import load_dotenv
+from openai import OpenAI
 
+import firebase_admin
+from firebase_admin import credentials, storage, firestore
 
 
 
@@ -67,6 +63,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 TTS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Default voice
+API_KEY = os.getenv("AIORNOT_API_KEY")  # aiornot API key
 
 
 class DocRequest(BaseModel):
@@ -657,11 +654,8 @@ def parse_ppt_prompt(text: str):
     return slides
 
 
-
-
 # Firebase init
 # 🔊 Yeni endpoint: Speech-to-Text
-
 @app.post("/stt")
 async def speech_to_text(data: dict = Body(...)):
     print("[/stt] 🎤 İstek alındı.")
@@ -672,79 +666,45 @@ async def speech_to_text(data: dict = Body(...)):
         return {"error": "Ses verisi eksik"}
 
     try:
-        # 🎧 Gürültü temizleme (Audio Isolation)
+        # (İsteğe bağlı) Lokal gürültü azaltma endpoint’imiz
         print("[/stt] 🔄 Audio Isolation çağrılıyor...")
-        isolation_response = requests.post(
-            "https://avenia.onrender.com/audio-isolation",
-            json={ "base64": base64_audio }
-        )
-
-        if isolation_response.status_code == 200:
-            base64_audio = isolation_response.json().get("audio_base64", base64_audio)
-            print("[/stt] 🎛 Gürültüsüz sesle devam ediliyor.")
-        else:
+        try:
+            isolate_resp = await audio_isolation({"base64": base64_audio})
+            if isinstance(isolate_resp, dict) and isolate_resp.get("audio_base64"):
+                base64_audio = isolate_resp["audio_base64"]
+                print("[/stt] 🎛 Gürültüsüz sesle devam ediliyor.")
+            else:
+                print("[/stt] ⚠️ Audio Isolation pas geçildi.")
+        except Exception as _:
             print("[/stt] ⚠️ Audio Isolation başarısız, orijinal ses kullanılacak.")
 
         print("[/stt] 🧬 Base64 ses verisi decode ediliyor...")
         audio_bytes = base64.b64decode(base64_audio)
-        print(f"[/stt] ✅ Decode işlemi başarılı. Boyut: {len(audio_bytes)} byte")
+        print(f"[/stt] ✅ Decode başarılı. Boyut: {len(audio_bytes)} byte")
 
-        # multipart/form-data formatında gönderim
-        files = {
-            "file": ("audio.m4a", audio_bytes, "audio/m4a"),
-            "model_id": (None, "scribe_v1"),
-        }
-
-        print("[/stt] 📡 ElevenLabs STT API'ye istek gönderiliyor...")
-        response = requests.post(
-            "https://api.elevenlabs.io/v1/speech-to-text",
-            headers={ "xi-api-key": ELEVENLABS_API_KEY },
-            files=files
+        # OpenAI Whisper-1 transkripsiyon
+        bio = io.BytesIO(audio_bytes)
+        bio.name = "audio.m4a"  # dosya adı gerekli
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=bio,
+            # dil tahmini güzel çalışıyor; gerekirse language="tr" verilebilir
         )
-
-        print(f"[/stt] 🧾 API yanıt kodu: {response.status_code}")
-
-        if response.status_code == 200:
-            result = response.json()
-            transcribed_text = result.get("text")
-            print("[/stt] ✅ Çözümleme başarılı. Metin:", transcribed_text)
-            return {"text": transcribed_text}
-        else:
-            print("[/stt] ❌ API hatası:", response.text)
-            return {"error": response.text}
+        text = transcript.text or ""
+        print("[/stt] ✅ Çözümleme başarılı. Metin:", text[:120])
+        return {"text": text}
 
     except Exception as e:
-        print("[/stt] ❗️İşlem sırasında hata oluştu:", str(e))
+        print("[/stt] ❗️Hata:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get("/stt/quota")
-def check_stt_quota():
-    headers = {
-        "xi-api-key": ELEVENLABS_API_KEY
-    }
-
-    response = requests.get("https://api.elevenlabs.io/v1/user/subscription", headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        return {
-            "plan": data.get("tier"),
-            "character_limit": data.get("character_limit"),
-            "character_count": data.get("character_count"),
-            "next_character_reset_unix": data.get("next_character_count_reset_unix"),
-        }
-    else:
-        return JSONResponse(status_code=response.status_code, content={"error": response.text})
-
-app.include_router(router)
-
-
+# ----------------------------------------------------
+# TTS: Chat geçmişini sese çevir (OpenAI tts-1)
+# ----------------------------------------------------
 @app.post("/tts-chat")
 async def tts_chat(payload: dict = Body(...)):
     """
-    Chat geçmişini sese çevirir.
-    Beklenen payload formatı:
+    Beklenen payload:
     {
         "messages": [
             {"role": "user", "content": "Selam"},
@@ -752,59 +712,48 @@ async def tts_chat(payload: dict = Body(...)):
         ]
     }
     """
-    messages = payload.get("messages", [])
+    messages: List[Dict[str, str]] = payload.get("messages", [])
     if not messages:
         raise HTTPException(status_code=400, detail="Chat mesajları eksik.")
 
-    # Mesajları birleştir
-    combined_text = ""
-    for msg in messages:
-        if msg["role"] == "user":
-            combined_text += f"Sen: {msg['content']}\n"
-        elif msg["role"] == "assistant":
-            combined_text += f"{msg['content']}\n"  # "Asistan:" eklenmedi
+    # Mesajları birleştir (4000 karakter limiti)
+    combined_text = []
+    for m in messages:
+        if m.get("role") == "user":
+            combined_text.append(f"Sen: {m.get('content','')}")
+        elif m.get("role") == "assistant":
+            combined_text.append(m.get("content",""))
+    combined_text = "\n".join(combined_text)[:4000]
 
-    print("[/tts-chat] 🔊 Toplam metin uzunluğu:", len(combined_text))
-    print("[/tts-chat] 📜 İlk 300 karakter:\n", combined_text[:300])
-
-    # ElevenLabs endpoint'i
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{TTS_VOICE_ID}"
-    headers = {
-        "xi-api-key": ELEVENLABS_API_KEY,
-        "Content-Type": "application/json"
-    }
-
-    body = {
-        "text": combined_text[:4000],  # 4000 karakter sınırı
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.4,
-            "similarity_boost": 0.75
-        }
-    }
+    print("[/tts-chat] 🔊 Metin uzunluğu:", len(combined_text))
+    print("[/tts-chat] 📜 Önizleme:\n", combined_text[:300])
 
     try:
-        response = requests.post(url, headers=headers, json=body)
-
-        if response.status_code == 200:
-            audio_bytes = response.content
-            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-            print("[/tts-chat] ✅ Başarıyla ses üretildi.")
-            return {"audio_base64": audio_base64}
-        else:
-            print("[/tts-chat] ❌ Hata:", response.text)
-            raise HTTPException(status_code=response.status_code, detail=response.text)
+        speech = client.audio.speech.create(
+            model="tts-1",
+            voice="alloy",  # diğer ör: "verse", "aria"
+            input=combined_text,
+            # format varsayılan mp3; istenirse: response_format="wav" / "pcm"
+        )
+        audio_bytes = speech.content
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+        print("[/tts-chat] ✅ Ses üretildi.")
+        return {"audio_base64": audio_base64}
 
     except Exception as e:
-        print("[/tts-chat] ❗️ Exception:", str(e))
+        print("[/tts-chat] ❌ Hata:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ----------------------------------------------------
+# Audio Isolation (lokal): hafif denoise + filtreleme
+# ----------------------------------------------------
 @app.post("/audio-isolation")
 async def audio_isolation(data: dict = Body(...)):
     """
-    Kullanıcıdan gelen base64 ses verisini arka plan gürültüsünden arındırır.
-    Dönüş olarak temizlenmiş base64 ses verir.
+    Base64 ses -> hafif gürültü azaltma -> base64 ses
+    Not: Bu uç ElevenLabs yerine lokal çalışır. Aşırı gürültülü kayıtlarda
+    mucize beklemeyin; temel bir NR ve filtre uygular.
     """
     print("[/audio-isolation] 🎧 İstek alındı.")
 
@@ -815,39 +764,43 @@ async def audio_isolation(data: dict = Body(...)):
     try:
         print("[/audio-isolation] 📥 Base64 decode ediliyor...")
         audio_bytes = base64.b64decode(base64_audio)
-        print(f"[/audio-isolation] ✅ Ses dosyası decode edildi, boyut: {len(audio_bytes)} byte")
 
-        # Multipart form veri oluştur
-        files = {
-            "file": ("input.m4a", audio_bytes, "audio/m4a")
-        }
+        # Pydub ile yükle (ffmpeg gerekir)
+        seg = AudioSegment.from_file(io.BytesIO(audio_bytes), format="m4a")
 
-        headers = {
-            "xi-api-key": ELEVENLABS_API_KEY
-        }
+        # Hafif normalize + high/low pass
+        seg = effects.normalize(seg)
+        seg = seg.high_pass_filter(80).low_pass_filter(7500)
 
-        print("[/audio-isolation] 🧼 ElevenLabs Audio Isolation API'ye istek gönderiliyor...")
-        response = requests.post(
-            "https://api.elevenlabs.io/v1/audio/isolate",
-            headers=headers,
-            files=files
-        )
+        # NumPy array’e çevir
+        samples = np.array(seg.get_array_of_samples()).astype(np.float32)
+        if seg.channels == 2:
+            samples = samples.reshape((-1, 2)).mean(axis=1)  # mono
 
-        print(f"[/audio-isolation] 🧾 Yanıt kodu: {response.status_code}")
+        sr = seg.frame_rate
 
-        if response.status_code == 200:
-            isolated_audio = response.content
-            audio_base64 = base64.b64encode(isolated_audio).decode("utf-8")
-            print("[/audio-isolation] ✅ Gürültüsüz ses başarıyla elde edildi.")
-            return {"audio_base64": audio_base64}
-        else:
-            print("[/audio-isolation] ❌ API hatası:", response.text)
-            raise HTTPException(status_code=response.status_code, detail=response.text)
+        # Noisereduce (spektral gürültü azaltma)
+        reduced = nr.reduce_noise(y=samples, sr=sr, prop_decrease=0.7, verbose=False)
+
+        # WAV olarak buffer’a yaz, sonra tekrar pydub ile m4a/mp3’e dön
+        wav_buf = io.BytesIO()
+        sf.write(wav_buf, reduced, sr, format="WAV")
+        wav_buf.seek(0)
+
+        cleaned = AudioSegment.from_file(wav_buf, format="wav")
+        out_buf = io.BytesIO()
+        # M4A yazımı için ffmpeg; isterseniz "mp3" seçebilirsiniz
+        cleaned.export(out_buf, format="mp3")  # "mp3" daha sorunsuz
+        out_bytes = out_buf.getvalue()
+
+        audio_base64_out = base64.b64encode(out_bytes).decode("utf-8")
+        print("[/audio-isolation] ✅ Gürültü azaltma tamam.")
+        return {"audio_base64": audio_base64_out}
 
     except Exception as e:
-        print("[/audio-isolation] ❗️ Hata:", str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
+        print("[/audio-isolation] ❗️ Hata, orijinal ses iade edilecek:", str(e))
+        # Fail-safe: Orijinal sesi geri ver
+        return {"audio_base64": base64_audio}
 
 @app.post("/summarize-excel-url/")
 async def summarize_excel_from_url(data: dict):
@@ -1295,3 +1248,233 @@ Soru: {question}
         raise
 
     return {"answer": answer, "context_used": top_chunks}
+
+
+
+##
+IMAGE_ENDPOINT = "https://api.aiornot.com/v1/reports/image"
+MOCK_MODE = os.getenv("MOCK_MODE", "0") == "1"
+
+# --- Firebase init (service account JSON'u base64 ile ENV'den) ---
+FIREBASE_SERVICE_ACCOUNT_BASE64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64")
+if FIREBASE_SERVICE_ACCOUNT_BASE64 and not firebase_admin._apps:
+    decoded = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_BASE64).decode("utf-8")
+    cred = credentials.Certificate(json.loads(decoded))
+    firebase_admin.initialize_app(cred)
+db = firestore.client()
+##
+
+def decode_base64_maybe_data_url(s: str) -> bytes:
+    """Hem düz base64'ü hem de data URL'yi destekler."""
+    if not isinstance(s, str):
+        raise ValueError("image_base64 must be a string")
+    if s.startswith("data:"):
+        m = re.match(r"^data:[^;]+;base64,(.+)$", s)
+        if not m:
+            raise ValueError("Invalid data URL")
+        s = m.group(1)
+    return base64.b64decode(s)
+
+def interpret_messages_legacy(data):
+    """
+    Eski 'messages' array'ini üretir ("Medium Likely AI", "Good", "No" gibi).
+    """
+    msgs = []
+    report = data.get("report", {}) or {}
+    facets = data.get("facets", {}) or {}
+    verdict = report.get("verdict")
+    ai_info = report.get("ai", {}) or {}
+    human_info = report.get("human", {}) or {}
+    generators = report.get("generator", {}) or {}
+
+    # verdict
+    if verdict == "ai":
+        c = ai_info.get("confidence", 0.0) or 0.0
+        if c >= 0.95: msgs.append("High Likely AI")
+        elif 0.7 <= c < 0.95: msgs.append("Medium Likely AI")
+        elif 0.5 <= c < 0.7: msgs.append("Low Likely AI")
+        else: msgs.append("Possibly AI")
+    elif verdict == "human":
+        c = human_info.get("confidence", 0.0) or 0.0
+        if c >= 0.9: msgs.append("High Likely Human")
+        elif c < 0.7: msgs.append("Likely Human")
+        else: msgs.append("Possibly Human")
+    else:
+        msgs.append("Unknown")
+
+    # generator (varsa)
+    for gen_name, gen_data in generators.items():
+        if gen_data.get("is_detected") and (gen_data.get("confidence", 0) or 0) >= 0.7:
+            msgs.append(
+                f"🖼️ İçerik, %{int(gen_data['confidence'] * 100)} oranla "
+                f"{gen_name.replace('_',' ').title()} tarafından oluşturulmuş olabilir."
+            )
+            break
+
+    # quality / nsfw
+    quality = (facets.get("quality", {}) or {}).get("is_detected", True)
+    nsfw = (facets.get("nsfw", {}) or {}).get("is_detected", False)
+    msgs.append("Good" if quality else "Bad")
+    msgs.append("Yes" if nsfw else "No")
+    return msgs
+
+def format_summary_tr(data) -> str:
+    """
+    İnsan-dili Türkçe özet:
+    - % güvene göre: AI/insan
+    - kalite: iyi/kötü
+    - NSFW: sorun var/yok
+    """
+    report = data.get("report", {}) or {}
+    facets = data.get("facets", {}) or {}
+    verdict = report.get("verdict")
+    ai_conf = float((report.get("ai", {}) or {}).get("confidence", 0.0) or 0.0)
+    human_conf = float((report.get("human", {}) or {}).get("confidence", 0.0) or 0.0)
+
+    if verdict == "ai":
+        pct = round(ai_conf * 100)
+        base = f"Görsel, %{pct} olasılıkla yapay zeka tarafından üretilmiş"
+        if ai_conf >= 0.95:
+            base += " (yüksek güven)."
+        elif ai_conf >= 0.7:
+            base += " (orta-yüksek güven)."
+        else:
+            base += "."
+    elif verdict == "human":
+        pct = round(human_conf * 100)
+        base = f"Görsel, %{pct} olasılıkla insan tarafından üretilmiş"
+        if human_conf >= 0.9:
+            base += " (yüksek güven)."
+        else:
+            base += "."
+    else:
+        base = "Görselin kaynağı net değil."
+
+    quality_good = (facets.get("quality", {}) or {}).get("is_detected", True)
+    nsfw_flag = (facets.get("nsfw", {}) or {}).get("is_detected", False)
+    quality_part = "Görsel yapısı iyi." if quality_good else "Görsel kalitesi düşük."
+    nsfw_part = "NSFW açısından bir sorun görünmüyor." if not nsfw_flag else "NSFW içerik tespit edildi."
+    return f"{base} {quality_part} {nsfw_part}"
+
+@app.get("/healthz")
+def healthz():
+    return "OK", 200
+
+@app.post("/analyze-image")
+def analyze_image():
+    """
+    Beklenen body:
+    {
+      "image_base64": "<base64 veya data URL>",
+      "user_id": "uid",
+      "chat_id": "cid"
+    }
+
+    Dönüş:
+    {
+      "raw_response": {...},
+      "messages": ["Medium Likely AI", "Good", "No"],
+      "summary_tr": "Görsel, %99 ... Görsel yapısı iyi. NSFW ...",
+      "saved": { "message_id": "...", "path": "users/{uid}/chats/{cid}/messages" }
+    }
+    """
+    payload = request.get_json(silent=True) or {}
+    print("[/analyze-image] Gelen JSON:", payload)
+
+    image_b64 = payload.get("image_base64")
+    user_id = payload.get("user_id")
+    chat_id = payload.get("chat_id")
+    if not image_b64:
+        return jsonify({"error": "No base64 image data provided"}), 400
+    if not user_id or not chat_id:
+        return jsonify({"error": "user_id and chat_id are required"}), 400
+
+    # MOCK (sabit: %99 AI, kalite iyi, NSFW yok) — env ile aç: MOCK_MODE=1
+    if MOCK_MODE or request.args.get("mock") == "1":
+        mock = {
+            "report": {
+                "verdict": "ai",
+                "ai": {"confidence": 0.99},
+                "human": {"confidence": 0.01},
+                "generator": {}
+            },
+            "facets": {
+                "quality": {"is_detected": True, "score": 0.92},
+                "nsfw": {"is_detected": False, "score": 0.01}
+            }
+        }
+        messages = ["High Likely AI", "Good", "No"]
+        summary_tr = "Görsel, %99 olasılıkla yapay zeka tarafından üretilmiş (yüksek güven). Görsel yapısı iyi. NSFW açısından bir sorun görünmüyor."
+        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock)
+        return jsonify({
+            "raw_response": mock,
+            "messages": messages,
+            "summary_tr": summary_tr,
+            "saved": saved_info
+        }), 200
+
+    # Gerçek çağrı
+    try:
+        image_bytes = decode_base64_maybe_data_url(image_b64)
+    except Exception as e:
+        return jsonify({"error": "Invalid base64 data", "details": str(e)}), 400
+
+    files = {"object": ('image.jpg', image_bytes, 'image/jpeg')}
+    try:
+        resp = requests.post(
+            IMAGE_ENDPOINT,
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            files=files,
+            timeout=30
+        )
+    except requests.RequestException as e:
+        return jsonify({"error": "AI analysis failed", "details": str(e)}), 502
+
+    if resp.status_code != 200:
+        return jsonify({"error": "AI analysis failed", "details": resp.text, "status": resp.status_code}), 500
+
+    result = resp.json()
+    messages = interpret_messages_legacy(result)
+    summary_tr = format_summary_tr(result)
+    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result)
+
+    return jsonify({
+        "raw_response": result,
+        "messages": messages,
+        "summary_tr": summary_tr,
+        "saved": saved_info
+    }), 200
+
+def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict):
+    """
+    Firestore'a assistant mesajı olarak yazar.
+    """
+    try:
+        messages_ref = db.collection("users").document(user_id)\
+                         .collection("chats").document(chat_id)\
+                         .collection("messages")
+        doc_ref = messages_ref.add({
+            "role": "assistant",
+            "content": content,
+            "meta": {
+                "ai_detect": {
+                    "verdict": raw.get("report", {}).get("verdict"),
+                    "ai_confidence": (raw.get("report", {}).get("ai", {}) or {}).get("confidence"),
+                    "human_confidence": (raw.get("report", {}).get("human", {}) or {}).get("confidence"),
+                    "quality": (raw.get("facets", {}).get("quality", {}) or {}),
+                    "nsfw": (raw.get("facets", {}).get("nsfw", {}) or {}),
+                    "raw": raw
+                }
+            },
+            "timestamp": firestore.SERVER_TIMESTAMP
+        })
+        message_id = doc_ref[1].id if isinstance(doc_ref, tuple) else doc_ref.id
+        print("[/analyze-image] Firestore kaydı:", message_id)
+        return {"message_id": message_id, "path": f"users/{user_id}/chats/{chat_id}/messages"}
+    except Exception as e:
+        print("[/analyze-image] Firestore yazım hatası:", e)
+        return None
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host="0.0.0.0", port=port)

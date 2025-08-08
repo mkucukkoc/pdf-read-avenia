@@ -11,3 +11,8 @@ openpyxl
 python-pptx
 firebase-admin
 aiohttp
+pydub
+noisereduce
+librosa
+soundfile
+numpy
