@@ -1320,41 +1320,35 @@ def interpret_messages_legacy(data):
 
 def format_summary_tr(data) -> str:
     """
-    İnsan-dili Türkçe özet:
-    - % güvene göre: AI/insan
-    - kalite: iyi/kötü
-    - NSFW: sorun var/yok
+    Sadece yüzde, kalite ve NSFW bilgisini veren sade ama akıcı Türkçe özet.
+    'Güven seviyesi' yorumu eklenmez.
     """
     report = data.get("report", {}) or {}
     facets = data.get("facets", {}) or {}
+
     verdict = report.get("verdict")
     ai_conf = float((report.get("ai", {}) or {}).get("confidence", 0.0) or 0.0)
     human_conf = float((report.get("human", {}) or {}).get("confidence", 0.0) or 0.0)
 
     if verdict == "ai":
         pct = round(ai_conf * 100)
-        base = f"Görsel, %{pct} olasılıkla yapay zeka tarafından üretilmiş"
-        if ai_conf >= 0.95:
-            base += " (yüksek güven)."
-        elif ai_conf >= 0.7:
-            base += " (orta-yüksek güven)."
-        else:
-            base += "."
+        base = f"İnceleme sonunda görselin %{pct} ihtimalle yapay zekâ tarafından oluşturulduğu anlaşılıyor."
     elif verdict == "human":
         pct = round(human_conf * 100)
-        base = f"Görsel, %{pct} olasılıkla insan tarafından üretilmiş"
-        if human_conf >= 0.9:
-            base += " (yüksek güven)."
-        else:
-            base += "."
+        base = f"İnceleme sonunda görselin %{pct} ihtimalle insan tarafından oluşturulduğu anlaşılıyor."
     else:
-        base = "Görselin kaynağı net değil."
+        base = "Görselin kaynağı net olarak belirlenemedi."
 
     quality_good = (facets.get("quality", {}) or {}).get("is_detected", True)
     nsfw_flag = (facets.get("nsfw", {}) or {}).get("is_detected", False)
-    quality_part = "Görsel yapısı iyi." if quality_good else "Görsel kalitesi düşük."
-    nsfw_part = "NSFW açısından bir sorun görünmüyor." if not nsfw_flag else "NSFW içerik tespit edildi."
+
+    quality_part = "Görüntü kalitesi genel olarak iyi; belirgin bir bozulma ya da yapısal sorun yok." \
+        if quality_good else "Görüntüde kalite sorunları veya bozulmalar tespit edildi."
+    nsfw_part = "NSFW kontrolü açısından da olumsuz bir durum tespit edilmediği görülüyor." \
+        if not nsfw_flag else "NSFW taramasında uygunsuz içerik tespit edildi."
+
     return f"{base} {quality_part} {nsfw_part}"
+
 
 @app.get("/healthz")
 def healthz():
