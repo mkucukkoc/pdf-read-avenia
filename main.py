@@ -26,7 +26,7 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pypdf import PdfReader
-from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter
+from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter ,Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -1361,7 +1361,10 @@ def healthz():
     return "OK", 200
 
 @app.post("/analyze-image")
-def analyze_image():
+def analyze_image(
+    payload: dict = Body(...),
+    mock: str = Query(default="0")  # ?mock=1 desteği için
+):
     """
     Beklenen body:
     {
@@ -1378,20 +1381,25 @@ def analyze_image():
       "saved": { "message_id": "...", "path": "users/{uid}/chats/{cid}/messages" }
     }
     """
-    payload = request.get_json(silent=True) or {}
-    print("[/analyze-image] Gelen JSON:", payload)
+    print("========== [/analyze-image] BAŞLADI ==========")
+    print("[1] Gelen payload:", payload)
 
     image_b64 = payload.get("image_base64")
     user_id = payload.get("user_id")
     chat_id = payload.get("chat_id")
-    if not image_b64:
-        return jsonify({"error": "No base64 image data provided"}), 400
-    if not user_id or not chat_id:
-        return jsonify({"error": "user_id and chat_id are required"}), 400
+    print(f"[2] Parametreler -> user_id: {user_id}, chat_id: {chat_id}, image_base64 uzunluğu: {len(image_b64) if image_b64 else 'YOK'}")
 
-    # MOCK (sabit: %99 AI, kalite iyi, NSFW yok) — env ile aç: MOCK_MODE=1
-    if MOCK_MODE or request.args.get("mock") == "1":
-        mock = {
+    if not image_b64:
+        print("[HATA] image_base64 eksik")
+        return JSONResponse(status_code=400, content={"error": "No base64 image data provided"})
+    if not user_id or not chat_id:
+        print("[HATA] user_id veya chat_id eksik")
+        return JSONResponse(status_code=400, content={"error": "user_id and chat_id are required"})
+
+    # MOCK verisi
+    if MOCK_MODE or mock == "1":
+        print("[3] MOCK_MODE aktif - Sahte sonuç döndürülüyor.")
+        mock_result = {
             "report": {
                 "verdict": "ai",
                 "ai": {"confidence": 0.99},
@@ -1405,45 +1413,72 @@ def analyze_image():
         }
         messages = ["High Likely AI", "Good", "No"]
         summary_tr = "Görsel, %99 olasılıkla yapay zeka tarafından üretilmiş (yüksek güven). Görsel yapısı iyi. NSFW açısından bir sorun görünmüyor."
-        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock)
-        return jsonify({
-            "raw_response": mock,
+        print(f"[4] MOCK summary_tr: {summary_tr}")
+        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result)
+        print(f"[5] MOCK Firestore kayıt sonucu: {saved_info}")
+        print("========== [/analyze-image] BİTTİ (MOCK) ==========")
+        return JSONResponse(status_code=200, content={
+            "raw_response": mock_result,
             "messages": messages,
             "summary_tr": summary_tr,
             "saved": saved_info
-        }), 200
+        })
 
     # Gerçek çağrı
     try:
+        print("[3] Base64 decode başlatılıyor...")
         image_bytes = decode_base64_maybe_data_url(image_b64)
+        print(f"[3.1] Base64 decode başarılı. Byte boyutu: {len(image_bytes)}")
     except Exception as e:
-        return jsonify({"error": "Invalid base64 data", "details": str(e)}), 400
+        print("[HATA] Base64 decode başarısız:", e)
+        return JSONResponse(status_code=400, content={"error": "Invalid base64 data", "details": str(e)})
 
     files = {"object": ('image.jpg', image_bytes, 'image/jpeg')}
     try:
+        print("[4] AI or Not API'ye istek gönderiliyor...")
         resp = requests.post(
             IMAGE_ENDPOINT,
             headers={"Authorization": f"Bearer {API_KEY}"},
             files=files,
             timeout=30
         )
+        print(f"[4.1] API yanıt kodu: {resp.status_code}")
     except requests.RequestException as e:
-        return jsonify({"error": "AI analysis failed", "details": str(e)}), 502
+        print("[HATA] API isteği başarısız:", e)
+        return JSONResponse(status_code=502, content={"error": "AI analysis failed", "details": str(e)})
 
     if resp.status_code != 200:
-        return jsonify({"error": "AI analysis failed", "details": resp.text, "status": resp.status_code}), 500
+        print("[HATA] API yanıtı başarısız:", resp.text)
+        return JSONResponse(status_code=500, content={
+            "error": "AI analysis failed",
+            "details": resp.text,
+            "status": resp.status_code
+        })
 
+    print("[5] API yanıtı JSON parse ediliyor...")
     result = resp.json()
-    messages = interpret_messages_legacy(result)
-    summary_tr = format_summary_tr(result)
-    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result)
+    print("[5.1] API yanıtı:", json.dumps(result, indent=2))
 
-    return jsonify({
+    print("[6] interpret_messages_legacy çağrılıyor...")
+    messages = interpret_messages_legacy(result)
+    print(f"[6.1] interpret_messages_legacy çıktı: {messages}")
+
+    print("[7] format_summary_tr çağrılıyor...")
+    summary_tr = format_summary_tr(result)
+    print(f"[7.1] format_summary_tr çıktı: {summary_tr}")
+
+    print("[8] Firestore kaydı başlatılıyor...")
+    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result)
+    print(f"[8.1] Firestore kayıt sonucu: {saved_info}")
+
+    print("========== [/analyze-image] BİTTİ ==========")
+    return JSONResponse(status_code=200, content={
         "raw_response": result,
         "messages": messages,
         "summary_tr": summary_tr,
         "saved": saved_info
-    }), 200
+    })
+
 
 def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict):
     """
