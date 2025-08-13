@@ -16,3 +16,5 @@ noisereduce
 librosa
 soundfile
 numpy
+beautifulsoup4
+
