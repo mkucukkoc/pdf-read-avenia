@@ -419,10 +419,6 @@ def format_summary_tr(data) -> str:
 
     return f"{base} {quality_part} {nsfw_part}"
 
-
-
-
-
 def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict):
     """
     Firestore'a assistant mesajı olarak yazar.
@@ -473,8 +469,11 @@ import endpoints.summarize_json_url
 import endpoints.summarize_csv_url
 import endpoints.summarize_txt_url
 import endpoints.ask_with_embeddings
+import endpoints.search_docs
 import endpoints.healthz
 import endpoints.analyze_image
+import endpoints.image_caption
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
     app.run(host="0.0.0.0", port=port)
