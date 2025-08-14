@@ -17,4 +17,4 @@ librosa
 soundfile
 numpy
 beautifulsoup4
-
+pandas

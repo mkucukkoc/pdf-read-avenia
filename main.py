@@ -473,6 +473,7 @@ import endpoints.search_docs
 import endpoints.healthz
 import endpoints.analyze_image
 import endpoints.image_caption
+import endpoints.generate_doc_advanced
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
