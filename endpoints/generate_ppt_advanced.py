@@ -237,7 +237,7 @@ def _cover_slide(prs: Presentation, title: str, subtitle: str, theme: PPTTheme, 
     try:
         fill = s.background.fill
         fill.solid()
-        fill.fore_color.rgb = _hex_to_rgb(theme.mode == "dark" ? "#0B1220" : "#FFFFFF")
+        fill.fore_color.rgb = _hex_to_rgb("#0B1220" if theme.mode == "dark" else "#FFFFFF")
     except Exception:
         pass
 
