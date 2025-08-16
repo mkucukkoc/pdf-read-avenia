@@ -13,7 +13,8 @@ from main import (
     MOCK_MODE,
 )
 
-VIDEO_ENDPOINT = "https://api.aiornot.com/v1/reports?mod=video"
+# --- DEĞİŞTİ: Doğru video endpoint'i ---
+VIDEO_ENDPOINT = "https://api.aiornot.com/v2/video/sync"
 
 @app.post("/analyze-video")
 def analyze_video(
@@ -47,24 +48,34 @@ def analyze_video(
         print("[3] MOCK_MODE aktif - Sahte sonuç döndürülüyor.")
         mock_result = {
             "report": {
-                "verdict": "ai",
-                "ai": {"confidence": 0.9},
-                "human": {"confidence": 0.1},
-                "generator": {},
-            },
-            "facets": {
-                "quality": {"is_detected": True, "score": 0.9},
-                "nsfw": {"is_detected": False, "score": 0.01},
-            },
+                # AI or Not video şemasına yakın mock
+                "ai_video": {"is_detected": True, "confidence": 0.9},
+                "ai_voice": {"is_detected": False, "confidence": 0.1},
+                "ai_music": {"is_detected": False, "confidence": 0.1},
+                "meta": {"duration": 7, "total_bytes": 2388425}
+            }
         }
-        messages = ["Medium Likely AI", "Good", "No"]
-        summary_tr = "Video, %90 olasılıkla yapay zeka tarafından üretilmiş (orta güven). Video yapısı iyi. NSFW açısından bir sorun görünmüyor."
+        # Mevcut interpret/summary fonksiyonlarını bozmayalım diye küçük adaptasyon:
+        ai_v = mock_result["report"].get("ai_video", {}) or {}
+        conf = ai_v.get("confidence")
+        legacy_like = {
+            "report": {
+                "verdict": "ai" if ai_v.get("is_detected") else "human",
+                "ai": {"confidence": conf},
+                "human": {"confidence": (1 - conf) if isinstance(conf, (int, float, float)) else None},
+                "generator": {},
+                "meta": mock_result["report"].get("meta", {}),
+            }
+        }
+
+        messages = interpret_messages_legacy(legacy_like)
+        summary_tr = format_summary_tr(legacy_like)
         print(f"[4] MOCK summary_tr: {summary_tr}")
-        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result)
+        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result)  # orijinali kaydet
         print(f"[5] MOCK Firestore kayıt sonucu: {saved_info}")
         print("========== [/analyze-video] BİTTİ (MOCK) ==========")
         return JSONResponse(status_code=200, content={
-            "raw_response": mock_result,
+            "raw_response": mock_result,   # orijinal şema
             "messages": messages,
             "summary_tr": summary_tr,
             "saved": saved_info,
@@ -78,14 +89,15 @@ def analyze_video(
         print("[HATA] Base64 decode başarısız:", e)
         return JSONResponse(status_code=400, content={"error": "Invalid base64 data", "details": str(e)})
 
-    files = {"object": ("video.mp4", video_bytes, "video/mp4")}
+    # --- DEĞİŞTİ: alan adı 'video' olmalı ---
+    files = {"video": ("video.mp4", video_bytes, "video/mp4")}
     try:
         print("[4] AI or Not API'ye istek gönderiliyor...")
         resp = requests.post(
             VIDEO_ENDPOINT,
             headers={"Authorization": f"Bearer {API_KEY}"},
             files=files,
-            timeout=60,
+            timeout=120,  # --- DEĞİŞTİ: önerilen timeout ---
         )
         print(f"[4.1] API yanıt kodu: {resp.status_code}")
     except requests.RequestException as e:
@@ -101,24 +113,40 @@ def analyze_video(
         })
 
     print("[5] API yanıtı JSON parse ediliyor...")
-    result = resp.json()
+    result = resp.json()  # orijinal AI or Not yanıtı (video şeması)
     print("[5.1] API yanıtı:", json.dumps(result, indent=2))
 
+    # --- YENİ: Mevcut interpret/summary fonksiyonların eski şema bekliyor olabilir.
+    # Burada "legacy-like" küçük bir map ile uyumluluk sağlıyoruz. ---
+    rep = (result or {}).get("report", {}) or {}
+    ai_v = rep.get("ai_video") or {}
+    conf = ai_v.get("confidence")
+    legacy_like = {
+        "report": {
+            "verdict": "ai" if ai_v.get("is_detected") else "human",
+            "ai": {"confidence": conf},
+            "human": {"confidence": (1 - conf) if isinstance(conf, (int, float, float)) else None},
+            "generator": {},
+            "meta": rep.get("meta", {}),
+        }
+    }
+
     print("[6] interpret_messages_legacy çağrılıyor...")
-    messages = interpret_messages_legacy(result)
+    messages = interpret_messages_legacy(legacy_like)
     print(f"[6.1] interpret_messages_legacy çıktı: {messages}")
 
     print("[7] format_summary_tr çağrılıyor...")
-    summary_tr = format_summary_tr(result)
+    summary_tr = format_summary_tr(legacy_like)
     print(f"[7.1] format_summary_tr çıktı: {summary_tr}")
 
     print("[8] Firestore kaydı başlatılıyor...")
+    # Kayda ORİJİNAL sonucu geçiyoruz (eski davranış korunur)
     saved_info = _save_asst_message(user_id, chat_id, summary_tr, result)
     print(f"[8.1] Firestore kayıt sonucu: {saved_info}")
 
     print("========== [/analyze-video] BİTTİ ==========")
     return JSONResponse(status_code=200, content={
-        "raw_response": result,
+        "raw_response": result,   # orijinal video şeması
         "messages": messages,
         "summary_tr": summary_tr,
         "saved": saved_info,
