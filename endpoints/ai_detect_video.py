@@ -117,8 +117,10 @@ def analyze_video(
     try:
         print("[3] Base64 decode başlatılıyor...")
         video_bytes = decode_base64_maybe_data_url(video_b64)
-        print(f"[3.2] Video MD5: {video_md5}")
         print(f"[3.1] Base64 decode başarılı. Byte boyutu: {len(video_bytes)}")
+
+        video_md5 = hashlib.md5(video_bytes).hexdigest()
+        print(f"[3.2] Video MD5: {video_md5}")
     except Exception as e:
         print("[HATA] Base64 decode başarısız:", e)
         return JSONResponse(status_code=400, content={"error": "Invalid base64 data", "details": str(e)})
