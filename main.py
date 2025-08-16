@@ -471,10 +471,11 @@ import endpoints.summarize_txt_url
 import endpoints.ask_with_embeddings
 import endpoints.search_docs
 import endpoints.healthz
-import endpoints.analyze_image
+import endpoints.ai_analyze_image
 import endpoints.image_caption
 import endpoints.generate_doc_advanced
 import endpoints.generate_ppt_advanced
+import endpoints.ai_detect_video
 
 
 if __name__ == "__main__":
