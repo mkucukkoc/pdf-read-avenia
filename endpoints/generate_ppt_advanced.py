@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Literal
 
 import requests
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, validator, ValidationError
+from pydantic import BaseModel, Field, validator
 
 from main import app, client, DEFAULT_MODEL, storage  # projendeki mevcut import yapısı
 from pptx import Presentation
@@ -24,6 +24,14 @@ from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 # ───────────────────────────────────────────────────────────────────────────────
 # Pydantic Request & Plan Şeması
 # ───────────────────────────────────────────────────────────────────────────────
+
+class BrandKit(BaseModel):
+    primary: Optional[str] = None
+    secondary: Optional[str] = None
+    accent: Optional[str] = None
+    title_font: Optional[str] = None
+    body_font: Optional[str] = None
+    logo_url: Optional[str] = None
 
 class PPTTheme(BaseModel):
     mode: Literal["light", "dark"] = "light"
@@ -47,25 +55,37 @@ class Plan(BaseModel):
     slides: List[SlideSpec]
 
 class PPTAdvancedRequest(BaseModel):
+    # içerik
     prompt: str
     language: Literal["tr", "en"] = "tr"
+    audience: Optional[str] = None          # hedef kitle
+    purpose: Optional[str] = None           # eğitim / pitch / iç iletişim vb.
     title: Optional[str] = None
+    outline: Optional[List[str]] = None
+
+    # üretim hedefleri
     slide_goal: int = 12
+    charts_allowed: bool = True
+    image_policy: Literal["generate", "none"] = "generate"
+    image_style: Optional[str] = "clean, modern, flat illustration"
+    speaker_notes: bool = True
+
+    # mizanpaj / tema
     aspect_ratio: Literal["16:9", "4:3"] = "16:9"
     include_cover: bool = True
     include_agenda: bool = True
     include_summary: bool = True
+    include_qna: bool = True
+    include_closing: bool = True
     slide_numbers: bool = True
     header_text: Optional[str] = None
     footer_text: Optional[str] = None
     logo_url: Optional[str] = None
     theme: Optional[PPTTheme] = PPTTheme()
-    image_policy: Literal["generate", "none"] = "generate"
-    image_style: Optional[str] = "clean, modern, flat illustration"
-    charts_allowed: bool = True
-    outline: Optional[List[str]] = None
+    brand_kit: Optional[BrandKit] = None
+
+    # referanslar
     references: Optional[List[str]] = None
-    speaker_notes: bool = True
 
     @validator("slide_goal")
     def _slide_goal_min(cls, v):
@@ -79,11 +99,24 @@ class PPTAdvancedRequest(BaseModel):
 # ───────────────────────────────────────────────────────────────────────────────
 
 def _hex_to_rgb(hex_color: str) -> RGBColor:
-    hex_color = hex_color.lstrip("#")
+    hex_color = (hex_color or "#000000").lstrip("#")
+    if len(hex_color) < 6:
+        hex_color = hex_color.zfill(6)
     r = int(hex_color[0:2], 16)
     g = int(hex_color[2:4], 16)
     b = int(hex_color[4:6], 16)
     return RGBColor(r, g, b)
+
+def _apply_brand_kit(theme: PPTTheme, brand: Optional[BrandKit]) -> PPTTheme:
+    if not brand:
+        return theme
+    # brand kit varsa temayı override et
+    theme.primary   = brand.primary   or theme.primary
+    theme.secondary = brand.secondary or theme.secondary
+    theme.accent    = brand.accent    or theme.accent
+    theme.title_font= brand.title_font or theme.title_font
+    theme.body_font = brand.body_font  or theme.body_font
+    return theme
 
 def _new_presentation(aspect_ratio: str) -> Presentation:
     prs = Presentation()
@@ -98,7 +131,7 @@ def _new_presentation(aspect_ratio: str) -> Presentation:
 
 def _download_to_temp(url: str, suffix: str) -> Optional[str]:
     try:
-        r = requests.get(url, timeout=20)
+        r = requests.get(url, timeout=25)
         r.raise_for_status()
         path = os.path.join(tempfile.gettempdir(), f"dl_{uuid.uuid4().hex}{suffix}")
         with open(path, "wb") as f:
@@ -110,7 +143,7 @@ def _download_to_temp(url: str, suffix: str) -> Optional[str]:
 
 def _add_header_footer_boxes(slide, header_text: Optional[str], footer_text: Optional[str],
                              slide_no: Optional[int], theme: PPTTheme):
-    # basit textbox yaklaşımı (PowerPoint header/footer API sınırlı olduğundan)
+    # PowerPoint header/footer API sınırlı → textbox ile
     if header_text:
         tb = slide.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9.0), Inches(0.5))
         tf = tb.text_frame
@@ -147,7 +180,7 @@ def _add_image(slide, image_path: str, left_in=7.2, top_in=1.5, height_in=3.5):
 def _generate_image(prompt: str) -> Optional[str]:
     try:
         dalle = client.images.generate(
-            model="dall-e-3",  # mevcut projende kullandığın modelle uyumlu
+            model="dall-e-3",
             prompt=prompt,
             n=1,
             size="1024x1024",
@@ -158,7 +191,8 @@ def _generate_image(prompt: str) -> Optional[str]:
         print("[/generate-ppt-advanced] ❌ Image generation failed:", e)
         return None
 
-def _add_bullets_textbox(slide, text: List[str], theme: PPTTheme, left=0.8, top=1.6, width=6.0, height=4.5, font_size=18):
+def _add_bullets_textbox(slide, text: List[str], theme: PPTTheme,
+                         left=0.8, top=1.6, width=6.0, height=4.5, font_size=18):
     tb = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = tb.text_frame
     tf.clear()
@@ -179,7 +213,17 @@ def _add_title(slide, title: str, theme: PPTTheme):
     p.font.bold = True
     p.font.size = Pt(34)
     p.font.name = theme.title_font
-    p.font.color.rgb = _hex_to_rgb(theme.mode == "dark" and "#FFFFFF" or "#111827")
+    p.font.color.rgb = _hex_to_rgb("#FFFFFF" if theme.mode == "dark" else "#111827")
+
+def _add_subtitle(slide, subtitle: str, theme: PPTTheme):
+    sb = slide.shapes.add_textbox(Inches(0.9), Inches(2.0), Inches(10.8), Inches(1.0))
+    tf = sb.text_frame
+    tf.clear()
+    p = tf.paragraphs[0]
+    p.text = subtitle
+    p.font.size = Pt(20)
+    p.font.name = theme.body_font
+    p.font.color.rgb = _hex_to_rgb("#9CA3AF")
 
 def _add_quote(slide, text: str, theme: PPTTheme):
     tb = slide.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(10.5), Inches(3.5))
@@ -242,23 +286,16 @@ def _cover_slide(prs: Presentation, title: str, subtitle: str, theme: PPTTheme, 
         pass
 
     _add_title(s, title, theme)
-    sb = s.shapes.add_textbox(Inches(0.9), Inches(2.0), Inches(10.8), Inches(1.0))
-    tf = sb.text_frame
-    tf.clear()
-    p = tf.paragraphs[0]
-    p.text = subtitle
-    p.font.size = Pt(20)
-    p.font.name = theme.body_font
-    p.font.color.rgb = _hex_to_rgb("#6B7280")
+    _add_subtitle(s, subtitle, theme)
 
     if logo_url:
         path = _download_to_temp(logo_url, ".png")
         if path:
             _add_image(s, path, left_in=0.6, top_in=6.2, height_in=0.6)
 
-def _agenda_slide(prs: Presentation, plan: Plan, theme: PPTTheme):
+def _agenda_slide(prs: Presentation, plan: Plan, theme: PPTTheme, language="tr"):
     s = prs.slides.add_slide(prs.slide_layouts[6])
-    _add_title(s, "Agenda" if theme.mode != "tr" else "Gündem", theme)
+    _add_title(s, "Agenda" if language == "en" else "Gündem", theme)
     titles = [sl.title for sl in plan.slides]
     _add_bullets_textbox(s, titles, theme)
     return s
@@ -272,6 +309,21 @@ def _summary_slide(prs: Presentation, plan: Plan, theme: PPTTheme, language="tr"
     _add_bullets_textbox(s, bullets, theme)
     return s
 
+def _qna_slide(prs: Presentation, theme: PPTTheme, language="tr"):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title(s, "Q&A" if language == "en" else "Soru & Cevap", theme)
+    _add_bullets_textbox(s, [
+        "—", "—", "—"
+    ], theme)
+    return s
+
+def _closing_slide(prs: Presentation, theme: PPTTheme, language="tr", cta: Optional[str] = None):
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_title(s, "Thank You" if language == "en" else "Teşekkürler", theme)
+    if cta:
+        _add_bullets_textbox(s, [cta], theme)
+    return s
+
 def _render_content_slide(prs: Presentation, spec: SlideSpec, idx: int, theme: PPTTheme,
                           image_policy: str, speaker_notes: bool,
                           header_text: Optional[str], footer_text: Optional[str], slide_numbers: bool):
@@ -279,7 +331,7 @@ def _render_content_slide(prs: Presentation, spec: SlideSpec, idx: int, theme: P
     _add_title(s, spec.title, theme)
 
     # içerik
-    if spec.type in ["bullets", "two-column", "section", "title"]:
+    if spec.type in ["bullets", "two-column", "section", "title", "comparison", "timeline"]:
         bullets = spec.bullets or []
         if spec.type == "two-column" and len(bullets) >= 4:
             mid = math.ceil(len(bullets)/2)
@@ -321,30 +373,27 @@ def _render_content_slide(prs: Presentation, spec: SlideSpec, idx: int, theme: P
 
 
 def _extract_json(text: str) -> str:
-    # Model "sadece JSON" desek de bazen uymayabilir. İlk JSON bloğunu çekelim.
+    # Model "sadece JSON" desek de bazen uymayabilir. İlk JSON bloğunu çek.
     try:
-        # düz JSON ise
         json.loads(text)
         return text
     except Exception:
         pass
-
-    # { ... } bloğunu yakala
     m = re.search(r'\{[\s\S]*\}', text)
     if m:
         return m.group(0)
     raise ValueError("JSON plan parse edilemedi.")
 
-
 def _ensure_slide_goal(plan: Plan, goal: int) -> Plan:
     slides = plan.slides[:]
-
     # azsa: çok bullet'lı slaytları böl
     while len(slides) < goal:
+        if not slides:
+            break
         idx = max(range(len(slides)), key=lambda i: len(slides[i].bullets or []))
         cand = slides[idx]
         if not cand.bullets or len(cand.bullets) < 4:
-            break  # daha fazla bölemiyoruz
+            break
         mid = len(cand.bullets)//2
         left = SlideSpec(type=cand.type, title=cand.title + " (1)", bullets=cand.bullets[:mid],
                          image_prompt=cand.image_prompt, notes=cand.notes, chart_spec=cand.chart_spec)
@@ -353,7 +402,6 @@ def _ensure_slide_goal(plan: Plan, goal: int) -> Plan:
         slides.pop(idx)
         slides.insert(idx, right)
         slides.insert(idx, left)
-
     # fazlaysa: sondan birleştir
     while len(slides) > goal and len(slides) >= 2:
         a = slides[-2]
@@ -362,20 +410,18 @@ def _ensure_slide_goal(plan: Plan, goal: int) -> Plan:
         a = SlideSpec(
             type=a.type if a.type != "title" else "bullets",
             title=a.title,
-            bullets=merged_bullets[:10],  # çok taşmasın
+            bullets=merged_bullets[:10],
             image_prompt=a.image_prompt or b.image_prompt,
-            notes=(a.notes or "") + ("\n" + (b.notes or "")),
+            notes=((a.notes or "") + ("\n" + (b.notes or "") if b.notes else "")) or None,
             chart_spec=a.chart_spec or b.chart_spec
         )
         slides = slides[:-2] + [a]
-
     return Plan(title=plan.title, slides=slides)
-
 
 def _build_plan_prompt(data: PPTAdvancedRequest):
     lang = data.language
     goal = data.slide_goal
-    outline_str = "\n".join([f"- {o}" for o in (data.outline or [])])
+    outline_str = "\n".join([f"- {o}" for o in (data.outline or [])]) if data.outline else ""
     outline_block = outline_str if outline_str else "(If outline missing, propose a strong outline.)"
 
     # modelden sadece JSON isteme
@@ -385,6 +431,8 @@ def _build_plan_prompt(data: PPTAdvancedRequest):
     )
     user = f"""
 LANGUAGE: {lang}
+AUDIENCE: {data.audience or "-"}
+PURPOSE: {data.purpose or "-"}
 TITLE: {data.title or 'Presentation'}
 SLIDE_GOAL: exactly {goal} slides
 IMAGE_STYLE: {data.image_style}
@@ -415,8 +463,8 @@ JSON SCHEMA (example):
 CONSTRAINTS:
 - Exactly {goal} slides
 - Titles concise; bullets <= 5 and <= 12 words each
-- Use slides of mixed types when helpful
-- Respect LANGUAGE for all text
+- Use mixed slide types (sections, two-column, quotes, charts when helpful)
+- Respect LANGUAGE for all text and notes
 """
     return system, user
 
@@ -431,6 +479,12 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
     warnings = []
 
     try:
+        # 0) Tema + brand kit
+        theme = data.theme or PPTTheme()
+        theme = _apply_brand_kit(theme, data.brand_kit)
+        if (not data.logo_url) and (data.brand_kit and data.brand_kit.logo_url):
+            data.logo_url = data.brand_kit.logo_url
+
         # 1) Plan üret
         print("[/generate-ppt-advanced] 🧠 Plan üretimi isteniyor...")
         system, user = _build_plan_prompt(data)
@@ -459,7 +513,6 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
 
         # 2) Sunum hazırla
         print("[/generate-ppt-advanced] 🎨 Sunum kuruluyor...")
-        theme = data.theme or PPTTheme()
         prs = _new_presentation(data.aspect_ratio)
 
         # 2.a) Kapak
@@ -470,11 +523,11 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
         # 2.b) Agenda
         if data.include_agenda:
             print("[/generate-ppt-advanced] 🗂️ Agenda slaytı ekleniyor...")
-            _agenda_slide(prs, plan_obj, theme)
+            _agenda_slide(prs, plan_obj, theme, language=data.language)
 
         # 2.c) İçerik slaytları
         print("[/generate-ppt-advanced] 🧱 İçerik slaytları render ediliyor...")
-        base_index = len(prs.slides)  # kapak/agenda sonrası
+        base_index = len(prs.slides)  # kapak/agenda sonrası indeks başlangıcı
         for i, spec in enumerate(plan_obj.slides, 1):
             idx = base_index + i
             print(f"[/generate-ppt-advanced] 📄 Slayt {idx}: {spec.title[:60]}...")
@@ -492,7 +545,17 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
             print("[/generate-ppt-advanced] 🧩 Özet slaytı ekleniyor...")
             _summary_slide(prs, plan_obj, theme, language=data.language)
 
-        # 2.e) Referanslar
+        # 2.e) Q&A
+        if data.include_qna:
+            print("[/generate-ppt-advanced] ❓ Q&A slaytı ekleniyor...")
+            _qna_slide(prs, theme, language=data.language)
+
+        # 2.f) Kapanış / CTA
+        if data.include_closing:
+            print("[/generate-ppt-advanced] ✅ Kapanış slaytı ekleniyor...")
+            _closing_slide(prs, theme, language=data.language, cta=None)
+
+        # 2.g) Referanslar
         if data.references:
             print("[/generate-ppt-advanced] 🔗 Referans slaytı ekleniyor...")
             s = prs.slides.add_slide(prs.slide_layouts[6])
