@@ -98,6 +98,47 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any) -> Di
         return {"saved": False, "message_id": None, "path": path, "error": str(e)}
 
 
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# EKLENEN: Kısa chunk'ları min_chars_required'e ulaşana kadar birleştir.
+def _coalesce_short_chunks(chunks: List[Dict[str, str]], min_chars: int) -> List[Dict[str, str]]:
+    coalesced: List[Dict[str, str]] = []
+    buf_txt: List[str] = []
+    buf_src: List[str] = []
+    buf_len = 0
+
+    logger.info("[/check-ai] coalesce: start chunks=%d min_chars=%d", len(chunks), min_chars)
+    for ch in chunks:
+        t = ch.get("text") or ""
+        s = ch.get("source") or "?"
+        if len(t) >= min_chars:
+            if buf_txt:
+                combined = "\n".join(buf_txt)
+                coalesced.append({"source": "+".join(buf_src), "text": combined})
+                logger.debug("[/check-ai] coalesce flush -> sources=%s total_chars=%d", buf_src, len(combined))
+                buf_txt, buf_src, buf_len = [], [], 0
+            coalesced.append(ch)
+            logger.debug("[/check-ai] coalesce keep -> source=%s len=%d", s, len(t))
+        else:
+            buf_txt.append(t)
+            buf_src.append(s)
+            buf_len += len(t)
+            logger.debug("[/check-ai] coalesce add -> source=%s buf_len=%d", s, buf_len)
+            if buf_len >= min_chars:
+                combined = "\n".join(buf_txt)
+                coalesced.append({"source": "+".join(buf_src), "text": combined})
+                logger.debug("[/check-ai] coalesce emit -> sources=%s total_chars=%d", buf_src, len(combined))
+                buf_txt, buf_src, buf_len = [], [], 0
+
+    if buf_txt:
+        combined = "\n".join(buf_txt)
+        coalesced.append({"source": "+".join(buf_src), "text": combined})
+        logger.debug("[/check-ai] coalesce tail -> sources=%s total_chars=%d", buf_src, len(combined))
+
+    logger.info("[/check-ai] coalesce: end new_chunks=%d", len(coalesced))
+    return coalesced
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
 @app.post("/check-ai")
 async def check_ai(
     file: UploadFile = File(...),
@@ -233,6 +274,15 @@ async def check_ai(
             for part in split_text_by_size(c["text"], max_chars_per_chunk):
                 new_chunks.append({"source": c["source"], "text": part})
         chunks = new_chunks
+
+    # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+    # EKLENEN: Sağlayıcı minimumu (< min_chars_required) yakalamak için birleştir.
+    if any(len((c.get("text") or "")) < min_chars_required for c in chunks):
+        logger.info("[/check-ai] some chunks < %d chars → coalescing …", min_chars_required)
+        before = len(chunks)
+        chunks = _coalesce_short_chunks(chunks, min_chars_required)
+        logger.info("[/check-ai] after coalesce: chunks=%d (was %d)", len(chunks), before)
+    # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
     logger.info("[/check-ai] final_chunks_count=%s", len(chunks))
     total_chars_extracted = sum(len(c["text"]) for c in chunks)
