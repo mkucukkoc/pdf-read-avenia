@@ -150,6 +150,7 @@ def analyze_video(
 
     print("[5] API yanıtı JSON parse ediliyor...")
     result = resp.json()  # orijinal AI or Not yanıtı (video şeması)
+    print("[5.1] API yanıtı 2 :" , resp.json())
     print("[5.1] API yanıtı:", json.dumps(result, indent=2))
     _log_aiornot_breakdown(result, resp)
 
