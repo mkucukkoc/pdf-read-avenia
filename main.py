@@ -26,8 +26,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pypdf import PdfReader
-from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter ,Query
+from fastapi import FastAPI, UploadFile, HTTPException, Body, Form, APIRouter, Query
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -56,6 +57,13 @@ if not firebase_admin._apps:
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -476,6 +484,7 @@ import endpoints.image_caption
 import endpoints.generate_doc_advanced
 import endpoints.generate_ppt_advanced
 import endpoints.ai_detect_video
+import endpoints.check_ai
 
 
 if __name__ == "__main__":
