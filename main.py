@@ -35,10 +35,51 @@ from openai import OpenAI
 
 import firebase_admin
 from firebase_admin import credentials, storage, firestore
-
+import os, sys, logging
 
 
 router = APIRouter()
+
+# --- LOGGING FORCE CONFIG (put this at the very top of main.py) ---
+
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s %(levelname)s [%(name)s] %(message)s")
+
+# Root logger -> stdout, force override uvicorn defaults
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.DEBUG),
+    format=LOG_FORMAT,
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,  # override any existing handlers from uvicorn etc.
+)
+
+root = logging.getLogger()
+
+# Make uvicorn loggers use the same handlers/level (error + access + general)
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    lg = logging.getLogger(name)
+    lg.handlers = root.handlers
+    lg.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+    lg.propagate = False
+
+# (İsteğe bağlı) Sık kullanılan kütüphaneleri de aynı seviyeye çek
+for name in (
+    "httpx", "asyncio", "pydantic", "pdf2image", "pytesseract",
+    "pypdf", "pptx", "docx", "PIL"
+):
+    lg = logging.getLogger(name)
+    lg.handlers = root.handlers
+    lg.setLevel(getattr(logging, LOG_LEVEL, logging.DEBUG))
+    lg.propagate = False
+
+# Render/containers: anında flush için
+try:
+    sys.stdout.reconfigure(line_buffering=True)  # Py3.7+
+except Exception:
+    pass
+# --- END LOGGING FORCE CONFIG ---
+
 
 
 from dotenv import load_dotenv
