@@ -301,53 +301,93 @@ async def check_ai(
         for idx, chunk in enumerate(chunks, start=1):
             wc = word_count(chunk["text"])
             cc = char_count(chunk["text"])
-            total_words += wc
-            total_chars += cc
-            logger.info("[/check-ai] chunk idx=%s source=%s wc=%s cc=%s text_preview=%s", idx, chunk["source"], wc, cc, (chunk["text"] or "")[:120])
+            logger.info("[/check-ai] chunk idx=%s source=%s wc=%s cc=%s text_preview=%s",
+                        idx, chunk["source"], wc, cc, (chunk["text"] or "")[:120])
+
             params = {}
             if external_id:
                 params["external_id"] = f"{external_id}-chunk-{idx}"
             data = {"text": chunk["text"]}
             headers = {"Authorization": f"Bearer {AIORNOT_API_KEY}"}
+
             for attempt in range(3):
                 try:
-                    logger.info("[/check-ai] → POST attempt=%s idx=%s url=%s params=%s", attempt + 1, idx, "https://api.aiornot.com/v2/text/sync", params)
+                    logger.info("[/check-ai] → POST attempt=%s idx=%s url=%s params=%s",
+                                attempt + 1, idx, "https://api.aiornot.com/v2/text/sync", params)
                     resp = await client.post(
                         "https://api.aiornot.com/v2/text/sync",
                         params=params,
-                        data=data,
+                        data=data,            # form-encoded; JSON gerekiyorsa burada json=data yapabilirsin
                         headers=headers,
                         timeout=60,
                     )
                     logger.info("[/check-ai] ← status=%s idx=%s", resp.status_code, idx)
+
                     if resp.status_code == 200:
                         rjson = resp.json()
                         logger.debug("[/check-ai] resp_json_preview idx=%s %s", idx, str(rjson)[:300])
+
+                        # --- ŞEMA NORMALİZASYONU ---
+                        report = (rjson.get("report") or {})
+                        ai_block = (report.get("ai_text") or report.get("ai") or {})  # bazı sürümlerde 'ai' olabilir
+
+                        # is_detected
+                        if ai_block.get("is_detected") is not None:
+                            is_detected = bool(ai_block.get("is_detected"))
+                        else:
+                            is_detected = bool(rjson.get("ai_generated", False))
+
+                        # confidence
+                        if ai_block.get("confidence") is not None:
+                            confidence_val = ai_block.get("confidence")
+                        else:
+                            confidence_val = rjson.get("confidence", 0.0)
+                        try:
+                            confidence_norm = float(confidence_val or 0.0)
+                        except Exception:
+                            confidence_norm = 0.0
+                        # --- son ---
+
                         provider_raw.append(rjson)
                         results.append({
                             "index": idx,
                             "source": chunk["source"],
                             "word_count": wc,
                             "character_count": cc,
-                            "is_detected": rjson.get("ai_generated", False),
-                            "confidence": rjson.get("confidence", 0.0),
+                            "is_detected": is_detected,
+                            "confidence": confidence_norm,
                             "provider_id": rjson.get("id"),
                             "created_at": rjson.get("created_at"),
                         })
-                        logger.info("[/check-ai] result appended idx=%s is_detected=%s confidence=%s", idx, results[-1]["is_detected"], results[-1]["confidence"])
+                        logger.info("[/check-ai] result appended idx=%s is_detected=%s confidence=%s",
+                                    idx, is_detected, confidence_norm)
+
+                        # Toplamları SADECE başarılı çağrılara ekle
+                        total_words += wc
+                        total_chars += cc
                         break
+
                     if 400 <= resp.status_code < 500:
-                        logger.warning("[/check-ai] client error status=%s body_preview=%s", resp.status_code, (resp.text or "")[:300])
-                        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                        body_preview = (await resp.aread())[:300].decode(errors="ignore")
+                        logger.warning("[/check-ai] client error status=%s body_preview=%s",
+                                       resp.status_code, body_preview)
+                        raise HTTPException(status_code=resp.status_code, detail=body_preview)
+
                 except httpx.TimeoutException:
                     logger.warning("[/check-ai] timeout attempt=%s idx=%s", attempt + 1, idx)
                     if attempt == 2:
                         logger.error("[/check-ai] timeout final attempt idx=%s", idx)
-                        raise HTTPException(status_code=504, detail="AI or Not zaman aşımı")
+                        # zaman aşımında da parçayı atlayıp devam et
+                        break
+
                 await asyncio.sleep(2 ** attempt)
+
             else:
-                logger.error("[/check-ai] provider service error after retries idx=%s", idx)
-                raise HTTPException(status_code=502, detail="AI or Not hizmet hatası")
+                # for-attempt döngüsünden hiç break edilmediyse (yani başarı yoksa)
+                logger.error("[/check-ai] provider service error after retries — skipping idx=%s", idx)
+                # bu parça sonuçlara eklenmeden atlanır
+                continue
+
 
     ai_weight = sum(r["word_count"] for r in results if r["is_detected"])
     human_weight = total_words - ai_weight
