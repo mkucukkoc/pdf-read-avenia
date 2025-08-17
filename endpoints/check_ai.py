@@ -314,7 +314,6 @@ async def check_ai(
         "confidence": confidence,
         "ocr_used": ocr_used,
     }
-    logger.debug("[/check-ai] merged_raw_preview=%s", str({k: merged_raw[k] if k != "chunks" else f'[{len(merged_raw["chunks"])} chunks]'}))
 
     summary = format_summary_tr({"ai_generated": ai_generated, "confidence": confidence})
     messages = interpret_messages_legacy({"ai_generated": ai_generated, "confidence": confidence})
