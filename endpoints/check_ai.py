@@ -326,13 +326,39 @@ async def check_ai(
         chunks = _coalesce_short_chunks(chunks, min_chars_required)
         logger.info("[/check-ai] after coalesce: chunks=%d (was %d)", len(chunks), before)
     # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
     logger.info("[/check-ai] final_chunks_count=%s", len(chunks))
     total_chars_extracted = sum(len(c["text"]) for c in chunks)
     logger.info("[/check-ai] total_chars_extracted=%s min_required=%s", total_chars_extracted, min_chars_required)
+
     if total_chars_extracted < min_chars_required:
-        logger.warning("[/check-ai] text too short after extraction")
-        raise HTTPException(status_code=400, detail="Metin çıkarılamadı veya çok kısa. OCR deneyin / resim ağırlıklı olabilir.")
+        logger.warning(
+            "[/check-ai] text too short after extraction (len=%d, min=%d)",
+            total_chars_extracted, min_chars_required
+    )
+
+    user_hint = (
+        "Çıkarılan metin minimum eşikten kısa görünüyor; bu yüzden AI tespiti yapılmadı. "
+        "Daha sağlıklı analiz için şunları deneyebilirsiniz: "
+        "• min_chars_required değerini düşürmek, "
+        "• chunk_strategy=none ya da size kullanmak, "
+        "• OCR seçeneklerini açmak (PDF/Office), "
+        "• belgeye birkaç cümle daha eklemek."
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "document_type": file_type,
+            "insufficient_text": True,
+            "message": "Metin miktarı analiz için düşük; sağlayıcıya göndermedik.",
+            "hint": user_hint,
+            "total_characters": total_chars_extracted,
+            "min_chars_required": min_chars_required,
+            "chunks_found": len(chunks),
+            "image_candidates": len(images_to_check),
+            "ocr_used": ocr_used,
+        },
+    )
 
     # AI or Not çağrıları
     results: List[Dict[str, Any]] = []
