@@ -70,12 +70,40 @@ def interpret_messages_legacy(data: Dict[str, Any]) -> List[str]:
 
 
 def format_summary_tr(data: Dict[str, Any]) -> str:
+    # >>> EKLENDİ: daha olasılıklı ve açıklayıcı özet + quality/nsfw dahil <<<
     logger.debug("[format_summary_tr] input=%s", {k: data.get(k) for k in ["ai_generated", "confidence", "quality", "nsfw"]})
-    conf = data.get("confidence", 0.0) * 100
-    verdict = "yapay zekâ" if data.get("ai_generated") else "insan"
+    conf = float(data.get("confidence", 0.0))
+    pct = conf * 100.0
+    ai_flag = bool(data.get("ai_generated"))
+
+    # Güven bandı metni
+    if conf >= 0.85:
+        band = "kuvvetli işaretler"
+    elif conf >= 0.60:
+        band = "belirgin işaretler"
+    elif conf >= 0.40:
+        band = "karışık / belirsiz işaretler"
+    elif conf >= 0.20:
+        band = "zayıf işaretler"
+    else:
+        band = "çok zayıf işaretler"
+
+    # Eğilim cümlesi (yumuşatılmış)
+    if ai_flag:
+        lean = "AI üretimine doğru bir eğilim"
+        stance = "Metin, yapay zekâ tarafından üretilmiş olabilir"
+    else:
+        lean = "insan yazımına daha yakın bir eğilim"
+        stance = "Metnin AI tarafından üretilmediği yönünde işaretler bulunuyor"
+
     quality = data.get("quality", "bilinmiyor")
     nsfw = data.get("nsfw", "yok")
-    summary = f"Metnin %{conf:.1f} olasılıkla {verdict} tarafından üretildi. Kalite: {quality}. NSFW: {nsfw}."
+
+    summary = (
+        f"Ön değerlendirme: göstergeler %{pct:.1f} düzeyinde {lean} olduğunu gösteriyor ({band}). "
+        f"{stance}; ancak bu sonuç kesin bir kanıt değildir. Bağlam, yoğun düzenleme/çeviri veya alıntılar "
+        f"analizi etkileyebilir. Kalite: {quality}. NSFW: {nsfw}."
+    )
     logger.debug("[format_summary_tr] output=%s", summary)
     return summary
 
@@ -405,8 +433,42 @@ async def check_ai(
         "ocr_used": ocr_used,
     }
 
-    summary = format_summary_tr({"ai_generated": ai_generated, "confidence": confidence})
-    messages = interpret_messages_legacy({"ai_generated": ai_generated, "confidence": confidence})
+    # >>> EKLENDİ: provider_raw içinden quality/nsfw (varsa) türet
+    agg_quality = None
+    agg_nsfw = None
+    try:
+        qualities = []
+        nsfws = []
+        for pr in provider_raw:
+            rep = (pr.get("report") or {})
+            q = rep.get("quality")
+            if q is None:
+                for _k, _v in rep.items():
+                    if isinstance(_v, dict) and "quality" in _v:
+                        q = _v.get("quality")
+                        break
+            if q is not None:
+                qualities.append(q)
+            n = rep.get("nsfw")
+            if n is None:
+                for _k, _v in rep.items():
+                    if isinstance(_v, dict) and "nsfw" in _v:
+                        n = _v.get("nsfw")
+                        break
+            if n is not None:
+                nsfws.append(n)
+        agg_quality = qualities[0] if qualities else None
+        if nsfws:
+            any_true = any(bool(x) and str(x).lower() not in ("0", "false", "none", "no", "yok") for x in nsfws)
+            agg_nsfw = "var" if any_true else "yok"
+    except Exception as e:  # güvenli tarafta kal
+        logger.debug("[/check-ai] quality/nsfw aggregation skipped due to: %s", e)
+
+    q_out = agg_quality if agg_quality is not None else "bilinmiyor"
+    n_out = agg_nsfw if agg_nsfw is not None else "yok"
+
+    summary = format_summary_tr({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out})
+    messages = interpret_messages_legacy({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out})
     content = summary + "\nMessages: " + ", ".join(messages)
     logger.info("[/check-ai] summary_len=%s messages_count=%s", len(summary), len(messages))
     firebase_info = _save_asst_message(user_id, chat_id, content, merged_raw)
