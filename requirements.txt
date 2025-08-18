@@ -21,3 +21,4 @@ pandas
 pillow
 pdf2image
 pytesseract
+fpdf2
