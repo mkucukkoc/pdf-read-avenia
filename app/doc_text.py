@@ -94,6 +94,41 @@ def split_pdf_by_pages(pdf_bytes: bytes, max_chars: int) -> List[Dict[str, str]]
     return chunks
 
 
+def extract_images_from_pdf_bytes(pdf_bytes: bytes) -> List[Dict[str, Image.Image]]:
+    """PDF içindeki görüntüleri çıkarır."""
+    logger.info("[extract_images_from_pdf_bytes] start bytes_len=%s", len(pdf_bytes or b""))
+    images: List[Dict[str, Image.Image]] = []
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    for p_idx, page in enumerate(reader.pages, start=1):
+        try:
+            page_images = getattr(page, "images", [])
+            logger.debug("[extract_images_from_pdf_bytes] page=%s image_count=%s", p_idx, len(page_images))
+            for i_idx, img in enumerate(page_images, start=1):
+                data = getattr(img, "data", b"")
+                logger.debug(
+                    "[extract_images_from_pdf_bytes] page=%s img=%s data_len=%s",
+                    p_idx,
+                    i_idx,
+                    len(data or b""),
+                )
+                if not data:
+                    continue
+                try:
+                    pil_img = Image.open(io.BytesIO(data))
+                    images.append({"page": p_idx, "image": pil_img})
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.error(
+                        "[extract_images_from_pdf_bytes] image open error page=%s idx=%s err=%s",
+                        p_idx,
+                        i_idx,
+                        e,
+                    )
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("[extract_images_from_pdf_bytes] page=%s error=%s", p_idx, e)
+    logger.info("[extract_images_from_pdf_bytes] end images_count=%s", len(images))
+    return images
+
+
 # ---------------- DOCX -----------------
 def extract_text_from_docx_bytes(docx_bytes: bytes) -> List[Dict[str, str]]:
     logger.info("[extract_text_from_docx_bytes] start bytes_len=%s", len(docx_bytes or b""))
