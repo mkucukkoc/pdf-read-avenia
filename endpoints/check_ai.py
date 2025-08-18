@@ -1,4 +1,5 @@
 import asyncio
+import io
 import logging
 import os
 from typing import List, Dict, Any
@@ -7,7 +8,7 @@ import httpx
 import pytesseract
 from fastapi import UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
-from main import app
+from main import app, IMAGE_ENDPOINT
 from firebase_admin import firestore
 
 from app.doc_text import (
@@ -15,6 +16,7 @@ from app.doc_text import (
     extract_text_from_pdf_bytes,
     extract_text_via_ocr,
     split_pdf_by_pages,
+    extract_images_from_pdf_bytes,
     extract_text_from_docx_bytes,
     extract_images_from_docx,
     extract_text_from_pptx_bytes,
@@ -212,6 +214,7 @@ async def check_ai(
 
     # Metin çıkarımı
     chunks: List[Dict[str, str]] = []
+    images_to_check: List[Dict[str, Any]] = []
     ocr_used = False
 
     if file_type == "pdf":
@@ -231,14 +234,20 @@ async def check_ai(
         else:
             chunks = [{"source": "document", "text": text}]
         logger.info("[/check-ai] pdf_chunks_count=%s", len(chunks))
+        pdf_images = extract_images_from_pdf_bytes(raw_bytes)
+        logger.info("[/check-ai] pdf_images_count=%s", len(pdf_images))
+        for idx, info in enumerate(pdf_images, start=1):
+            images_to_check.append({"source": f"page:{info['page']}:image:{idx}", "image": info["image"]})
 
     elif file_type == "docx":
         logger.info("[/check-ai] extract DOCX sections")
         sections = extract_text_from_docx_bytes(raw_bytes)
         logger.info("[/check-ai] docx_sections_count=%s", len(sections))
+        docx_images = extract_images_from_docx(raw_bytes)
+        logger.info("[/check-ai] docx_images_count=%s", len(docx_images))
         if ocr_for_office_images:
             logger.info("[/check-ai] DOCX image OCR enabled")
-            for idx, img in enumerate(extract_images_from_docx(raw_bytes), start=1):
+            for idx, img in enumerate(docx_images, start=1):
                 try:
                     logger.debug("[/check-ai] OCR on DOCX image idx=%s", idx)
                     img_text = normalize_text(pytesseract.image_to_string(img))
@@ -248,6 +257,8 @@ async def check_ai(
                 if img_text:
                     logger.debug("[/check-ai] DOCX image OCR text_len=%s", len(img_text))
                     sections.append({"source": f"image:{idx}", "text": img_text})
+        for idx, img in enumerate(docx_images, start=1):
+            images_to_check.append({"source": f"docx_image:{idx}", "image": img})
         if chunk_strategy == "sections":
             chunks = sections
         else:
@@ -260,9 +271,11 @@ async def check_ai(
         logger.info("[/check-ai] extract PPTX slides")
         slides = extract_text_from_pptx_bytes(raw_bytes)
         logger.info("[/check-ai] pptx_slides_count=%s", len(slides))
+        pptx_images = extract_images_from_pptx(raw_bytes)
+        logger.info("[/check-ai] pptx_images_count=%s", len(pptx_images))
         if ocr_for_office_images:
             logger.info("[/check-ai] PPTX image OCR enabled")
-            for img in extract_images_from_pptx(raw_bytes):
+            for img in pptx_images:
                 try:
                     logger.debug("[/check-ai] OCR on PPTX slide=%s", img.get("slide"))
                     img_text = normalize_text(pytesseract.image_to_string(img["image"]))
@@ -272,6 +285,8 @@ async def check_ai(
                 if img_text:
                     logger.debug("[/check-ai] PPTX image OCR text_len=%s", len(img_text))
                     slides.append({"source": f"slide:{img['slide']}", "text": img_text})
+        for img in pptx_images:
+            images_to_check.append({"source": f"slide:{img['slide']}", "image": img["image"]})
         if chunk_strategy == "slides":
             chunks = slides
         else:
@@ -322,6 +337,8 @@ async def check_ai(
     # AI or Not çağrıları
     results: List[Dict[str, Any]] = []
     provider_raw: List[Any] = []
+    image_results: List[Dict[str, Any]] = []
+    image_provider_raw: List[Any] = []
     total_words = 0
     total_chars = 0
     logger.info("[/check-ai] calling AI or Not for each chunk headers_present=%s", bool(AIORNOT_API_KEY))
@@ -416,6 +433,65 @@ async def check_ai(
                 # bu parça sonuçlara eklenmeden atlanır
                 continue
 
+        if images_to_check:
+            logger.info("[/check-ai] calling AI or Not for images count=%s", len(images_to_check))
+            for iidx, img_info in enumerate(images_to_check, start=1):
+                buf = io.BytesIO()
+                img_info["image"].save(buf, format="JPEG")
+                img_bytes = buf.getvalue()
+                for attempt in range(3):
+                    try:
+                        logger.info("[/check-ai] → IMAGE POST attempt=%s idx=%s source=%s", attempt + 1, iidx, img_info["source"])
+                        resp = await client.post(
+                            IMAGE_ENDPOINT,
+                            headers={"Authorization": f"Bearer {AIORNOT_API_KEY}"},
+                            files={"object": ("image.jpg", img_bytes, "image/jpeg")},
+                            timeout=60,
+                        )
+                        logger.info("[/check-ai] ← image status=%s idx=%s", resp.status_code, iidx)
+
+                        if resp.status_code == 200:
+                            rjson = resp.json()
+                            report = (rjson.get("report") or {})
+                            verdict = report.get("verdict")
+                            if verdict == "ai":
+                                is_detected = True
+                                conf = float((report.get("ai", {}) or {}).get("confidence", 0.0) or 0.0)
+                            elif verdict == "human":
+                                is_detected = False
+                                conf = float((report.get("human", {}) or {}).get("confidence", 0.0) or 0.0)
+                            else:
+                                is_detected = False
+                                conf = 0.0
+                            image_provider_raw.append(rjson)
+                            image_results.append({
+                                "index": iidx,
+                                "source": img_info["source"],
+                                "is_detected": is_detected,
+                                "confidence": conf,
+                                "provider_id": rjson.get("id"),
+                                "created_at": rjson.get("created_at"),
+                            })
+                            break
+
+                        if 400 <= resp.status_code < 500:
+                            body_preview = (await resp.aread())[:300].decode(errors="ignore")
+                            logger.warning("[/check-ai] image client error status=%s body_preview=%s", resp.status_code, body_preview)
+                            raise HTTPException(status_code=resp.status_code, detail=body_preview)
+
+                    except httpx.TimeoutException:
+                        logger.warning("[/check-ai] image timeout attempt=%s idx=%s", attempt + 1, iidx)
+                        if attempt == 2:
+                            logger.error("[/check-ai] image timeout final attempt idx=%s", iidx)
+                            break
+
+                    await asyncio.sleep(2 ** attempt)
+
+                else:
+                    logger.error("[/check-ai] image provider service error after retries — skipping idx=%s", iidx)
+                    continue
+        else:
+            logger.info("[/check-ai] no images to analyze")
 
     ai_weight = sum(r["word_count"] for r in results if r["is_detected"])
     human_weight = total_words - ai_weight
@@ -428,6 +504,7 @@ async def check_ai(
 
     merged_raw = {
         "chunks": provider_raw,
+        "image_chunks": image_provider_raw,
         "ai_generated": ai_generated,
         "confidence": confidence,
         "ocr_used": ocr_used,
@@ -481,6 +558,7 @@ async def check_ai(
         "total_words": total_words,
         "total_characters": total_chars,
         "chunks": results,
+        "image_results": image_results,
         "firebase": firebase_info,
         "provider_raw": merged_raw,
     }
