@@ -526,6 +526,7 @@ import endpoints.generate_doc_advanced
 import endpoints.generate_ppt_advanced
 import endpoints.ai_detect_video
 import endpoints.check_ai
+import endpoints.export_chat
 
 
 if __name__ == "__main__":
