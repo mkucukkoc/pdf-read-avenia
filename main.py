@@ -527,6 +527,12 @@ import endpoints.generate_ppt_advanced
 import endpoints.ai_detect_video
 import endpoints.check_ai
 import endpoints.export_chat
+import endpoints.pdf_to_word
+import endpoints.pdf_to_ppt
+import endpoints.pdf_to_excel
+import endpoints.word_to_pdf
+import endpoints.ppt_to_pdf
+import endpoints.excel_to_pdf
 
 
 if __name__ == "__main__":
