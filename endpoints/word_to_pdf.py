@@ -71,15 +71,57 @@ async def word_to_pdf(file: UploadFile):
 
         # 4) Paragrafları yaz (Unicode yoksa bile 500 atmasın diye güvenli fallback)
         written = 0
+        eff_w = getattr(pdf, "epw", pdf.w - pdf.l_margin - pdf.r_margin)  # efektif sayfa genişliği
+        logger.info(
+            "[/word-to-pdf] write loop start eff_w=%.2f l_margin=%.2f r_margin=%.2f x=%.2f",
+            eff_w, pdf.l_margin, pdf.r_margin, pdf.get_x()
+        )
+
         for para in document.paragraphs:
-            text = para.text or ""
+            raw = para.text or ""
+            # kontrol karakterlerini normalize et
+            text = raw.replace("\r", "").replace("\t", "    ")
+
+            # boş satırsa sadece aşağı in
+            if not text.strip():
+                pdf.ln(5)
+                written += 1
+                continue
+
             try:
-                pdf.multi_cell(0, 10, text)
+                # her satır öncesi X'i sol marja al ve sabit genişlik ver
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(eff_w, 10, text)
             except Exception as we:
-                # Core font (helvetica/arial) unicode desteklemez → '?' ile değiştir.
-                safe = text.encode("latin-1", "replace").decode("latin-1")
-                logger.debug("[/word-to-pdf] latin-1 replace fallback due to: %s", we)
-                pdf.multi_cell(0, 10, safe)
+                logger.debug(
+                    "[/word-to-pdf] multicell error (%s) → hard-wrap ile yeniden dene", we
+                )
+                # Çok uzun tek kelimeleri kırmak için 60 karakterde bir satır sonu ekle
+                if len(text) > 60 and " " not in text[:80]:
+                    chunks = [text[i:i+60] for i in range(0, len(text), 60)]
+                    text_hw = "\n".join(chunks)
+                else:
+                    # kelime araları var ama yine de patladıysa yine de kır
+                    text_hw = "\n".join([text[i:i+120] for i in range(0, len(text), 120)])
+
+                try:
+                    pdf.set_x(pdf.l_margin)
+                    pdf.multi_cell(eff_w, 10, text_hw)
+                except Exception as we2:
+                    logger.debug(
+                        "[/word-to-pdf] hard-wrap da failed (%s) → latin-1 replace + küçük font", we2
+                    )
+                    # son emniyet: küçük font + '?' ile değiştirme (500 atmasın diye)
+                    try:
+                        current_family = pdf.font_family or "Uni"
+                        current_size = getattr(pdf, "font_size_pt", 12) or 12
+                        pdf.set_font(current_family, size=max(8, current_size - 2))
+                    except Exception:
+                        pass
+                    safe = text.encode("latin-1", "replace").decode("latin-1")
+                    pdf.set_x(pdf.l_margin)
+                    pdf.multi_cell(eff_w, 10, safe)
+
             written += 1
         logger.info("[/word-to-pdf] paragraphs_written=%d", written)
 
