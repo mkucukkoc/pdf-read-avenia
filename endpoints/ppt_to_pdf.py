@@ -9,7 +9,7 @@ from main import app, storage
 from pptx import Presentation
 from fpdf import FPDF
 
-logger = logging.getLogger("endpoints.ppt_to_pdf")
+logger = logging.getLogger(__name__)
 
 @app.post("/ppt-to-pdf")
 async def ppt_to_pdf(file: UploadFile):

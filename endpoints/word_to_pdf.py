@@ -9,7 +9,26 @@ from main import app, storage
 from docx import Document
 from fpdf import FPDF
 
-logger = logging.getLogger("endpoints.word_to_pdf")
+logger = logging.getLogger(__name__)
+
+def _find_unicode_font() -> str | None:
+    """
+    Ortam değişkeni kullanmadan, yaygın lokasyonlarda bir Unicode TTF arar.
+    Reponuza 'fonts/DejaVuSans.ttf' eklerseniz ilk iki yol zaten vurur.
+    """
+    here = os.path.dirname(__file__)
+    candidates = [
+        os.path.join(here, "DejaVuSans.ttf"),
+        os.path.join(here, "fonts", "DejaVuSans.ttf"),
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "C:\\Windows\\Fonts\\arialuni.ttf",  # Windows
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",  # macOS
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
 
 @app.post("/word-to-pdf")
 async def word_to_pdf(file: UploadFile):
@@ -35,13 +54,32 @@ async def word_to_pdf(file: UploadFile):
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
         pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        logger.info("[/word-to-pdf] FPDF initialized (auto_page_break=True, margin=15, font=Arial:12)")
 
-        # 4) Paragrafları yaz
+        # -- Unicode font dene (ENV YOK) — bulunamazsa core fonta düş
+        ufont = _find_unicode_font()
+        if ufont:
+            try:
+                pdf.add_font("Uni", "", ufont, uni=True)
+                pdf.set_font("Uni", size=12)
+                logger.info("[/word-to-pdf] font=Uni:12 path=%s", ufont)
+            except Exception as fe:
+                logger.warning("[/word-to-pdf] Unicode font load failed (%s). Fallback to Arial/latin-1 replace.", fe)
+                pdf.set_font("Arial", size=12)
+        else:
+            pdf.set_font("Arial", size=12)
+            logger.info("[/word-to-pdf] unicode font not found → font=Arial:12 (core)")
+
+        # 4) Paragrafları yaz (Unicode yoksa bile 500 atmasın diye güvenli fallback)
         written = 0
         for para in document.paragraphs:
-            pdf.multi_cell(0, 10, para.text)
+            text = para.text or ""
+            try:
+                pdf.multi_cell(0, 10, text)
+            except Exception as we:
+                # Core font (helvetica/arial) unicode desteklemez → '?' ile değiştir.
+                safe = text.encode("latin-1", "replace").decode("latin-1")
+                logger.debug("[/word-to-pdf] latin-1 replace fallback due to: %s", we)
+                pdf.multi_cell(0, 10, safe)
             written += 1
         logger.info("[/word-to-pdf] paragraphs_written=%d", written)
 
