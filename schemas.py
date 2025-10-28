@@ -79,10 +79,41 @@ class PresentationResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ChatMessagePayload(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: str
+    timestamp: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    file_url: Optional[str] = Field(default=None, alias="fileUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ChatRequestPayload(BaseModel):
+    messages: List[ChatMessagePayload]
+    chat_id: str = Field(..., alias="chatId")
+    has_image: bool = Field(default=False, alias="hasImage")
+    image_file_url: Optional[str] = Field(default=None, alias="imageFileUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TextToSpeechRequest(BaseModel):
+    messages: List[ChatMessagePayload]
+
+
+class CreateChatRequest(BaseModel):
+    title: Optional[str] = None
+
+
 __all__ = [
     "PresentationRequest",
     "Slide",
     "PresentationMetadata",
     "PresentationResponse",
     "SlideType",
+    "ChatMessagePayload",
+    "ChatRequestPayload",
+    "TextToSpeechRequest",
+    "CreateChatRequest",
 ]
