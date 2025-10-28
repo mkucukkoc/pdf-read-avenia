@@ -41,6 +41,7 @@ import os, sys, logging
 
 # Import error handler
 from error_handler import setup_error_handlers, CustomHTTPException, ValidationError, BusinessLogicError, ExternalServiceError
+from .routes import chat_router, presentation_router
 
 
 router = APIRouter()
@@ -125,6 +126,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(chat_router)
+app.include_router(presentation_router)
 
 JWT_SECRET = os.getenv("JWT_HS_SECRET", "change_me_in_production")
 JWT_ISSUER = os.getenv("JWT_ISS", "chatgbtmini")
