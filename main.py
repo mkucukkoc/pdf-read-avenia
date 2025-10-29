@@ -41,7 +41,7 @@ import os, sys, logging
 
 # Import error handler
 from error_handler import setup_error_handlers, CustomHTTPException, ValidationError, BusinessLogicError, ExternalServiceError
-from .routes import chat_router, presentation_router
+from routes import chat_router, presentation_router
 
 
 router = APIRouter()
