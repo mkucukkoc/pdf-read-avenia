@@ -5,8 +5,8 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..schemas import PresentationRequest
-from ..services.presentation_service import presentation_service
+from schemas import PresentationRequest
+from services.presentation_service import presentation_service
 
 logger = logging.getLogger("pdf_read_refresh.presentation_routes")
 

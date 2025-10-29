@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional
 from google.cloud import firestore as firestore_client
 from openai import OpenAI
 
-from ..firebase import db
-from ..schemas import ChatMessagePayload, ChatRequestPayload
+from firebase import db
+from schemas import ChatMessagePayload, ChatRequestPayload
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
 
