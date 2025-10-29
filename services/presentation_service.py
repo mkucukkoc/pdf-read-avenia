@@ -12,8 +12,8 @@ from typing import Dict, List, Optional
 from google.cloud import firestore as firestore_client
 from openai import OpenAI
 
-from ..firebase import db
-from ..schemas import PresentationRequest, SlideType
+from firebase import db
+from schemas import PresentationRequest, SlideType
 
 logger = logging.getLogger("pdf_read_refresh.presentation_service")
 

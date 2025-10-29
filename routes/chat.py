@@ -3,12 +3,12 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..schemas import (
+from schemas import (
     ChatRequestPayload,
     CreateChatRequest,
     TextToSpeechRequest,
 )
-from ..services import chat_service
+from services import chat_service
 
 logger = logging.getLogger("pdf_read_refresh.chat_routes")
 
