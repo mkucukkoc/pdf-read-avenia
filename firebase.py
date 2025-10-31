@@ -23,7 +23,9 @@ def _initialize_app() -> None:
         decoded = base64.b64decode(encoded_credentials).decode("utf-8")
         cred_dict = json.loads(decoded)
         cred = credentials.Certificate(cred_dict)
-        firebase_admin.initialize_app(cred)
+        firebase_admin.initialize_app(cred, {
+            'storageBucket': cred_dict.get('storageBucket') or 'aveniaapp.firebasestorage.app'
+        })
         logger.info("Firebase app initialized successfully for pdf-read-fresh service")
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("Failed to initialize Firebase: %s", exc)
