@@ -5,7 +5,6 @@ import requests
 import hashlib  # LOG+ md5 için
 
 
-from language_support import normalize_language
 from main import (
     app,
     decode_base64_maybe_data_url,
@@ -66,7 +65,6 @@ def analyze_video(
     print("========== [/analyze-video] BAŞLADI ==========")
     print("[1] Gelen payload:", payload)
 
-    language = normalize_language(payload.get("language"))
     video_b64 = payload.get("video_base64")
     user_id = payload.get("user_id")
     chat_id = payload.get("chat_id")
@@ -103,18 +101,16 @@ def analyze_video(
             }
         }
 
-        messages = interpret_messages_legacy(legacy_like, language)
-        summary_tr = format_summary_tr(legacy_like, language, subject="video")
+        messages = interpret_messages_legacy(legacy_like)
+        summary_tr = format_summary_tr(legacy_like)
         print(f"[4] MOCK summary_tr: {summary_tr}")
-        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result, language)  # orijinali kaydet
+        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result)  # orijinali kaydet
         print(f"[5] MOCK Firestore kayıt sonucu: {saved_info}")
         print("========== [/analyze-video] BİTTİ (MOCK) ==========")
         return JSONResponse(status_code=200, content={
             "raw_response": mock_result,   # orijinal şema
             "messages": messages,
-            "summary": summary_tr,
             "summary_tr": summary_tr,
-            "language": language,
             "saved": saved_info,
         })
 
@@ -175,24 +171,22 @@ def analyze_video(
     }
 
     print("[6] interpret_messages_legacy çağrılıyor...")
-    messages = interpret_messages_legacy(legacy_like, language)
+    messages = interpret_messages_legacy(legacy_like)
     print(f"[6.1] interpret_messages_legacy çıktı: {messages}")
 
     print("[7] format_summary_tr çağrılıyor...")
-    summary_tr = format_summary_tr(legacy_like, language, subject="video")
+    summary_tr = format_summary_tr(legacy_like)
     print(f"[7.1] format_summary_tr çıktı: {summary_tr}")
 
     print("[8] Firestore kaydı başlatılıyor...")
     # Kayda ORİJİNAL sonucu geçiyoruz (eski davranış korunur)
-    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result, language)
+    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result)
     print(f"[8.1] Firestore kayıt sonucu: {saved_info}")
 
     print("========== [/analyze-video] BİTTİ ==========")
     return JSONResponse(status_code=200, content={
         "raw_response": result,   # orijinal video şeması
         "messages": messages,
-        "summary": summary_tr,
         "summary_tr": summary_tr,
-        "language": language,
         "saved": saved_info,
     })

@@ -2,7 +2,6 @@ import json
 from fastapi import Body, Query
 from fastapi.responses import JSONResponse
 import requests
-from language_support import normalize_language
 from main import (
     app,
     decode_base64_maybe_data_url,
@@ -39,7 +38,6 @@ def analyze_image(
     print("========== [/analyze-image] BAŞLADI ==========")
     print("[1] Gelen payload:", payload)
 
-    language = normalize_language(payload.get("language"))
     image_b64 = payload.get("image_base64")
     user_id = payload.get("user_id")
     chat_id = payload.get("chat_id")
@@ -67,18 +65,16 @@ def analyze_image(
                 "nsfw": {"is_detected": False, "score": 0.01},
             },
         }
-        messages = interpret_messages_legacy(mock_result, language)
-        summary_tr = format_summary_tr(mock_result, language, subject="image")
+        messages = ["High Likely AI", "Good", "No"]
+        summary_tr = "Görsel, %99 olasılıkla yapay zeka tarafından üretilmiş (yüksek güven). Görsel yapısı iyi. NSFW açısından bir sorun görünmüyor."
         print(f"[4] MOCK summary_tr: {summary_tr}")
-        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result, language)
+        saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result)
         print(f"[5] MOCK Firestore kayıt sonucu: {saved_info}")
         print("========== [/analyze-image] BİTTİ (MOCK) ==========")
         return JSONResponse(status_code=200, content={
             "raw_response": mock_result,
             "messages": messages,
-            "summary": summary_tr,
             "summary_tr": summary_tr,
-            "language": language,
             "saved": saved_info,
         })
 
@@ -118,24 +114,22 @@ def analyze_image(
     print("[5.1] API yanıtı:", json.dumps(result, indent=2))
 
     print("[6] interpret_messages_legacy çağrılıyor...")
-    messages = interpret_messages_legacy(result, language)
+    messages = interpret_messages_legacy(result)
     print(f"[6.1] interpret_messages_legacy çıktı: {messages}")
 
     print("[7] format_summary_tr çağrılıyor...")
-    summary_tr = format_summary_tr(result, language, subject="image")
+    summary_tr = format_summary_tr(result)
     print(f"[7.1] format_summary_tr çıktı: {summary_tr}")
 
     print("[8] Firestore kaydı başlatılıyor...")
-    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result, language)
+    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result)
     print(f"[8.1] Firestore kayıt sonucu: {saved_info}")
 
     print("========== [/analyze-image] BİTTİ ==========")
     return JSONResponse(status_code=200, content={
         "raw_response": result,
         "messages": messages,
-        "summary": summary_tr,
         "summary_tr": summary_tr,
-        "language": language,
         "saved": saved_info,
     })
 
