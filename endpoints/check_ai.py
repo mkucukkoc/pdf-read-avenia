@@ -2,12 +2,19 @@ import asyncio
 import io
 import logging
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import httpx
 import pytesseract
 from fastapi import UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
+from language_support import (
+    build_ai_detection_messages,
+    format_ai_detection_summary,
+    normalize_language,
+    nsfw_flag_from_value,
+    quality_flag_from_value,
+)
 from main import app, IMAGE_ENDPOINT
 from firebase_admin import firestore
 
@@ -39,78 +46,66 @@ async def rate_limit_check() -> None:
     return None
 
 
-def interpret_messages_legacy(data: Dict[str, Any]) -> List[str]:
+def interpret_messages_legacy(data: Dict[str, Any], language: Optional[str] = None) -> List[str]:
     logger.debug("[interpret_messages_legacy] input=%s", {k: data.get(k) for k in ["ai_generated", "confidence", "quality", "nsfw", "generator"]})
-    messages: List[str] = []
-    conf = data.get("confidence", 0.0)
-    ai_generated = data.get("ai_generated", False)
-    if ai_generated:
-        if conf >= 0.85:
-            messages.append("🤖 High Likely AI")
-        elif conf >= 0.6:
-            messages.append("🤖 Medium Likely AI")
-        else:
-            messages.append("🤖 Low Likely AI")
-    else:
-        if conf >= 0.85:
-            messages.append("🧑 High Likely Human")
-        elif conf >= 0.6:
-            messages.append("🧑 Medium Likely Human")
-        else:
-            messages.append("🧑 Low Likely Human")
-    quality = data.get("quality")
-    if quality:
-        messages.append(f"⭐ Quality: {quality}")
-    nsfw = data.get("nsfw")
-    if nsfw:
-        messages.append(f"🚫 NSFW: {nsfw}")
-    generator = data.get("generator")
-    if generator:
-        messages.append(f"🛠️ {generator}")
+    ai_generated = data.get("ai_generated")
+    confidence = float(data.get("confidence", 0.0) or 0.0)
+
+    verdict = None
+    ai_conf = 0.0
+    human_conf = 0.0
+    if ai_generated is True:
+        verdict = "ai"
+        ai_conf = confidence
+        human_conf = max(0.0, 1.0 - ai_conf)
+    elif ai_generated is False:
+        verdict = "human"
+        human_conf = confidence
+        ai_conf = max(0.0, 1.0 - human_conf)
+
+    messages = build_ai_detection_messages(
+        verdict,
+        ai_conf,
+        human_conf,
+        quality_flag_from_value(data.get("quality")),
+        nsfw_flag_from_value(data.get("nsfw")),
+        language=language,
+    )
     logger.debug("[interpret_messages_legacy] output=%s", messages)
     return messages
 
 
-def format_summary_tr(data: Dict[str, Any]) -> str:
-    # >>> EKLENDİ: daha olasılıklı ve açıklayıcı özet + quality/nsfw dahil <<<
+def format_summary_tr(data: Dict[str, Any], language: Optional[str] = None) -> str:
     logger.debug("[format_summary_tr] input=%s", {k: data.get(k) for k in ["ai_generated", "confidence", "quality", "nsfw"]})
-    conf = float(data.get("confidence", 0.0))
-    pct = conf * 100.0
-    ai_flag = bool(data.get("ai_generated"))
+    ai_generated = data.get("ai_generated")
+    confidence = float(data.get("confidence", 0.0) or 0.0)
 
-    # Güven bandı metni
-    if conf >= 0.85:
-        band = "kuvvetli işaretler"
-    elif conf >= 0.60:
-        band = "belirgin işaretler"
-    elif conf >= 0.40:
-        band = "karışık / belirsiz işaretler"
-    elif conf >= 0.20:
-        band = "zayıf işaretler"
-    else:
-        band = "çok zayıf işaretler"
+    verdict = None
+    ai_conf = 0.0
+    human_conf = 0.0
+    if ai_generated is True:
+        verdict = "ai"
+        ai_conf = confidence
+        human_conf = max(0.0, 1.0 - ai_conf)
+    elif ai_generated is False:
+        verdict = "human"
+        human_conf = confidence
+        ai_conf = max(0.0, 1.0 - human_conf)
 
-    # Eğilim cümlesi (yumuşatılmış)
-    if ai_flag:
-        lean = "AI üretimine doğru bir eğilim"
-        stance = "Metin, yapay zekâ tarafından üretilmiş olabilir"
-    else:
-        lean = "insan yazımına daha yakın bir eğilim"
-        stance = "Metnin AI tarafından üretilmediği yönünde işaretler bulunuyor"
-
-    quality = data.get("quality", "bilinmiyor")
-    nsfw = data.get("nsfw", "yok")
-
-    summary = (
-        f"Ön değerlendirme: göstergeler %{pct:.1f} düzeyinde {lean} olduğunu gösteriyor ({band}). "
-        f"{stance}; ancak bu sonuç kesin bir kanıt değildir. Bağlam, yoğun düzenleme/çeviri veya alıntılar "
-        f"analizi etkileyebilir. Kalite: {quality}. NSFW: {nsfw}."
+    summary = format_ai_detection_summary(
+        verdict,
+        ai_conf,
+        human_conf,
+        quality_flag_from_value(data.get("quality")),
+        nsfw_flag_from_value(data.get("nsfw")),
+        language=language,
+        subject="document",
     )
     logger.debug("[format_summary_tr] output=%s", summary)
     return summary
 
 
-def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any) -> Dict[str, Any]:
+def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any, language: Optional[str] = None) -> Dict[str, Any]:
     logger.info("[_save_asst_message] user_id=%s chat_id=%s content_preview=%s", user_id, chat_id, (content or "")[:200])
     db = firestore.client()
     path = f"users/{user_id}/chats/{chat_id}/messages"
@@ -118,7 +113,10 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any) -> Di
         ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages").add({
             "role": "assistant",
             "content": content,
-            "meta": {"ai_detect": {"raw": raw}},
+            "meta": {
+                "language": normalize_language(language),
+                "ai_detect": {"raw": raw}
+            },
         })
         message_id = ref[1].id if isinstance(ref, tuple) else ref.id
         logger.info("[_save_asst_message] saved=True message_id=%s path=%s", message_id, path)
@@ -181,9 +179,12 @@ async def check_ai(
     ocr_for_pdf: bool = Form(True),
     ocr_for_office_images: bool = Form(False),
     office_legacy_convert: bool = Form(False),
+    language: str | None = Form(None),
 ):
     logger.info("[/check-ai] START filename=%s content_type=%s user_id=%s chat_id=%s external_id=%s chunk_strategy=%s max_chars_per_chunk=%s min_chars_required=%s ocr_for_pdf=%s ocr_for_office_images=%s office_legacy_convert=%s api_key_present=%s",
                 getattr(file, "filename", None), getattr(file, "content_type", None), user_id, chat_id, external_id, chunk_strategy, max_chars_per_chunk, min_chars_required, ocr_for_pdf, ocr_for_office_images, office_legacy_convert, bool(AIORNOT_API_KEY))
+
+    language_norm = normalize_language(language)
 
     await rate_limit_check()
 
@@ -570,11 +571,11 @@ async def check_ai(
     q_out = agg_quality if agg_quality is not None else "bilinmiyor"
     n_out = agg_nsfw if agg_nsfw is not None else "yok"
 
-    summary = format_summary_tr({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out})
-    messages = interpret_messages_legacy({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out})
+    summary = format_summary_tr({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out}, language=language_norm)
+    messages = interpret_messages_legacy({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out}, language=language_norm)
     content = summary + "\nMessages: " + ", ".join(messages)
     logger.info("[/check-ai] summary_len=%s messages_count=%s", len(summary), len(messages))
-    firebase_info = _save_asst_message(user_id, chat_id, content, merged_raw)
+    firebase_info = _save_asst_message(user_id, chat_id, content, merged_raw, language_norm)
     logger.info("[/check-ai] firebase_info=%s", firebase_info)
 
     response = {
@@ -585,6 +586,9 @@ async def check_ai(
         "total_characters": total_chars,
         "chunks": results,
         "image_results": image_results,
+        "summary": summary,
+        "messages": messages,
+        "language": language_norm,
         "firebase": firebase_info,
         "provider_raw": merged_raw,
     }

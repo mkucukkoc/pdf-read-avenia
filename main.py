@@ -10,7 +10,7 @@ import random
 import asyncio
 import tempfile
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 from io import BytesIO
 
 import requests
@@ -41,6 +41,14 @@ import os, sys, logging
 
 # Import error handler
 from error_handler import setup_error_handlers, CustomHTTPException, ValidationError, BusinessLogicError, ExternalServiceError
+from language_support import (
+    build_ai_detection_messages,
+    extract_generator_info,
+    format_ai_detection_summary,
+    normalize_language,
+    nsfw_flag_from_value,
+    quality_flag_from_value,
+)
 from routes import chat_router, presentation_router
 
 
@@ -490,54 +498,8 @@ def decode_base64_maybe_data_url(s: str) -> bytes:
         s = m.group(1)
     return base64.b64decode(s)
 
-def interpret_messages_legacy(data):
-    """
-    Eski 'messages' array'ini üretir ("Medium Likely AI", "Good", "No" gibi).
-    """
-    msgs = []
-    report = data.get("report", {}) or {}
-    facets = data.get("facets", {}) or {}
-    verdict = report.get("verdict")
-    ai_info = report.get("ai", {}) or {}
-    human_info = report.get("human", {}) or {}
-    generators = report.get("generator", {}) or {}
-
-    # verdict
-    if verdict == "ai":
-        c = ai_info.get("confidence", 0.0) or 0.0
-        if c >= 0.95: msgs.append("High Likely AI")
-        elif 0.7 <= c < 0.95: msgs.append("Medium Likely AI")
-        elif 0.5 <= c < 0.7: msgs.append("Low Likely AI")
-        else: msgs.append("Possibly AI")
-    elif verdict == "human":
-        c = human_info.get("confidence", 0.0) or 0.0
-        if c >= 0.9: msgs.append("High Likely Human")
-        elif c < 0.7: msgs.append("Likely Human")
-        else: msgs.append("Possibly Human")
-    else:
-        msgs.append("Unknown")
-
-    # generator (varsa)
-    for gen_name, gen_data in generators.items():
-        if gen_data.get("is_detected") and (gen_data.get("confidence", 0) or 0) >= 0.7:
-            msgs.append(
-                f"🖼️ İçerik, %{int(gen_data['confidence'] * 100)} oranla "
-                f"{gen_name.replace('_',' ').title()} tarafından oluşturulmuş olabilir."
-            )
-            break
-
-    # quality / nsfw
-    quality = (facets.get("quality", {}) or {}).get("is_detected", True)
-    nsfw = (facets.get("nsfw", {}) or {}).get("is_detected", False)
-    msgs.append("Good" if quality else "Bad")
-    msgs.append("Yes" if nsfw else "No")
-    return msgs
-
-def format_summary_tr(data) -> str:
-    """
-    Sadece yüzde, kalite ve NSFW bilgisini veren sade ama akıcı Türkçe özet.
-    'Güven seviyesi' yorumu eklenmez.
-    """
+def interpret_messages_legacy(data, language: Optional[str] = None):
+    """Generates localized message list."""
     report = data.get("report", {}) or {}
     facets = data.get("facets", {}) or {}
 
@@ -545,40 +507,62 @@ def format_summary_tr(data) -> str:
     ai_conf = float((report.get("ai", {}) or {}).get("confidence", 0.0) or 0.0)
     human_conf = float((report.get("human", {}) or {}).get("confidence", 0.0) or 0.0)
 
-    if verdict == "ai":
-        pct = round(ai_conf * 100)
-        base = f"İnceleme sonunda görselin %{pct} ihtimalle yapay zekâ tarafından oluşturulduğu anlaşılıyor."
-    elif verdict == "human":
-        pct = round(human_conf * 100)
-        base = f"İnceleme sonunda görselin %{pct} ihtimalle insan tarafından oluşturulduğu anlaşılıyor."
-    else:
-        base = "Görselin kaynağı net olarak belirlenemedi."
+    quality_flag = quality_flag_from_value(facets.get("quality"))
+    nsfw_flag = nsfw_flag_from_value(facets.get("nsfw"))
 
-    quality_good = (facets.get("quality", {}) or {}).get("is_detected", True)
-    nsfw_flag = (facets.get("nsfw", {}) or {}).get("is_detected", False)
+    generator_name, generator_conf = extract_generator_info(report.get("generator"))
+    if generator_conf is not None and generator_conf < 0.7:
+        generator_name, generator_conf = None, None
 
-    quality_part = "Görüntü kalitesi genel olarak iyi; belirgin bir bozulma ya da yapısal sorun yok." \
-        if quality_good else "Görüntüde kalite sorunları veya bozulmalar tespit edildi."
-    nsfw_part = "NSFW kontrolü açısından da olumsuz bir durum tespit edilmediği görülüyor." \
-        if not nsfw_flag else "NSFW taramasında uygunsuz içerik tespit edildi."
+    return build_ai_detection_messages(
+        verdict,
+        ai_conf,
+        human_conf,
+        quality_flag,
+        nsfw_flag,
+        language=language,
+        generator_name=generator_name,
+        generator_confidence=generator_conf,
+    )
 
-    return f"{base} {quality_part} {nsfw_part}"
 
-def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict):
-    """
-    Firestore'a assistant mesajı olarak yazar.
-    """
+def format_summary_tr(data, language: Optional[str] = None, subject: str = "image") -> str:
+    """Returns localized summary for AI detection result."""
+    report = data.get("report", {}) or {}
+    facets = data.get("facets", {}) or {}
+
+    verdict = report.get("verdict")
+    ai_conf = float((report.get("ai", {}) or {}).get("confidence", 0.0) or 0.0)
+    human_conf = float((report.get("human", {}) or {}).get("confidence", 0.0) or 0.0)
+
+    quality_flag = quality_flag_from_value(facets.get("quality"))
+    nsfw_flag = nsfw_flag_from_value(facets.get("nsfw"))
+
+    return format_ai_detection_summary(
+        verdict,
+        ai_conf,
+        human_conf,
+        quality_flag,
+        nsfw_flag,
+        language=language,
+        subject=subject,
+    )
+
+
+def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, language: str = "tr"):
+    """Writes assistant message to Firestore if initialized."""
     if db is None:
         print("[/analyze-image] Firebase not initialized; skipping Firestore write")
         return None
     try:
-        messages_ref = db.collection("users").document(user_id)\
-                         .collection("chats").document(chat_id)\
-                         .collection("messages")
+        messages_ref = db.collection("users").document(user_id) \
+            .collection("chats").document(chat_id) \
+            .collection("messages")
         doc_ref = messages_ref.add({
             "role": "assistant",
             "content": content,
             "meta": {
+                "language": normalize_language(language),
                 "ai_detect": {
                     "verdict": raw.get("report", {}).get("verdict"),
                     "ai_confidence": (raw.get("report", {}).get("ai", {}) or {}).get("confidence"),
