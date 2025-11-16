@@ -1,28 +1,34 @@
+import logging
 import os
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from main import app, extract_text_from_pdf, ask_gpt_summary
 
+logger = logging.getLogger("pdf_read_refresh.endpoints.summarize_pdf")
+
 
 @app.post("/summarize")
 async def summarize_pdf(file: UploadFile):
-    print("[/summarize] 📄 PDF dosyası alındı:", file.filename)
+    logger.info("Summarize PDF request received", extra={"filename": file.filename})
+    temp_path = f"temp_{file.filename}"
     try:
-        temp_path = f"temp_{file.filename}"
-        print("[/summarize] 💾 Geçici dosya kaydediliyor:", temp_path)
+        logger.debug("Saving uploaded PDF temporarily", extra={"temp_path": temp_path})
         with open(temp_path, "wb") as f:
             f.write(await file.read())
 
-        print("[/summarize] 📤 PDF'ten metin çıkarılıyor...")
+        logger.debug("Extracting text from PDF")
         text = extract_text_from_pdf(temp_path)
 
-        print("[/summarize] 🧠 GPT'den özet isteniyor...")
+        logger.debug("Requesting GPT summary", extra={"text_length": len(text)})
         summary = ask_gpt_summary(text)
 
         os.remove(temp_path)
-        print("[/summarize] 🧹 Geçici dosya silindi.")
+        logger.info("Temporary file cleaned up", extra={"temp_path": temp_path})
 
-        return JSONResponse(content={"summary": summary, "full_text": text})
+        response_payload = {"summary": summary, "full_text": text}
+        logger.debug("Summarize response payload", extra={"response": response_payload})
+
+        return JSONResponse(content=response_payload)
     except Exception as e:
-        print("[/summarize] ❗️Exception:", str(e))
+        logger.exception("Summarize PDF failed")
         raise HTTPException(status_code=500, detail=str(e))

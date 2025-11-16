@@ -1,48 +1,50 @@
 import base64
 import io
+import logging
 from fastapi import Body, HTTPException
 from main import app, client
 from endpoints.audio_isolation import audio_isolation
 
+logger = logging.getLogger("pdf_read_refresh.endpoints.stt")
+
 
 @app.post("/stt")
 async def speech_to_text(data: dict = Body(...)):
-    print("[/stt] 🎤 İstek alındı.")
+    logger.info("STT request received")
 
     base64_audio = data.get("base64")
     if not base64_audio:
-        print("[/stt] ⚠️ Ses verisi (base64) bulunamadı.")
+        logger.warning("Base64 audio missing in STT request")
         return {"error": "Ses verisi eksik"}
 
     try:
-        # (İsteğe bağlı) Lokal gürültü azaltma endpoint’imiz
-        print("[/stt] 🔄 Audio Isolation çağrılıyor...")
+        logger.info("Attempting audio isolation")
         try:
             isolate_resp = await audio_isolation({"base64": base64_audio})
             if isinstance(isolate_resp, dict) and isolate_resp.get("audio_base64"):
                 base64_audio = isolate_resp["audio_base64"]
-                print("[/stt] 🎛 Gürültüsüz sesle devam ediliyor.")
+                logger.info("Audio isolation succeeded")
             else:
-                print("[/stt] ⚠️ Audio Isolation pas geçildi.")
-        except Exception as _:
-            print("[/stt] ⚠️ Audio Isolation başarısız, orijinal ses kullanılacak.")
+                logger.warning("Audio isolation skipped")
+        except Exception:
+            logger.warning("Audio isolation failed; using original audio")
 
-        print("[/stt] 🧬 Base64 ses verisi decode ediliyor...")
+        logger.debug("Decoding base64 audio")
         audio_bytes = base64.b64decode(base64_audio)
-        print(f"[/stt] ✅ Decode başarılı. Boyut: {len(audio_bytes)} byte")
+        logger.info("Audio decoded", extra={"byte_length": len(audio_bytes)})
 
-        # OpenAI Whisper-1 transkripsiyon
         bio = io.BytesIO(audio_bytes)
-        bio.name = "audio.m4a"  # dosya adı gerekli
+        bio.name = "audio.m4a"
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
             file=bio,
-            # dil tahmini güzel çalışıyor; gerekirse language="tr" verilebilir
         )
         text = transcript.text or ""
-        print("[/stt] ✅ Çözümleme başarılı. Metin:", text[:120])
-        return {"text": text}
+        logger.info("STT transcription completed", extra={"text_preview": text[:120]})
+        response_payload = {"text": text}
+        logger.debug("STT response payload", extra={"response": response_payload})
+        return response_payload
 
     except Exception as e:
-        print("[/stt] ❗️Hata:", str(e))
+        logger.exception("STT request failed")
         raise HTTPException(status_code=500, detail=str(e))

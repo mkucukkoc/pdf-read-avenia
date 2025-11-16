@@ -29,7 +29,13 @@ def _extract_user_id(request: Request) -> str:
 async def send_chat_message(payload: ChatRequestPayload, request: Request) -> Dict[str, Any]:
     user_id = _extract_user_id(request)
     try:
-        return await chat_service.send_message(payload, user_id)
+        logger.info(
+            "Chat send request received",
+            extra={"userId": user_id, "payload": payload.model_dump()},
+        )
+        result = await chat_service.send_message(payload, user_id)
+        logger.debug("Chat send response payload", extra={"userId": user_id, "response": result})
+        return result
     except ValueError as exc:
         logger.warning("Invalid chat send request: %s", exc)
         raise HTTPException(
@@ -66,7 +72,13 @@ async def send_chat_message(payload: ChatRequestPayload, request: Request) -> Di
 async def text_to_speech_endpoint(payload: TextToSpeechRequest, request: Request) -> Dict[str, Any]:
     _ = _extract_user_id(request)  # Ensure token validation occurs
     try:
-        return await chat_service.text_to_speech(payload.messages)
+        logger.info(
+            "Text-to-speech request received",
+            extra={"messageCount": len(payload.messages)},
+        )
+        result = await chat_service.text_to_speech(payload.messages)
+        logger.debug("Text-to-speech response payload", extra={"response": result})
+        return result
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("Failed to convert text to speech")
         raise HTTPException(
@@ -83,7 +95,13 @@ async def text_to_speech_endpoint(payload: TextToSpeechRequest, request: Request
 async def get_chat_messages(chat_id: str, request: Request) -> Dict[str, Any]:
     user_id = _extract_user_id(request)
     try:
-        return await chat_service.get_chat_messages(user_id, chat_id)
+        logger.info(
+            "Get chat messages request received",
+            extra={"userId": user_id, "chatId": chat_id},
+        )
+        result = await chat_service.get_chat_messages(user_id, chat_id)
+        logger.debug("Get chat messages response payload", extra={"userId": user_id, "response": result})
+        return result
     except ValueError as exc:
         logger.warning("Invalid get messages request: %s", exc)
         raise HTTPException(
@@ -110,7 +128,13 @@ async def get_chat_messages(chat_id: str, request: Request) -> Dict[str, Any]:
 async def create_chat_endpoint(payload: CreateChatRequest, request: Request) -> Dict[str, Any]:
     user_id = _extract_user_id(request)
     try:
-        return await chat_service.create_chat(user_id, payload.title)
+        logger.info(
+            "Create chat request received",
+            extra={"userId": user_id, "title": payload.title},
+        )
+        result = await chat_service.create_chat(user_id, payload.title)
+        logger.debug("Create chat response payload", extra={"userId": user_id, "response": result})
+        return result
     except ValueError as exc:
         logger.warning("Invalid create chat request: %s", exc)
         raise HTTPException(

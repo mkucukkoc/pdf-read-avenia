@@ -1,6 +1,9 @@
+import logging
 from fastapi import Form, HTTPException
 from fastapi.responses import JSONResponse
 from main import app, client, DEFAULT_MODEL
+
+logger = logging.getLogger("pdf_read_refresh.endpoints.ask_file_question")
 
 
 @app.post("/ask-question")
@@ -9,9 +12,14 @@ async def ask_file_question(
     question: str = Form(...),
     file_type: str = Form(default="genel")  # örnek: 'PDF', 'Word', 'Excel', 'PPT'
 ):
-    print("[/ask-question] 🧠 Soru geldi:", question)
-    print("[/ask-question] 📄 Dosya tipi:", file_type)
-    print("[/ask-question] 📄 İçerik uzunluğu:", len(file_text))
+    logger.info(
+        "Ask file question request received",
+        extra={
+            "question": question,
+            "file_type": file_type,
+            "text_length": len(file_text),
+        },
+    )
 
     prompt = f"""\nAşağıda bir {file_type.upper()} dosyasının içeriği bulunmaktadır. Kullanıcı bu içeriğe dayanarak bir soru sordu.\n\nLütfen sadece verilen içerikten yararlanarak doğru, detaylı ve anlaşılır bir cevap ver.\n\n📄 Dosya içeriği:\n\"\"\"\n{file_text[:4000]}\n\"\"\"\n\n❓ Soru:\n\"\"\"\n{question}\n\"\"\"\n\n💬 Cevap:\n"""
 
@@ -30,9 +38,11 @@ async def ask_file_question(
             ]
         )
         answer = response.choices[0].message.content.strip()
-        print("[/ask-question] ✅ Yanıt üretildi.")
-        return JSONResponse(content={"answer": answer})
+        logger.info("Ask file question succeeded", extra={"answer_length": len(answer)})
+        response_payload = {"answer": answer}
+        logger.debug("Ask file question response payload", extra={"response": response_payload})
+        return JSONResponse(content=response_payload)
 
     except Exception as e:
-        print("[/ask-question] ❌ Hata:", str(e))
+        logger.exception("Ask file question failed")
         raise HTTPException(status_code=500, detail=str(e))

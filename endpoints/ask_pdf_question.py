@@ -1,12 +1,17 @@
+import logging
 from fastapi import Form, HTTPException
 from fastapi.responses import JSONResponse
 from main import app, client, DEFAULT_MODEL
 
+logger = logging.getLogger("pdf_read_refresh.endpoints.ask_pdf_question")
+
 
 @app.post("/ask-question")
 async def ask_pdf_question(pdf_text: str = Form(...), question: str = Form(...)):
-    print("[/ask-question] 🤖 Soru alındı:", question)
-    print("[/ask-question] 📄 PDF metni uzunluğu:", len(pdf_text))
+    logger.info(
+        "Ask PDF question request received",
+        extra={"question": question, "pdf_text_length": len(pdf_text)},
+    )
 
     prompt = f"""\nSen PDF belgesi içeriğini analiz eden bir asistansın. Kullanıcının sorusu aşağıda. Sadece PDF içeriğine dayanarak cevap ver:\n\n📄 PDF içeriği:\n\"\"\"\n{pdf_text[:4000]}\n\"\"\"\n\n❓ Soru:\n{question}\n\n💬 Cevabın:\n"""
 
@@ -19,9 +24,11 @@ async def ask_pdf_question(pdf_text: str = Form(...), question: str = Form(...))
             ]
         )
         answer = response.choices[0].message.content.strip()
-        print("[/ask-question] ✅ Yanıt alındı:", answer)
-        return JSONResponse(content={"answer": answer})
+        logger.info("Ask PDF question succeeded", extra={"answer_length": len(answer)})
+        response_payload = {"answer": answer}
+        logger.debug("Ask PDF question response payload", extra={"response": response_payload})
+        return JSONResponse(content=response_payload)
 
     except Exception as e:
-        print("[/ask-question] ❌ Hata:", str(e))
+        logger.exception("Ask PDF question failed")
         raise HTTPException(status_code=500, detail=str(e))

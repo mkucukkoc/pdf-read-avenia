@@ -1,18 +1,21 @@
 import io
+import logging
 from fastapi import Body, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from firebase_admin import firestore
 from fpdf import FPDF
 from main import app
 
+logger = logging.getLogger("pdf_read_refresh.endpoints.export_chat")
+
 
 @app.post("/export-chat")
 async def export_chat(payload: dict = Body(...)):
-    print("[/export-chat] ➡️ İstek alındı")
+    logger.info("Export chat request received", extra={"payload": payload})
     try:
         user_id = payload.get("user_id")
         chat_id = payload.get("chat_id")
-        print(f"[/export-chat] user_id={user_id} chat_id={chat_id}")
+        logger.info("Export chat parameters", extra={"user_id": user_id, "chat_id": chat_id})
 
         if not user_id or not chat_id:
             return JSONResponse(status_code=400, content={"error": "user_id and chat_id are required"})
@@ -27,7 +30,7 @@ async def export_chat(payload: dict = Body(...)):
             .order_by("timestamp")
         )
         docs = list(messages_ref.stream())
-        print(f"[/export-chat] mesaj sayısı={len(docs)}")
+        logger.info("Messages found", extra={"count": len(docs)})
         if not docs:
             return JSONResponse(status_code=404, content={"error": "No messages found"})
 
@@ -45,9 +48,9 @@ async def export_chat(payload: dict = Body(...)):
         pdf_bytes = pdf.output(dest="S").encode("latin-1")
         pdf_io = io.BytesIO(pdf_bytes)
         headers = {"Content-Disposition": f"attachment; filename=chat_{chat_id}.pdf"}
-        print("[/export-chat] ✅ PDF oluşturuldu")
+        logger.info("PDF generated", extra={"chat_id": chat_id})
         return StreamingResponse(pdf_io, media_type="application/pdf", headers=headers)
 
     except Exception as e:
-        print(f"[/export-chat] ❌ Hata: {e}")
+        logger.exception("Export chat failed")
         raise HTTPException(status_code=500, detail=str(e))

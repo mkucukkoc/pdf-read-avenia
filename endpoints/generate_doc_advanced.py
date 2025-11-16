@@ -1,4 +1,5 @@
 # endpoints/generate_doc_advanced.py
+import logging
 import os
 import re
 import uuid
@@ -17,6 +18,8 @@ from docx.enum.section import WD_ORIENTATION
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+
+logger = logging.getLogger("pdf_read_refresh.endpoints.generate_doc_advanced")
 
 
 # ------------ Pydantic Model (GELİŞMİŞ) ------------
@@ -443,18 +446,20 @@ def _generate_text_to_word_budget(data: DocAdvancedRequest, system: str, base_us
 # ------------ ENDPOINT ------------
 @app.post("/generate-doc-advanced")
 async def generate_doc_advanced(data: DocAdvancedRequest):
-    print("[/generate-doc-advanced] 📝 İstek alındı.")
+    logger.info(
+        "Generate doc advanced request received",
+        extra={"prompt_preview": (data.prompt or "")[:200], "page_goal": data.page_goal},
+    )
     try:
-        # 1) Model içeriği hazırlat (iteratif veya tek atış)
-        print("[/generate-doc-advanced] 🧠 GPT içerik üretimi başlıyor...")
+        logger.info("Starting GPT content generation")
         system, user_text = _build_system_and_user_prompts(data)
 
         # Eğer page_goal varsa, iteratif kelime bütçeli üretim yap
         if data.page_goal and int(data.page_goal) > 0:
-            print("[/generate-doc-advanced] ⛳ page_goal algılandı → kelime bütçeli iterasyon kullanılacak.")
+            logger.info("page_goal detected - running iterative budgeted generation")
             generated = _generate_text_to_word_budget(data, system, user_text)
         else:
-            print("[/generate-doc-advanced] ➡️ page_goal yok → tek seferlik üretim.")
+            logger.info("No page_goal - single-shot generation")
             completion = client.chat.completions.create(
                 model=DEFAULT_MODEL,
                 messages=[
@@ -466,11 +471,11 @@ async def generate_doc_advanced(data: DocAdvancedRequest):
             )
             generated = completion.choices[0].message.content.strip()
 
-        print("[/generate-doc-advanced] ✅ Metin hazır, uzunluk (char):", len(generated))
-        print("[/generate-doc-advanced] 🔍 İlk 400 karakter:\n", generated[:400])
+        logger.info("Generated text ready", extra={"char_length": len(generated)})
+        logger.debug("Generated text preview", extra={"preview": generated[:400]})
 
         # 2) Word dokümanını kur
-        print("[/generate-doc-advanced] 📄 Word dosyası oluşturuluyor...")
+        logger.info("Building Word document")
         doc = Document()
 
         # Stil & Sayfa ayarları
@@ -505,15 +510,15 @@ async def generate_doc_advanced(data: DocAdvancedRequest):
         filename = f"generated_{uuid.uuid4().hex}.docx"
         filepath = os.path.join(temp_dir, filename)
         doc.save(filepath)
-        print("[/generate-doc-advanced] 💾 Word dosyası kaydedildi:", filepath)
+        logger.info("Word document saved", extra={"filepath": filepath})
 
         # 4) Firebase Storage’a yükle
-        print("[/generate-doc-advanced] ☁️ Firebase Storage’a yükleniyor...")
+        logger.info("Uploading document to Firebase Storage")
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_docs/{filename}")
         blob.upload_from_filename(filepath)
         blob.make_public()
-        print("[/generate-doc-advanced] 📤 Yükleme başarılı, link:", blob.public_url)
+        logger.info("Firebase upload completed", extra={"file_url": blob.public_url})
 
         # 5) Dönüş
         return {
@@ -522,5 +527,5 @@ async def generate_doc_advanced(data: DocAdvancedRequest):
         }
 
     except Exception as e:
-        print("[/generate-doc-advanced] ❌ Hata oluştu:", str(e))
+        logger.exception("Generate doc advanced failed")
         raise HTTPException(status_code=500, detail=str(e))

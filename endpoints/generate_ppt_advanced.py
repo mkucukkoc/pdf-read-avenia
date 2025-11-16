@@ -1,4 +1,5 @@
 # endpoints/generate_ppt_advanced.py
+import logging
 import os
 import re
 import io
@@ -19,6 +20,8 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_PARAGRAPH_ALIGNMENT
 from pptx.chart.data import ChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+
+logger = logging.getLogger("pdf_read_refresh.endpoints.generate_ppt_advanced")
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -475,18 +478,22 @@ CONSTRAINTS:
 
 @app.post("/generate-ppt-advanced")
 async def generate_ppt_advanced(data: PPTAdvancedRequest):
-    print("[/generate-ppt-advanced] 🚀 İstek alındı.")
+    logger.info(
+        "Generate PPT advanced request received",
+        extra={"prompt_preview": (data.prompt or "")[:200], "slide_goal": data.slide_goal},
+    )
     warnings = []
 
     try:
         # 0) Tema + brand kit
+        logger.info("Applying theme and brand kit")
         theme = data.theme or PPTTheme()
         theme = _apply_brand_kit(theme, data.brand_kit)
         if (not data.logo_url) and (data.brand_kit and data.brand_kit.logo_url):
             data.logo_url = data.brand_kit.logo_url
 
         # 1) Plan üret
-        print("[/generate-ppt-advanced] 🧠 Plan üretimi isteniyor...")
+        logger.info("Requesting plan generation")
         system, user = _build_plan_prompt(data)
         raw = client.chat.completions.create(
             model=DEFAULT_MODEL,
@@ -496,41 +503,44 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
             max_tokens=3500
         ).choices[0].message.content
 
-        print("[/generate-ppt-advanced] 📦 Plan raw len:", len(raw or ""))
+        logger.debug("Plan raw length", extra={"length": len(raw or "")})
         try:
             plan_json = _extract_json(raw)
             plan_obj = Plan.parse_obj(json.loads(plan_json))
         except Exception as e:
-            print("[/generate-ppt-advanced] ❌ Plan parse edilemedi:", e)
+            logger.exception("Failed to parse plan JSON")
             raise HTTPException(status_code=500, detail="Model planını JSON olarak parse edemedim.")
 
         # 1.b) Slide sayısını hedefe dengele
         if len(plan_obj.slides) != data.slide_goal:
-            print(f"[/generate-ppt-advanced] ℹ️ Slide count mismatch (got {len(plan_obj.slides)}, want {data.slide_goal}) → fixing")
+            logger.warning(
+                "Slide count mismatch - balancing",
+                extra={"got": len(plan_obj.slides), "want": data.slide_goal},
+            )
             plan_obj = _ensure_slide_goal(plan_obj, data.slide_goal)
             if len(plan_obj.slides) != data.slide_goal:
                 warnings.append(f"Slide count still {len(plan_obj.slides)} after balancing; requested {data.slide_goal}.")
 
         # 2) Sunum hazırla
-        print("[/generate-ppt-advanced] 🎨 Sunum kuruluyor...")
+        logger.info("Building presentation")
         prs = _new_presentation(data.aspect_ratio)
 
         # 2.a) Kapak
         if data.include_cover:
-            print("[/generate-ppt-advanced] 🧾 Kapak slaytı ekleniyor...")
+            logger.info("Adding cover slide")
             _cover_slide(prs, data.title or (plan_obj.title or "Presentation"), data.prompt, theme, data.logo_url)
 
         # 2.b) Agenda
         if data.include_agenda:
-            print("[/generate-ppt-advanced] 🗂️ Agenda slaytı ekleniyor...")
+            logger.info("Adding agenda slide")
             _agenda_slide(prs, plan_obj, theme, language=data.language)
 
         # 2.c) İçerik slaytları
-        print("[/generate-ppt-advanced] 🧱 İçerik slaytları render ediliyor...")
+        logger.info("Rendering content slides")
         base_index = len(prs.slides)  # kapak/agenda sonrası indeks başlangıcı
         for i, spec in enumerate(plan_obj.slides, 1):
             idx = base_index + i
-            print(f"[/generate-ppt-advanced] 📄 Slayt {idx}: {spec.title[:60]}...")
+            logger.debug("Rendering slide", extra={"index": idx, "title": spec.title[:60]})
             _render_content_slide(
                 prs, spec, idx=idx, theme=theme,
                 image_policy=data.image_policy,
@@ -542,22 +552,22 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
 
         # 2.d) Özet
         if data.include_summary:
-            print("[/generate-ppt-advanced] 🧩 Özet slaytı ekleniyor...")
+            logger.info("Adding summary slide")
             _summary_slide(prs, plan_obj, theme, language=data.language)
 
         # 2.e) Q&A
         if data.include_qna:
-            print("[/generate-ppt-advanced] ❓ Q&A slaytı ekleniyor...")
+            logger.info("Adding Q&A slide")
             _qna_slide(prs, theme, language=data.language)
 
         # 2.f) Kapanış / CTA
         if data.include_closing:
-            print("[/generate-ppt-advanced] ✅ Kapanış slaytı ekleniyor...")
+            logger.info("Adding closing slide")
             _closing_slide(prs, theme, language=data.language, cta=None)
 
         # 2.g) Referanslar
         if data.references:
-            print("[/generate-ppt-advanced] 🔗 Referans slaytı ekleniyor...")
+            logger.info("Adding references slide")
             s = prs.slides.add_slide(prs.slide_layouts[6])
             _add_title(s, "References" if data.language == "en" else "Kaynakça", theme)
             _add_bullets_textbox(s, data.references, theme)
@@ -566,13 +576,13 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
         filename = f"ppt_{uuid.uuid4().hex}.pptx"
         out_path = os.path.join(tempfile.gettempdir(), filename)
         prs.save(out_path)
-        print("[/generate-ppt-advanced] 💾 Kaydedildi:", out_path)
+        logger.info("Presentation saved", extra={"filepath": out_path})
 
         bucket = storage.bucket()
         blob = bucket.blob(f"generated_ppts/{filename}")
         blob.upload_from_filename(out_path)
         blob.make_public()
-        print("[/generate-ppt-advanced] ☁️ Upload OK:", blob.public_url)
+        logger.info("Presentation uploaded", extra={"file_url": blob.public_url})
 
         return {
             "status": "success",
@@ -584,5 +594,5 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print("[/generate-ppt-advanced] ❌ Hata:", str(e))
+        logger.exception("Generate PPT advanced failed")
         raise HTTPException(status_code=500, detail=str(e))

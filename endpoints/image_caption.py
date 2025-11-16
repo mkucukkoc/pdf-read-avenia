@@ -1,8 +1,11 @@
-# endpoints/image_caption.py
 import base64, io, requests
+import logging
 from fastapi import Body
 from fastapi.responses import JSONResponse
 from main import app, client, decode_base64_maybe_data_url
+
+logger = logging.getLogger("pdf_read_refresh.endpoints.image_caption")
+
 
 def sniff_image_mime(b: bytes) -> str | None:
     # JPEG
@@ -26,32 +29,33 @@ def image_caption(payload: dict = Body(...)):
       { "image_base64": "<base64|data URL>" }  veya
       { "image_url": "https://..." }
     """
-    print("========== [/analyze-image] BAŞLADI ==========")
-    print("[1] Gelen payload:", payload)
+    logger.info("Image caption request received", extra={"payload": payload})
 
     image_b64 = payload.get("image_base64")
     image_url = payload.get("image_url")
 
     if not image_b64 and not image_url:
+        logger.warning("No image data provided")
         return JSONResponse(status_code=400, content={"error": "Provide image_base64 or image_url"})
 
-    # 1) Byte'ları elde et
     try:
         if image_url and not image_b64:
-            print("[2] URL'den görsel indiriliyor...")
+            logger.info("Downloading image from URL", extra={"url": image_url})
             r = requests.get(image_url, headers={"User-Agent":"Mozilla/5.0","Accept":"image/*"}, timeout=15)
             if r.status_code != 200:
+                logger.error("Image URL fetch failed", extra={"status": r.status_code})
                 return JSONResponse(status_code=400, content={"error": f"Image URL fetch failed: HTTP {r.status_code}"})
             ct = (r.headers.get("Content-Type") or "").lower()
             if not ct.startswith("image/"):
+                logger.warning("Image URL returned non-image content", extra={"content_type": ct})
                 return JSONResponse(status_code=400, content={"error": "URL does not return an image (content-type mismatch)"})
             image_bytes = r.content
         else:
-            print("[2] Base64 decode başlatılıyor...")
+            logger.info("Decoding base64 image")
             image_bytes = decode_base64_maybe_data_url(image_b64)
-            print(f"[2.1] Base64 decode başarılı. Byte boyutu: {len(image_bytes)}")
+            logger.info("Base64 decode success", extra={"byte_length": len(image_bytes)})
     except Exception as e:
-        print("[HATA] Görsel elde edilemedi:", e)
+        logger.error("Failed to obtain image data", exc_info=e)
         return JSONResponse(status_code=400, content={"error": "Invalid image data", "details": str(e)})
 
     # 2) Gerçekten resim mi? + MIME tespiti
@@ -65,7 +69,7 @@ def image_caption(payload: dict = Body(...)):
 
     # 4) OpenAI çağrısı
     try:
-        print("[3] GPT isteği hazırlanıyor...")
+        logger.info("Calling GPT for image caption")
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
@@ -77,10 +81,10 @@ def image_caption(payload: dict = Body(...)):
             }],
         )
         caption = response.choices[0].message.content.strip()
-        print("[3.1] GPT çıktı:", caption)
+        logger.info("GPT caption response", extra={"caption_preview": caption[:200]})
     except Exception as e:
-        print("[HATA] GPT isteği başarısız:", e)
+        logger.exception("Image caption GPT call failed")
         return JSONResponse(status_code=500, content={"error": "Image caption failed", "details": str(e)})
 
-    print("========== [/analyze-image] BİTTİ ==========")
+    logger.info("Image caption complete")
     return {"caption": caption}

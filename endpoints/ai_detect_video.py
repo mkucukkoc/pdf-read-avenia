@@ -1,4 +1,5 @@
 import json
+import logging
 from fastapi import Body, Query
 from fastapi.responses import JSONResponse
 import requests
@@ -15,6 +16,8 @@ from main import (
     API_KEY,
     MOCK_MODE,
 )
+
+logger = logging.getLogger("pdf_read_refresh.endpoints.analyze_video")
 
 # --- DEĞİŞTİ: Doğru video endpoint'i ---
 VIDEO_ENDPOINT = "https://api.aiornot.com/v2/video/sync"
@@ -63,24 +66,30 @@ def analyze_video(
         "chat_id": "cid"
     }
     """
-    print("========== [/analyze-video] BAŞLADI ==========")
-    print("[1] Gelen payload:", payload)
+    logger.info("Analyze video request received", extra={"payload": payload})
 
     language = normalize_language(payload.get("language"))
     video_b64 = payload.get("video_base64")
     user_id = payload.get("user_id")
     chat_id = payload.get("chat_id")
-    print(f"[2] Parametreler -> user_id: {user_id}, chat_id: {chat_id}, video_base64 uzunluğu: {len(video_b64) if video_b64 else 'YOK'}")
+    logger.info(
+        "Analyze video parameters",
+        extra={
+            "user_id": user_id,
+            "chat_id": chat_id,
+            "video_length": len(video_b64) if video_b64 else "missing",
+        },
+    )
 
     if not video_b64:
-        print("[HATA] video_base64 eksik")
+        logger.warning("video_base64 missing")
         return JSONResponse(status_code=400, content={"error": "No base64 video data provided"})
     if not user_id or not chat_id:
-        print("[HATA] user_id veya chat_id eksik")
+        logger.warning("user_id or chat_id missing")
         return JSONResponse(status_code=400, content={"error": "user_id and chat_id are required"})
 
     if MOCK_MODE or mock == "1":
-        print("[3] MOCK_MODE aktif - Sahte sonuç döndürülüyor.")
+        logger.info("Mock analyze video flow active")
         mock_result = {
             "report": {
                 # AI or Not video şemasına yakın mock
@@ -105,10 +114,10 @@ def analyze_video(
 
         messages = interpret_messages_legacy(legacy_like, language)
         summary_tr = format_summary_tr(legacy_like, language, subject="video")
-        print(f"[4] MOCK summary_tr: {summary_tr}")
+        logger.debug("Mock summary generated", extra={"summary_tr": summary_tr})
         saved_info = _save_asst_message(user_id, chat_id, summary_tr, mock_result, language)  # orijinali kaydet
-        print(f"[5] MOCK Firestore kayıt sonucu: {saved_info}")
-        print("========== [/analyze-video] BİTTİ (MOCK) ==========")
+        logger.info("Mock Firestore save result", extra={"saved_info": saved_info})
+        logger.info("Analyze video mock complete")
         return JSONResponse(status_code=200, content={
             "raw_response": mock_result,   # orijinal şema
             "messages": messages,
@@ -119,43 +128,42 @@ def analyze_video(
         })
 
     try:
-        print("[3] Base64 decode başlatılıyor...")
+        logger.info("Decoding base64 video")
         video_bytes = decode_base64_maybe_data_url(video_b64)
-        print(f"[3.1] Base64 decode başarılı. Byte boyutu: {len(video_bytes)}")
+        logger.info("Base64 decoded", extra={"byte_length": len(video_bytes)})
 
         video_md5 = hashlib.md5(video_bytes).hexdigest()
-        print(f"[3.2] Video MD5: {video_md5}")
+        logger.info("Video MD5 computed", extra={"md5": video_md5})
     except Exception as e:
-        print("[HATA] Base64 decode başarısız:", e)
+        logger.error("Base64 decode failed", exc_info=e)
         return JSONResponse(status_code=400, content={"error": "Invalid base64 data", "details": str(e)})
 
     # --- DEĞİŞTİ: alan adı 'video' olmalı ---
     files = {"video": ("video.mp4", video_bytes, "video/mp4")}
     try:
-        print("[4] AI or Not API'ye istek gönderiliyor...")
+        logger.info("Calling video AI or Not API")
         resp = requests.post(
             VIDEO_ENDPOINT,
             headers={"Authorization": f"Bearer {API_KEY}"},
             files=files,
             timeout=120,  # --- DEĞİŞTİ: önerilen timeout ---
         )
-        print(f"[4.1] API yanıt kodu: {resp.status_code}")
+        logger.info("Video API response", extra={"status_code": resp.status_code})
     except requests.RequestException as e:
-        print("[HATA] API isteği başarısız:", e)
+        logger.error("Video API request failed", exc_info=e)
         return JSONResponse(status_code=502, content={"error": "AI analysis failed", "details": str(e)})
 
     if resp.status_code != 200:
-        print("[HATA] API yanıtı başarısız:", resp.text)
+        logger.error("Video AI response error", extra={"status": resp.status_code, "body": resp.text})
         return JSONResponse(status_code=500, content={
             "error": "AI analysis failed",
             "details": resp.text,
             "status": resp.status_code,
         })
 
-    print("[5] API yanıtı JSON parse ediliyor...")
+    logger.info("Parsing video API response")
     result = resp.json()  # orijinal AI or Not yanıtı (video şeması)
-    print("[5.1] API yanıtı 2 :" , resp.json())
-    print("[5.1] API yanıtı:", json.dumps(result, indent=2))
+    logger.debug("Video API JSON response", extra={"response": json.dumps(result, indent=2)})
     _log_aiornot_breakdown(result, resp)
 
 
@@ -174,20 +182,19 @@ def analyze_video(
         }
     }
 
-    print("[6] interpret_messages_legacy çağrılıyor...")
+    logger.info("Calling interpret_messages_legacy")
     messages = interpret_messages_legacy(legacy_like, language)
-    print(f"[6.1] interpret_messages_legacy çıktı: {messages}")
+    logger.debug("Interpret messages result", extra={"messages": messages})
 
-    print("[7] format_summary_tr çağrılıyor...")
+    logger.info("Calling format_summary_tr")
     summary_tr = format_summary_tr(legacy_like, language, subject="video")
-    print(f"[7.1] format_summary_tr çıktı: {summary_tr}")
+    logger.debug("Format summary output", extra={"summary_tr": summary_tr})
 
-    print("[8] Firestore kaydı başlatılıyor...")
+    logger.info("Saving assistant message to Firestore")
     # Kayda ORİJİNAL sonucu geçiyoruz (eski davranış korunur)
     saved_info = _save_asst_message(user_id, chat_id, summary_tr, result, language)
-    print(f"[8.1] Firestore kayıt sonucu: {saved_info}")
-
-    print("========== [/analyze-video] BİTTİ ==========")
+    logger.info("Firestore save result", extra={"saved_info": saved_info})
+    logger.info("Analyze video complete")
     return JSONResponse(status_code=200, content={
         "raw_response": result,   # orijinal video şeması
         "messages": messages,
