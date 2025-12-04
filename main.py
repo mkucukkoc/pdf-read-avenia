@@ -122,12 +122,12 @@ else:
     )
 
 
-fastapi_app = FastAPI(title="Avenia PDF Read API", version="1.0.0")
+app = FastAPI(title="Avenia PDF Read API", version="1.0.0")
 
 # Setup error handlers
-setup_error_handlers(fastapi_app)
+setup_error_handlers(app)
 
-fastapi_app.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -135,8 +135,8 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
-fastapi_app.include_router(chat_router)
-fastapi_app.include_router(presentation_router)
+app.include_router(chat_router)
+app.include_router(presentation_router)
 
 JWT_SECRET = os.getenv("JWT_HS_SECRET", "change_me_in_production")
 JWT_ISSUER = os.getenv("JWT_ISS", "chatgbtmini")
@@ -188,7 +188,7 @@ def _verify_bearer_token(auth_header: str) -> Dict:
         )
 
 
-@fastapi_app.middleware("http")
+@app.middleware("http")
 async def authenticate_request(request: Request, call_next):
     path = request.url.path
     if path.startswith("/static/") or path in PUBLIC_PATHS or request.method == "OPTIONS":
@@ -206,7 +206,7 @@ async def authenticate_request(request: Request, call_next):
 from websocket_manager import sio
 import socketio as socketio_lib
 
-app = socketio_lib.ASGIApp(sio, other_asgi_app=fastapi_app)
+socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
