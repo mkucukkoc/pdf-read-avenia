@@ -240,6 +240,15 @@ class ChatService:
         request_id: str,
     ) -> None:
         final_content = ""
+        logger.info(
+            "Starting streaming response",
+            extra={
+                "requestId": request_id,
+                "userId": user_id,
+                "chatId": payload.chat_id,
+                "messageId": message_id,
+            },
+        )
         try:
             openai_messages = self._prepare_openai_messages(payload.messages, payload.image_file_url)
             stream = await self._async_client.chat.completions.create(
@@ -257,6 +266,17 @@ class ChatService:
                 if not delta_text:
                     continue
                 final_content += delta_text
+                logger.debug(
+                    "Received OpenAI stream delta",
+                    extra={
+                        "requestId": request_id,
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "deltaLen": len(delta_text),
+                        "totalLen": len(final_content),
+                        "deltaPreview": delta_text[:80],
+                    },
+                )
                 await stream_manager.emit_chunk(
                     payload.chat_id,
                     {
@@ -284,6 +304,15 @@ class ChatService:
                 role="assistant",
                 content=final_content,
                 timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.info(
+                "Final streaming content ready",
+                extra={
+                    "requestId": request_id,
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                    "contentLength": len(final_content),
+                },
             )
 
             await asyncio.to_thread(

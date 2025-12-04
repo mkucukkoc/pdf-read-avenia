@@ -89,6 +89,19 @@ class StreamManager:
         room = _resolve_room(chat_id)
         if not room:
             return
+        logger.debug(
+            "Emitting stream chunk",
+            extra={
+                "chatId": chat_id,
+                "room": room,
+                "messageId": payload.get("messageId"),
+                "isFinal": payload.get("isFinal"),
+                "error": payload.get("error"),
+                "contentPreview": (payload.get("content") or "")[:80],
+                "deltaLen": len(payload.get("delta") or ""),
+                "contentLen": len(payload.get("content") or ""),
+            },
+        )
         await sio.emit("chat:stream", payload, room=room)
 
 
