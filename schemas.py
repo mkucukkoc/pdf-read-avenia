@@ -94,6 +94,8 @@ class ChatRequestPayload(BaseModel):
     chat_id: str = Field(..., alias="chatId")
     has_image: bool = Field(default=False, alias="hasImage")
     image_file_url: Optional[str] = Field(default=None, alias="imageFileUrl")
+    language: Optional[str] = None
+    stream: bool = Field(default=False)
 
     model_config = ConfigDict(populate_by_name=True)
 

@@ -8,10 +8,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from google.cloud import firestore as firestore_client
-from openai import OpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from firebase import db
 from schemas import ChatMessagePayload, ChatRequestPayload
+from websocket_manager import stream_manager
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
 
@@ -22,7 +23,9 @@ class ChatService:
     _instance: Optional["ChatService"] = None
 
     def __init__(self) -> None:
-        self._client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        api_key = os.getenv("OPENAI_API_KEY")
+        self._client = OpenAI(api_key=api_key)
+        self._async_client = AsyncOpenAI(api_key=api_key)
         self._db = db
         self._default_model = os.getenv("FINE_TUNED_MODEL_ID", "gpt-3.5-turbo")
         self._title_model = os.getenv("CHAT_TITLE_MODEL", self._default_model)
@@ -56,6 +59,25 @@ class ChatService:
             },
         )
 
+        if payload.stream:
+            stream_message_id = self._generate_message_id()
+            asyncio.create_task(
+                self._handle_streaming_response(
+                    user_id=user_id,
+                    payload=payload,
+                    message_id=stream_message_id,
+                    request_id=request_id,
+                )
+            )
+            return {
+                "success": True,
+                "data": {
+                    "streaming": True,
+                    "messageId": stream_message_id,
+                },
+                "message": "Streaming response started",
+            }
+
         openai_messages = self._prepare_openai_messages(payload.messages, payload.image_file_url)
 
         response = await asyncio.to_thread(
@@ -80,7 +102,12 @@ class ChatService:
             assistant_message,
         )
 
-        chat_title = await self._maybe_generate_chat_title(user_id, payload.chat_id, assistant_content)
+        chat_title = await self._maybe_generate_chat_title(
+            user_id,
+            payload.chat_id,
+            assistant_content,
+            payload.language,
+        )
 
         await asyncio.to_thread(
             self._update_chat_metadata,
@@ -205,6 +232,146 @@ class ChatService:
 
     # ----- Internal helpers -------------------------------------------------
 
+    async def _handle_streaming_response(
+        self,
+        user_id: str,
+        payload: ChatRequestPayload,
+        message_id: str,
+        request_id: str,
+    ) -> None:
+        final_content = ""
+        try:
+            openai_messages = self._prepare_openai_messages(payload.messages, payload.image_file_url)
+            stream = await self._async_client.chat.completions.create(
+                model=self._select_model(payload),
+                messages=openai_messages,
+                temperature=0.7,
+                stream=True,
+            )
+
+            async for chunk in stream:
+                choice = chunk.choices[0] if chunk.choices else None
+                if not choice:
+                    continue
+                delta_text = self._extract_delta_text(choice.delta)
+                if not delta_text:
+                    continue
+                final_content += delta_text
+                await stream_manager.emit_chunk(
+                    payload.chat_id,
+                    {
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "content": final_content,
+                        "delta": delta_text,
+                        "isFinal": False,
+                    },
+                )
+
+            if not final_content:
+                await stream_manager.emit_chunk(
+                    payload.chat_id,
+                    {
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "content": final_content,
+                        "isFinal": True,
+                    },
+                )
+                return
+
+            assistant_message = ChatMessagePayload(
+                role="assistant",
+                content=final_content,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
+
+            await asyncio.to_thread(
+                self._save_message_to_firestore,
+                user_id,
+                payload.chat_id,
+                assistant_message,
+                message_id,
+            )
+
+            chat_title = await self._maybe_generate_chat_title(
+                user_id,
+                payload.chat_id,
+                final_content,
+                payload.language,
+            )
+
+            await asyncio.to_thread(
+                self._update_chat_metadata,
+                user_id,
+                payload.chat_id,
+                final_content,
+                chat_title,
+            )
+
+            await stream_manager.emit_chunk(
+                payload.chat_id,
+                {
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                    "content": final_content,
+                    "isFinal": True,
+                },
+            )
+
+            logger.info(
+                "Streaming chat response generated",
+                extra={
+                    "requestId": request_id,
+                    "userId": user_id,
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception(
+                "Streaming response failed",
+                extra={
+                    "requestId": request_id,
+                    "userId": user_id,
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                },
+            )
+            await stream_manager.emit_chunk(
+                payload.chat_id,
+                {
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                    "isFinal": True,
+                    "error": "stream_failed",
+                },
+            )
+
+    def _generate_message_id(self) -> str:
+        return f"assistant_{uuid.uuid4().hex}"
+
+    def _extract_delta_text(self, delta: Any) -> str:
+        if not delta:
+            return ""
+        content = getattr(delta, "content", None)
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    parts.append(item.get("text") or "")
+                else:
+                    text = getattr(item, "text", None)
+                    if text:
+                        parts.append(text)
+            return "".join(parts)
+        if isinstance(content, str):
+            return content
+        text = getattr(delta, "text", None)
+        if isinstance(text, str):
+            return text
+        return ""
+
     def _prepare_openai_messages(
         self,
         messages: List[ChatMessagePayload],
@@ -224,6 +391,7 @@ class ChatService:
         user_id: str,
         chat_id: str,
         message: ChatMessagePayload,
+        message_id: Optional[str] = None,
     ) -> None:
         if not self._db:
             logger.debug("Skipping Firestore save; client not available")
@@ -239,6 +407,11 @@ class ChatService:
 
         message_data = message.model_dump(by_alias=True)
         message_data["timestamp"] = firestore_client.SERVER_TIMESTAMP
+
+        if message_id:
+            doc_ref = collection.document(message_id)
+            doc_ref.set(message_data)
+            return
 
         recent = (
             collection.order_by("timestamp", direction=firestore_client.Query.DESCENDING)
@@ -298,15 +471,17 @@ class ChatService:
         user_id: str,
         chat_id: str,
         assistant_content: str,
+        language_code: Optional[str],
     ) -> Optional[str]:
         content = assistant_content.strip()
         if len(content) < 12:
             return None
 
+        language_label = self._resolve_language_label(language_code)
         prompt = (
-            "You are naming an AI chat conversation. Generate a short, concise "
-            "title (max 6 words) that summarizes the following assistant reply. "
-            "Return only the title without quotes."
+            f"You are naming an AI chat conversation. Generate a short, concise title "
+            f"in {language_label} (max 6 words) that summarizes the following assistant reply. "
+            "Return only the title without quotes and without additional commentary."
         )
 
         try:
@@ -330,6 +505,21 @@ class ChatService:
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("Failed to generate chat title: %s", exc)
         return None
+
+    def _resolve_language_label(self, code: Optional[str]) -> str:
+        if not code:
+            return "English"
+        normalized = code.lower()[:2]
+        label_map = {
+            "tr": "Turkish",
+            "es": "Spanish",
+            "fr": "French",
+            "pt": "Portuguese",
+            "ru": "Russian",
+            "de": "German",
+            "ar": "Arabic",
+        }
+        return label_map.get(normalized, "English")
 
     def _select_model(self, payload: ChatRequestPayload) -> str:
         if payload.has_image:
