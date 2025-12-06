@@ -27,8 +27,18 @@ class ChatService:
         self._client = OpenAI(api_key=api_key)
         self._async_client = AsyncOpenAI(api_key=api_key)
         self._db = db
-        self._default_model = os.getenv("FINE_TUNED_MODEL_ID", "gpt-3.5-turbo")
+        preferred_models = [
+            os.getenv("FINE_TUNED_MODEL_ID"),
+            os.getenv("OPENAI_MODEL"),
+            "gpt-5.1",
+            "gpt-4.1",
+            "gpt-4o-mini",
+        ]
+        self._default_model = next((model for model in preferred_models if model), "gpt-4o-mini")
         self._title_model = os.getenv("CHAT_TITLE_MODEL", self._default_model)
+        logger.debug("ChatService initialized with model=%s titleModel=%s", self._default_model, self._title_model)
+        logger.info("ChatService ready; default=%s title=%s", self._default_model, self._title_model)
+        logger.debug("Firestore client configured: %s", bool(self._db))
 
     @classmethod
     def get_instance(cls) -> "ChatService":
