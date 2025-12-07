@@ -113,6 +113,16 @@ class ImageEditRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+
+
+class GeminiImageRequest(BaseModel):
+    prompt: str
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
 class CreateChatRequest(BaseModel):
     title: Optional[str] = None
 
@@ -127,5 +137,6 @@ __all__ = [
     "ChatRequestPayload",
     "TextToSpeechRequest",
     "ImageEditRequest",
+    "GeminiImageRequest",
     "CreateChatRequest",
 ]
