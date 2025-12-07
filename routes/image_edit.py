@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, Request
+from openai import PermissionDeniedError
 from PIL import Image
 
 from schemas import ImageEditRequest
@@ -104,7 +105,6 @@ def _download_image_as_png(url: str) -> str:
         with Image.open(buffer) as img:
             rgba_image = img.convert("RGBA")
             rgba_image.save(tmp_file_path, format="PNG")
-            rgba_image.close()
 
     return tmp_file_path
 
@@ -150,6 +150,34 @@ async def _generate_image_edit(source_path: str, prompt: str) -> str:
     return tmp_file_path
 
 
+def _generate_image_with_dalle(prompt: str) -> tuple[str, str]:
+    """
+    Generate a brand new image using the standard images API as a fallback when edits are unavailable.
+    Returns the temp file path and the model used.
+    """
+    model = os.getenv("IMAGE_GENERATE_MODEL", "dall-e-3")
+    size = os.getenv("IMAGE_GENERATE_SIZE", "1024x1024")
+    response = _get_openai_client().images.generate(
+        model=model,
+        prompt=prompt,
+        size=size,
+    )
+    if not response.data:
+        raise RuntimeError("Image generation response did not contain any data")
+
+    generated_url = response.data[0].url
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    tmp_file_path = tmp_file.name
+    tmp_file.close()
+
+    dl_resp = requests.get(generated_url, timeout=30)
+    dl_resp.raise_for_status()
+    with open(tmp_file_path, "wb") as handle:
+        handle.write(dl_resp.content)
+
+    return tmp_file_path, model
+
+
 @router.post("/edit")
 async def edit_image(payload: ImageEditRequest, request: Request) -> Dict[str, Any]:
     """
@@ -192,6 +220,7 @@ async def edit_image(payload: ImageEditRequest, request: Request) -> Dict[str, A
     description = ""
     edited_tmp_path = None
     final_url: Optional[str] = None
+    model_used = os.getenv("IMAGE_EDIT_MODEL", "gpt-image-1")
     try:
         description = await _describe_image_with_vision(payload.image_url, language)
         logger.debug("Image description generated", extra={"description": description})
@@ -202,7 +231,16 @@ async def edit_image(payload: ImageEditRequest, request: Request) -> Dict[str, A
             f"Source description: {description or 'Not available; keep the main subject and composition similar.'}"
         )
 
-        edited_tmp_path = await _generate_image_edit(source_tmp_path, combined_prompt)
+        try:
+            edited_tmp_path = await _generate_image_edit(source_tmp_path, combined_prompt)
+        except PermissionDeniedError as exc:
+            logger.warning(
+                "Image edit endpoint forbidden; falling back to generation",
+                extra={"error": str(exc)},
+            )
+            edited_tmp_path, model_used = await asyncio.to_thread(
+                _generate_image_with_dalle, combined_prompt
+            )
         logger.info(
             "Image edit generated",
             extra={"userId": user_id, "chatId": payload.chat_id, "tmpPath": edited_tmp_path},
@@ -234,6 +272,6 @@ async def edit_image(payload: ImageEditRequest, request: Request) -> Dict[str, A
         "imageUrl": final_url,
         "sourceImageUrl": payload.image_url,
         "description": description,
-        "model": os.getenv("IMAGE_EDIT_MODEL", "gpt-image-1"),
+        "model": model_used,
     }
 
