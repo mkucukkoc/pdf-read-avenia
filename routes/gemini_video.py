@@ -5,6 +5,7 @@ import tempfile
 import time
 from typing import Any, Dict, Optional
 
+import base64
 import requests
 from fastapi import APIRouter, HTTPException, Request
 
