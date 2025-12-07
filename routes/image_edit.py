@@ -9,14 +9,23 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from schemas import ImageEditRequest
-
-# Use shared OpenAI client and Firebase storage from main
-from main import client, storage
 from language_support import normalize_language
 
 logger = logging.getLogger("pdf_read_refresh.image_edit")
 
 router = APIRouter(prefix="/api/v1/image", tags=["Image"])
+
+
+def _get_openai_client():
+    from main import client  # Local import to avoid circular dependency
+
+    return client
+
+
+def _get_storage():
+    from main import storage  # Local import to avoid circular dependency
+
+    return storage
 
 
 def _extract_user_id(request: Request) -> str:
@@ -37,7 +46,7 @@ async def _describe_image_with_vision(image_url: str, language: str) -> str:
 
     try:
         response = await asyncio.to_thread(
-            client.chat.completions.create,
+            _get_openai_client().chat.completions.create,
             model=vision_model,
             messages=[
                 {"role": "system", "content": f"You are an assistant that describes images in {language or 'English'}."},
@@ -63,10 +72,11 @@ def _upload_to_storage(tmp_path: str, user_id: str) -> str:
     Upload generated image to Firebase Storage if available.
     Returns the public URL or raises on failure.
     """
-    if storage is None:
+    firebase_storage = _get_storage()
+    if firebase_storage is None:
         raise RuntimeError("Firebase storage is not initialized")
 
-    bucket = storage.bucket()
+    bucket = firebase_storage.bucket()
     safe_user = user_id or "anonymous"
     blob_path = f"image-edits/{safe_user}/{int(time.time() * 1000)}.png"
     blob = bucket.blob(blob_path)
@@ -118,7 +128,7 @@ async def edit_image(payload: ImageEditRequest, request: Request) -> Dict[str, A
     # Generate new image with DALL·E 3
     try:
         dalle_response = await asyncio.to_thread(
-            client.images.generate,
+            _get_openai_client().images.generate,
             model="dall-e-3",
             prompt=combined_prompt,
             size="1024x1024",
