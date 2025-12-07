@@ -38,6 +38,7 @@ from jose import jwt, JWTError
 import firebase_admin
 from firebase_admin import credentials, storage, firestore
 import os, sys, logging
+import socketio as socketio_lib
 
 # Import error handler
 from error_handler import setup_error_handlers, CustomHTTPException, ValidationError, BusinessLogicError, ExternalServiceError
@@ -50,6 +51,7 @@ from language_support import (
     quality_flag_from_value,
 )
 from routes import chat_router, presentation_router, image_edit_router
+from websocket_manager import sio
 
 
 router = APIRouter()
@@ -138,6 +140,8 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(presentation_router)
 app.include_router(image_edit_router)
+
+socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
 JWT_SECRET = os.getenv("JWT_HS_SECRET", "change_me_in_production")
 JWT_ISSUER = os.getenv("JWT_ISS", "chatgbtmini")
