@@ -414,7 +414,7 @@ def _generate_text_to_word_budget(data: DocAdvancedRequest, system: str, base_us
             model=DEFAULT_MODEL,
             messages=messages,
             temperature=0.7,
-            max_tokens=min(8192, int(chunk_goal * 2))  # kaba dönüşüm: ~2 token/kelime
+            max_completion_tokens=min(8192, int(chunk_goal * 2))  # kaba dönüşüm: ~2 token/kelime
         )
         part = completion.choices[0].message.content.strip()
         part_wc = _count_words(part)
@@ -467,7 +467,7 @@ async def generate_doc_advanced(data: DocAdvancedRequest):
                     {"role": "user", "content": user_text},
                 ],
                 temperature=0.7,
-                max_tokens=3500
+                max_completion_tokens=3500
             )
             generated = completion.choices[0].message.content.strip()
 

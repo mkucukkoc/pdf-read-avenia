@@ -28,7 +28,7 @@ Content: ...
 Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir kadın")"""},
                 {"role": "user", "content": data.prompt}
             ],
-            max_tokens=1500
+            max_completion_tokens=1500
         )
         generated_text = completion.choices[0].message.content.strip()
         logger.info("GPT content generated for PPT", extra={"text_length": len(generated_text)})

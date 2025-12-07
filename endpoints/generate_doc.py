@@ -17,7 +17,7 @@ async def generate_doc(data: DocRequest):
         completion = client.chat.completions.create(
             model=DEFAULT_MODEL,
             messages=[{"role": "user", "content": data.prompt}],
-            max_tokens=1500
+            max_completion_tokens=1500
         )
         generated_text = completion.choices[0].message.content.strip()
         logger.info("GPT content generated", extra={"text_length": len(generated_text)})

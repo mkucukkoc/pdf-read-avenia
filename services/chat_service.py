@@ -531,7 +531,7 @@ class ChatService:
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": content[:500]},
                 ],
-                max_tokens=32,
+                max_completion_tokens=32,
                 temperature=0.5,
             )
             generated = (response.choices[0].message.content or "").strip()

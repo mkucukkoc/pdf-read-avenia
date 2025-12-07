@@ -500,7 +500,7 @@ async def generate_ppt_advanced(data: PPTAdvancedRequest):
             messages=[{"role": "system", "content": system},
                       {"role": "user", "content": user}],
             temperature=0.6,
-            max_tokens=3500
+            max_completion_tokens=3500
         ).choices[0].message.content
 
         logger.debug("Plan raw length", extra={"length": len(raw or "")})
