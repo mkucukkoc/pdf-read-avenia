@@ -56,10 +56,10 @@ async def _call_veo_generate(prompt: str, api_key: str, model: str = "veo-3.1-ge
 
     logger.info("Veo generateVideo call start", extra={"prompt_preview": prompt[:120], "prompt_len": len(prompt)})
     resp = await asyncio.to_thread(requests.post, url, json=payload, timeout=60)
-    logger.info("Veo generateVideo response", extra={"status": resp.status_code})
+    logger.info("Veo generateVideo response", extra={"status": resp.status_code, "body_preview": resp.text[:800]})
 
     if not resp.ok:
-        logger.error("Veo generateVideo failed", extra={"status": resp.status_code, "body": resp.text[:500]})
+        logger.error("Veo generateVideo failed", extra={"status": resp.status_code, "body": resp.text[:800]})
         raise HTTPException(
             status_code=resp.status_code,
             detail={"success": False, "error": "veo_generate_failed", "message": resp.text[:500]},
@@ -83,13 +83,14 @@ async def _poll_operation(operation_name: str, api_key: str, poll_interval: floa
     while True:
         resp = await asyncio.to_thread(requests.get, url, timeout=30)
         if not resp.ok:
-            logger.error("Veo operation poll failed", extra={"status": resp.status_code, "body": resp.text[:300]})
+            logger.error("Veo operation poll failed", extra={"status": resp.status_code, "body": resp.text[:800]})
             raise HTTPException(
                 status_code=resp.status_code,
                 detail={"success": False, "error": "veo_poll_failed", "message": resp.text[:300]},
             )
 
         data = resp.json()
+        logger.info("Veo operation poll response", extra={"done": data.get("done"), "body_preview": resp.text[:800]})
         done = data.get("done", False)
         if done:
             return data
