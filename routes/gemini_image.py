@@ -42,6 +42,8 @@ async def _call_gemini_api(prompt: str, api_key: str) -> Dict[str, Any]:
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
 
+    logger.info("Gemini API call start", extra={"prompt_preview": prompt[:120], "prompt_len": len(prompt)})
+
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         "gemini-2.5-flash-image:generateContent"
@@ -78,6 +80,7 @@ async def _call_gemini_api(prompt: str, api_key: str) -> Dict[str, Any]:
 
 def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:
     candidates = resp_json.get("candidates") or []
+    logger.info("Parsing Gemini response", extra={"candidate_count": len(candidates)})
     if not candidates:
         raise ValueError("No candidates in Gemini response")
 
@@ -85,6 +88,10 @@ def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:
     for part in parts:
         inline = part.get("inline_data") or part.get("inlineData")
         if inline and inline.get("data"):
+            logger.info(
+                "Inline data found",
+                extra={"mimeType": inline.get("mimeType") or "image/png", "data_len": len(inline.get("data", ""))},
+            )
             return {
                 "data": inline["data"],
                 "mimeType": inline.get("mimeType") or "image/png",
@@ -104,6 +111,7 @@ def _save_temp_image(image_base64: str, mime_type: str) -> str:
     tmp_file.write(base64.b64decode(image_base64))
     tmp_file_path = tmp_file.name
     tmp_file.close()
+    logger.info("Temp image saved", extra={"path": tmp_file_path, "mime_type": mime_type, "size_bytes": os.path.getsize(tmp_file_path)})
     return tmp_file_path
 
 
@@ -112,6 +120,7 @@ def _upload_to_storage(tmp_path: str, user_id: str, file_name: Optional[str]) ->
     if firebase_storage is None:
         raise RuntimeError("Firebase storage is not initialized")
 
+    logger.info("Uploading image to storage", extra={"user_id": user_id, "file_name": file_name, "tmp_path": tmp_path})
     bucket = firebase_storage.bucket()
     blob_path = _build_storage_path(user_id, file_name)
     blob = bucket.blob(blob_path)
@@ -130,6 +139,17 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
         )
 
+    logger.info(
+        "Gemini endpoint called",
+        extra={
+          "chat_id": payload.chat_id,
+          "language_raw": payload.language,
+          "file_name": payload.file_name,
+          "prompt_len": len(payload.prompt or ""),
+          "prompt_preview": (payload.prompt or "")[:120],
+        },
+    )
+
     user_id = _extract_user_id(request)
     language = normalize_language(payload.language)
     prompt = payload.prompt.strip()
@@ -145,17 +165,22 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
     data_url: Optional[str] = None
 
     try:
+        logger.info("Calling Gemini API...")
         response_json = await _call_gemini_api(prompt, gemini_key)
+        logger.info("Gemini API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
         inline_data = _extract_image_data(response_json)
+        logger.info("Inline data extracted", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
 
         try:
             final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name)
+            logger.info("Image uploaded to storage", extra={"final_url": final_url})
         except Exception as storage_exc:
             logger.warning("Firebase upload failed; returning data URL", extra={"error": str(storage_exc)})
             data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
+            logger.info("Using data URL fallback", extra={"has_data_url": bool(data_url)})
 
-        return {
+        result = {
             "success": True,
             "imageUrl": final_url,
             "dataUrl": data_url,
@@ -164,6 +189,8 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             "model": "gemini-2.5-flash-image",
             "mimeType": inline_data["mimeType"],
         }
+        logger.info("Gemini response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
+        return result
     except HTTPException:
         raise
     except Exception as exc:
@@ -176,5 +203,6 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         if tmp_file_path:
             try:
                 os.remove(tmp_file_path)
+                logger.info("Temp file removed", extra={"path": tmp_file_path})
             except OSError:
-                pass
+                logger.warning("Temp file cleanup failed", extra={"path": tmp_file_path})
