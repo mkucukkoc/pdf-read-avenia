@@ -51,7 +51,7 @@ from language_support import (
     nsfw_flag_from_value,
     quality_flag_from_value,
 )
-# NOTE: image_edit_router disabled; front-end handles messaging
+# NOTE: image_edit_router temporarily disabled (frontend handles messaging)
 from routes import chat_router, presentation_router
 # from routes import image_edit_router
 from websocket_manager import sio
