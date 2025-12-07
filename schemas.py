@@ -95,13 +95,21 @@ class ChatRequestPayload(BaseModel):
     has_image: bool = Field(default=False, alias="hasImage")
     image_file_url: Optional[str] = Field(default=None, alias="imageFileUrl")
     language: Optional[str] = None
-    stream: bool = Field(default=False)
 
     model_config = ConfigDict(populate_by_name=True)
 
 
 class TextToSpeechRequest(BaseModel):
     messages: List[ChatMessagePayload]
+
+
+class ImageEditRequest(BaseModel):
+    image_url: str = Field(..., alias="imageUrl")
+    prompt: str
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class CreateChatRequest(BaseModel):
@@ -117,5 +125,6 @@ __all__ = [
     "ChatMessagePayload",
     "ChatRequestPayload",
     "TextToSpeechRequest",
+    "ImageEditRequest",
     "CreateChatRequest",
 ]

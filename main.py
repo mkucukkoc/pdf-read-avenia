@@ -49,7 +49,7 @@ from language_support import (
     nsfw_flag_from_value,
     quality_flag_from_value,
 )
-from routes import chat_router, presentation_router
+from routes import chat_router, presentation_router, image_edit_router
 
 
 router = APIRouter()
@@ -137,6 +137,7 @@ app.add_middleware(
 
 app.include_router(chat_router)
 app.include_router(presentation_router)
+app.include_router(image_edit_router)
 
 JWT_SECRET = os.getenv("JWT_HS_SECRET", "change_me_in_production")
 JWT_ISSUER = os.getenv("JWT_ISS", "chatgbtmini")
@@ -202,11 +203,6 @@ async def authenticate_request(request: Request, call_next):
         return JSONResponse(status_code=exc.status_code, content=detail)
 
     return await call_next(request)
-
-from websocket_manager import sio
-import socketio as socketio_lib
-
-socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
