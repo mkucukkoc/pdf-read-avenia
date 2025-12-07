@@ -1,5 +1,6 @@
 
 import os
+import socketio as socketio_lib
 import io
 import re
 import json
@@ -51,6 +52,7 @@ from language_support import (
     quality_flag_from_value,
 )
 from routes import chat_router, presentation_router, image_edit_router
+from websocket_manager import sio
 from websocket_manager import sio
 
 
@@ -140,6 +142,8 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(presentation_router)
 app.include_router(image_edit_router)
+
+socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
 socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 

@@ -190,7 +190,7 @@ async def authenticate_request(request: Request, call_next):
 
     return await call_next(request)
 
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.1")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 RUNWAY_API_KEY = os.getenv("RUNWAY_API_KEY")
