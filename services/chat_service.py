@@ -84,12 +84,13 @@ class ChatService:
                 "message": "Streaming response started",
             }
 
-        prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url)
+        system_instruction = self._build_system_instruction(payload.language)
+        prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
         assistant_content = await asyncio.to_thread(
             self._call_gemini_generate_content,
             prompt_text,
             self._select_model(payload),
-            self._system_instruction,
+            system_instruction,
         )
         assistant_message = ChatMessagePayload(
             role="assistant",
@@ -251,7 +252,8 @@ class ChatService:
             },
         )
         try:
-            prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url)
+            system_instruction = self._build_system_instruction(payload.language)
+            prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
             model = self._select_model(payload)
 
             # Real streaming: consume streamGenerateContent deltas and forward as websocket chunks
@@ -263,7 +265,7 @@ class ChatService:
                     for delta in self._call_gemini_generate_content_stream(
                         prompt_text,
                         model,
-                        self._system_instruction,
+                        system_instruction,
                     ):
                         asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
                 except Exception as exc:
@@ -398,11 +400,13 @@ class ChatService:
         self,
         messages: List[ChatMessagePayload],
         image_file_url: Optional[str],
+        system_instruction: Optional[str] = None,
     ) -> str:
         lines: List[str] = []
         # Always prepend system instruction
-        if self._system_instruction:
-            lines.append(f"System: {self._system_instruction}")
+        sys_ins = system_instruction or self._system_instruction
+        if sys_ins:
+            lines.append(f"System: {sys_ins}")
         for message in messages:
             role = message.role or "user"
             content = (message.content or "").strip()
@@ -423,6 +427,7 @@ class ChatService:
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
         resp = requests.post(url, json=payload, timeout=120)
+        resp.encoding = "utf-8"
         logger.info(
             "Gemini text request completed",
             extra={"status": resp.status_code, "body_preview": (resp.text or "")[:400]},
@@ -465,6 +470,8 @@ class ChatService:
             stream=True,
             headers={"Accept": "text/event-stream"},
         )
+        # Ensure UTF-8 decoding for Turkish characters
+        resp.encoding = "utf-8"
         logger.info(
             "Gemini text stream request started",
             extra={"status": resp.status_code, "model": model, "prompt_preview": prompt_text[:120]},
@@ -532,6 +539,13 @@ class ChatService:
             )
 
         return _iter_deltas()
+
+    def _build_system_instruction(self, language_code: Optional[str]) -> str:
+        base = self._system_instruction or ""
+        if language_code:
+            lang_part = f" Respond ONLY in {language_code}."
+            return (base + lang_part).strip()
+        return base
 
     def _save_message_to_firestore(
         self,
