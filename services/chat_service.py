@@ -253,6 +253,8 @@ class ChatService:
         try:
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url)
             model = self._select_model(payload)
+
+            # Real streaming: consume streamGenerateContent deltas and forward as websocket chunks
             loop = asyncio.get_running_loop()
             queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
@@ -264,11 +266,11 @@ class ChatService:
                         self._system_instruction,
                     ):
                         asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
-                    # if no deltas produced, enqueue empty marker to indicate completion
-                    if queue.empty():
-                        asyncio.run_coroutine_threadsafe(queue.put(""), loop)
                 except Exception as exc:
-                    logger.exception("Gemini streaming producer error", extra={"requestId": request_id, "chatId": payload.chat_id})
+                    logger.exception(
+                        "Gemini streaming producer error",
+                        extra={"requestId": request_id, "chatId": payload.chat_id},
+                    )
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
@@ -345,6 +347,7 @@ class ChatService:
                     "chatId": payload.chat_id,
                     "messageId": message_id,
                     "content": final_content,
+                    "delta": None,
                     "isFinal": True,
                 },
             )
