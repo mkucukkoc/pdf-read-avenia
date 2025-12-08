@@ -120,6 +120,9 @@ class GeminiImageRequest(BaseModel):
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    use_google_search: bool = Field(default=False, alias="useGoogleSearch")
+    aspect_ratio: Optional[str] = Field(default=None, alias="aspectRatio")
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 

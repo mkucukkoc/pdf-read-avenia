@@ -54,21 +54,32 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     return ".png"
 
 
-async def _call_gemini_api(prompt: str, api_key: str) -> Dict[str, Any]:
+async def _call_gemini_api(
+    prompt: str,
+    api_key: str,
+    model: str,
+    use_google_search: bool = False,
+    aspect_ratio: Optional[str] = None,
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
 
-    logger.info("Gemini API call start", extra={"prompt_preview": prompt[:120], "prompt_len": len(prompt)})
-
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.5-flash-image:generateContent"
-        f"?key={api_key}"
+    logger.info(
+        "Gemini API call start",
+        extra={
+            "prompt_preview": prompt[:120],
+            "prompt_len": len(prompt),
+            "model": model,
+            "use_google_search": use_google_search,
+            "aspect_ratio": aspect_ratio,
+        },
     )
-    payload = {
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload: Dict[str, Any] = {
         "contents": [
             {
                 "parts": [
@@ -80,8 +91,21 @@ async def _call_gemini_api(prompt: str, api_key: str) -> Dict[str, Any]:
         ]
     }
 
+    if use_google_search:
+        payload["tools"] = [{"google_search": {}}]
+        payload["response_modalities"] = ["TEXT", "IMAGE"]
+        if aspect_ratio:
+            payload["image_config"] = {"aspect_ratio": aspect_ratio}
+
     response = await asyncio.to_thread(requests.post, url, json=payload, timeout=120)
-    logger.info("Gemini image request completed", extra={"status": response.status_code})
+    logger.info(
+        "Gemini image request completed",
+        extra={
+            "status": response.status_code,
+            "body_preview": (response.text or "")[:400],
+            "content_length": len(response.text or ""),
+        },
+    )
 
     if not response.ok:
         logger.error("Gemini image generation failed", extra={"status": response.status_code, "body": response.text})
@@ -252,19 +276,32 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
     prompt = payload.prompt.strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    logger.info(
-        "Gemini image generation request",
-        extra={"userId": user_id, "chatId": payload.chat_id, "language": language},
-    )
-
     tmp_file_path = None
     final_url: Optional[str] = None
     data_url: Optional[str] = None
 
     try:
-        logger.info("Calling Gemini API...")
-        response_json = await _call_gemini_api(prompt, gemini_key)
-        logger.info("Gemini API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
+        use_google_search = False  # default endpoint: no search grounding
+        aspect_ratio = payload.aspect_ratio
+        model = payload.model or "gemini-2.5-flash-image"
+
+        logger.info(
+            "Gemini image generation request",
+            extra={
+                "userId": user_id,
+                "chatId": payload.chat_id,
+                "language": language,
+                "useGoogleSearch": use_google_search,
+                "aspectRatio": aspect_ratio,
+                "model": model,
+            },
+        )
+
+        response_json = await _call_gemini_api(prompt, gemini_key, model, use_google_search, aspect_ratio)
+        logger.info(
+            "Gemini API response received",
+            extra={"has_candidates": bool(response_json.get("candidates")), "model": model, "useGoogleSearch": use_google_search},
+        )
         inline_data = _extract_image_data(response_json)
         logger.info("Inline data extracted", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
@@ -283,7 +320,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             "dataUrl": data_url,
             "chatId": payload.chat_id,
             "language": language,
-            "model": "gemini-2.5-flash-image",
+            "model": model,
             "mimeType": inline_data["mimeType"],
         }
         logger.info("Gemini response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
@@ -295,6 +332,97 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_generation_error", "message": str(exc)},
+        ) from exc
+    finally:
+        if tmp_file_path:
+            try:
+                os.remove(tmp_file_path)
+                logger.info("Temp file removed", extra={"path": tmp_file_path})
+            except OSError:
+                logger.warning("Temp file cleanup failed", extra={"path": tmp_file_path})
+
+
+@router.post("/gemini-search")
+async def generate_gemini_image_search(payload: GeminiImageRequest, request: Request) -> Dict[str, Any]:
+    """Generate an image via Gemini with Google Search grounding (pro image preview)."""
+    if not payload.prompt or not payload.prompt.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
+        )
+
+    logger.info(
+        "Gemini search endpoint called",
+        extra={
+          "chat_id": payload.chat_id,
+          "language_raw": payload.language,
+          "file_name": payload.file_name,
+          "prompt_len": len(payload.prompt or ""),
+          "prompt_preview": (payload.prompt or "")[:120],
+        },
+    )
+
+    user_id = _extract_user_id(request)
+    language = normalize_language(payload.language)
+    prompt = payload.prompt.strip()
+    gemini_key = os.getenv("GEMINI_API_KEY")
+
+    tmp_file_path = None
+    final_url: Optional[str] = None
+    data_url: Optional[str] = None
+
+    try:
+        use_google_search = True
+        aspect_ratio = payload.aspect_ratio
+        model = payload.model or "gemini-3-pro-image-preview"
+
+        logger.info(
+            "Gemini search image generation request",
+            extra={
+                "userId": user_id,
+                "chatId": payload.chat_id,
+                "language": language,
+                "useGoogleSearch": use_google_search,
+                "aspectRatio": aspect_ratio,
+                "model": model,
+            },
+        )
+
+        response_json = await _call_gemini_api(prompt, gemini_key, model, use_google_search, aspect_ratio)
+        logger.info(
+            "Gemini search API response received",
+            extra={"has_candidates": bool(response_json.get("candidates")), "model": model, "useGoogleSearch": use_google_search},
+        )
+        inline_data = _extract_image_data(response_json)
+        logger.info("Inline data extracted", extra={"mimeType": inline_data.get("mimeType")})
+        tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
+
+        try:
+            final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name)
+            logger.info("Image uploaded to storage", extra={"final_url": final_url})
+        except Exception as storage_exc:
+            logger.warning("Firebase upload failed; returning data URL", extra={"error": str(storage_exc)})
+            data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
+            logger.info("Using data URL fallback", extra={"has_data_url": bool(data_url)})
+
+        result = {
+            "success": True,
+            "imageUrl": final_url,
+            "dataUrl": data_url,
+            "chatId": payload.chat_id,
+            "language": language,
+            "model": model,
+            "mimeType": inline_data["mimeType"],
+        }
+        logger.info("Gemini search response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Gemini search image generation failed", exc_info=exc)
+        raise HTTPException(
+            status_code=500,
+            detail={"success": False, "error": "gemini_search_generation_error", "message": str(exc)},
         ) from exc
     finally:
         if tmp_file_path:
