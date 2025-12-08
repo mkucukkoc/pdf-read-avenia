@@ -100,6 +100,29 @@ class ChatRequestPayload(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ToolDefinition(BaseModel):
+    name: str
+    description: Optional[str] = None
+    parameters: Dict[str, Any]
+
+
+class GeminiToolRouteRequest(BaseModel):
+    messages: List[ChatMessagePayload]
+    tools: List[ToolDefinition]
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+    model: Optional[str] = None  # override default router model if provided
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GeminiToolRouteResponse(BaseModel):
+    success: bool
+    tool_call: Optional[Dict[str, Any]] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
 class TextToSpeechRequest(BaseModel):
     messages: List[ChatMessagePayload]
 

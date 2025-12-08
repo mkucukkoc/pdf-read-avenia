@@ -12,7 +12,12 @@ import json
 from google.cloud import firestore as firestore_client
 
 from firebase import db
-from schemas import ChatMessagePayload, ChatRequestPayload
+from schemas import (
+    ChatMessagePayload,
+    ChatRequestPayload,
+    GeminiToolRouteRequest,
+    GeminiToolRouteResponse,
+)
 from websocket_manager import stream_manager
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
@@ -550,6 +555,105 @@ class ChatService:
             lang_part = f" Respond ONLY in {language_code}."
             return (base + lang_part).strip()
         return base
+
+    def route_tools_with_gemini(self, payload: GeminiToolRouteRequest) -> GeminiToolRouteResponse:
+        """
+        Use Gemini function-calling to pick a tool and arguments. Does not generate assistant text.
+        """
+        api_key = self._gemini_api_key
+        if not api_key:
+            return GeminiToolRouteResponse(success=False, error="GEMINI_API_KEY not configured")
+
+        model_name = payload.model or os.getenv("GEMINI_ROUTER_MODEL", "gemini-2.5-flash")
+
+        # Prepare messages in Gemini format
+        gemini_messages: List[Dict[str, Any]] = []
+        for m in payload.messages:
+            role = "user" if m.role == "user" else "model"
+            gemini_messages.append(
+                {
+                    "role": role,
+                    "parts": [{"text": m.content}],
+                }
+            )
+
+        # Build tools schema as Gemini "function_declarations"
+        function_decls = []
+        for tool in payload.tools:
+            function_decls.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "parameters": tool.parameters,
+                }
+            )
+
+        system_instruction = "Only select the best tool and arguments for the user intent. Do not answer the user."
+        if payload.language:
+            system_instruction += f" User language: {payload.language}."
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        body: Dict[str, Any] = {
+            "system_instruction": {"parts": [{"text": system_instruction}]},
+            "contents": gemini_messages,
+            "tools": [{"function_declarations": function_decls}],
+            "tool_config": {"function_calling_config": {"mode": "ANY"}},
+        }
+
+        logger.info(
+            "Gemini tool routing started",
+            extra={
+                "chatId": payload.chat_id,
+                "messageCount": len(payload.messages),
+                "toolCount": len(payload.tools),
+                "model": model_name,
+                "language": payload.language,
+            },
+        )
+
+        resp = requests.post(url, json=body, timeout=60)
+        resp.encoding = "utf-8"
+        if not resp.ok:
+            logger.error("Gemini tool routing failed: %s %s", resp.status_code, resp.text[:300])
+            return GeminiToolRouteResponse(success=False, error="gemini_routing_failed")
+
+        data = resp.json()
+        logger.debug(
+            "Gemini tool routing response",
+            extra={
+                "status": resp.status_code,
+                "bodyPreview": str(data)[:500],
+            },
+        )
+        # Parse first function_call
+        try:
+            candidates = data.get("candidates") or []
+            for cand in candidates:
+                parts = cand.get("content", {}).get("parts", []) or []
+                for part in parts:
+                    func_call = part.get("function_call")
+                    if func_call and func_call.get("name"):
+                        logger.info(
+                            "Gemini tool routing selected tool",
+                            extra={
+                                "chatId": payload.chat_id,
+                                "toolName": func_call.get("name"),
+                                "argKeys": list((func_call.get("args") or {}).keys()),
+                            },
+                        )
+                        return GeminiToolRouteResponse(
+                            success=True,
+                            tool_call={
+                                "name": func_call.get("name"),
+                                "arguments": func_call.get("args") or func_call.get("arguments") or {},
+                            },
+                            message="Tool selected",
+                        )
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Failed to parse Gemini routing response", extra={"body": str(data)[:400]})
+            return GeminiToolRouteResponse(success=False, error="parse_failed")
+
+        return GeminiToolRouteResponse(success=False, error="no_tool_selected")
 
     def _save_message_to_firestore(
         self,
