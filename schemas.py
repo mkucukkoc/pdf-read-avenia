@@ -123,6 +123,9 @@ class GeminiToolRouteResponse(BaseModel):
     error: Optional[str] = None
 
 
+GeminiToolRouteResponse.model_rebuild()
+
+
 class TextToSpeechRequest(BaseModel):
     messages: List[ChatMessagePayload]
 

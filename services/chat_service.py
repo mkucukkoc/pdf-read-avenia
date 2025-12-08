@@ -580,11 +580,12 @@ class ChatService:
         # Build tools schema as Gemini "function_declarations"
         function_decls = []
         for tool in payload.tools:
+            sanitized_params = self._strip_additional_properties(tool.parameters)
             function_decls.append(
                 {
                     "name": tool.name,
                     "description": tool.description or "",
-                    "parameters": tool.parameters,
+                    "parameters": sanitized_params,
                 }
             )
 
@@ -611,13 +612,23 @@ class ChatService:
             },
         )
 
-        resp = requests.post(url, json=body, timeout=60)
+        try:
+            resp = requests.post(url, json=body, timeout=60)
+        except Exception as exc:
+            logger.exception("Gemini tool routing request failed", extra={"chatId": payload.chat_id})
+            return GeminiToolRouteResponse(success=False, error=f"request_failed: {exc}")
+
         resp.encoding = "utf-8"
         if not resp.ok:
-            logger.error("Gemini tool routing failed: %s %s", resp.status_code, resp.text[:300])
-            return GeminiToolRouteResponse(success=False, error="gemini_routing_failed")
+            logger.error("Gemini tool routing failed: %s %s", resp.status_code, resp.text[:500])
+            return GeminiToolRouteResponse(success=False, error=f"gemini_routing_failed_{resp.status_code}")
 
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception as exc:
+            logger.exception("Gemini tool routing JSON parse failed", extra={"bodyPreview": resp.text[:500]})
+            return GeminiToolRouteResponse(success=False, error="parse_failed")
+
         logger.debug(
             "Gemini tool routing response",
             extra={
@@ -654,6 +665,21 @@ class ChatService:
             return GeminiToolRouteResponse(success=False, error="parse_failed")
 
         return GeminiToolRouteResponse(success=False, error="no_tool_selected")
+
+    def _strip_additional_properties(self, obj: Any) -> Any:
+        """
+        Gemini function_declarations reject 'additionalProperties'.
+        Remove it recursively from JSON schema definitions.
+        """
+        if isinstance(obj, dict):
+            return {
+                k: self._strip_additional_properties(v)
+                for k, v in obj.items()
+                if k != "additionalProperties"
+            }
+        if isinstance(obj, list):
+            return [self._strip_additional_properties(v) for v in obj]
+        return obj
 
     def _save_message_to_firestore(
         self,
