@@ -264,6 +264,9 @@ class ChatService:
                         self._system_instruction,
                     ):
                         asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
+                    # if no deltas produced, enqueue empty marker to indicate completion
+                    if queue.empty():
+                        asyncio.run_coroutine_threadsafe(queue.put(""), loop)
                 except Exception as exc:
                     logger.exception("Gemini streaming producer error", extra={"requestId": request_id, "chatId": payload.chat_id})
                 finally:
@@ -277,6 +280,16 @@ class ChatService:
                 if delta is None:
                     break
                 final_content += delta
+                logger.debug(
+                    "Streaming delta accumulated",
+                    extra={
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "deltaLen": len(delta),
+                        "totalLen": len(final_content),
+                        "deltaPreview": delta[:120],
+                    },
+                )
                 await stream_manager.emit_chunk(
                     payload.chat_id,
                     {
@@ -362,6 +375,16 @@ class ChatService:
                     "messageId": message_id,
                     "isFinal": True,
                     "error": "stream_failed",
+                    "content": "",
+                },
+            )
+            await stream_manager.emit_chunk(
+                payload.chat_id,
+                {
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                    "isFinal": True,
+                    "error": "stream_failed",
                 },
             )
 
@@ -416,9 +439,9 @@ class ChatService:
 
     def _call_gemini_generate_content_stream(
         self, prompt_text: str, model: str, system_instruction: Optional[str] = None
-    ) -> List[str]:
+    ):
         """
-        Streams text deltas from Gemini (streamGenerateContent). Returns a generator of delta strings.
+        Streams text deltas from Gemini (streamGenerateContent). Yields delta strings.
         """
         if not self._gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY not configured")
@@ -442,16 +465,27 @@ class ChatService:
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
                     continue
+                # Lines may be prefixed with "data: "
+                if isinstance(line, str) and line.startswith("data:"):
+                    line = line[len("data:") :].strip()
+                if not line:
+                    continue
                 try:
                     obj = json.loads(line)
                 except json.JSONDecodeError:
+                    logger.debug("Gemini stream non-JSON line", extra={"line_preview": str(line)[:200]})
                     continue
+                logger.debug("Gemini stream chunk parsed", extra={"keys": list(obj.keys())})
                 candidates = obj.get("candidates") or []
                 for candidate in candidates:
                     parts = (candidate.get("content") or {}).get("parts") or []
                     for part in parts:
                         text = part.get("text")
                         if isinstance(text, str) and text:
+                            logger.debug(
+                                "Gemini stream delta",
+                                extra={"len": len(text), "preview": text[:120]},
+                            )
                             yield text
 
         return _iter_deltas()
