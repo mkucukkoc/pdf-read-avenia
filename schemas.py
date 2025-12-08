@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -100,48 +100,6 @@ class ChatRequestPayload(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class ToolDefinition(BaseModel):
-    name: str
-    description: Optional[str] = None
-    parameters: Dict[str, Any]
-
-
-class GeminiToolRouteRequest(BaseModel):
-    messages: List[ChatMessagePayload]
-    tools: List[ToolDefinition] = Field(default_factory=list)
-    chat_id: Optional[str] = Field(default=None, alias="chatId")
-    language: Optional[str] = None
-    model: Optional[str] = None  # override default router model if provided
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class GeminiToolRouteResponse(BaseModel):
-    success: bool
-    tool_call: Optional[Dict[str, Any]] = None
-    message: Optional[str] = None
-    error: Optional[str] = None
-
-
-GeminiToolRouteResponse.model_rebuild()
-
-
-class AgentExecuteRequest(BaseModel):
-    tool_name: str = Field(..., alias="toolName")
-    arguments: Dict[str, Any] = Field(default_factory=dict)
-    chat_id: Optional[str] = Field(default=None, alias="chatId")
-    language: Optional[str] = None
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class AgentExecuteResponse(BaseModel):
-    success: bool
-    tool_name: str = Field(..., alias="toolName")
-    result: Dict[str, Any] = Field(default_factory=dict)
-    error: Optional[str] = None
-
-
 class TextToSpeechRequest(BaseModel):
     messages: List[ChatMessagePayload]
 
@@ -206,7 +164,5 @@ __all__ = [
     "GeminiImageRequest",
     "GeminiImageEditRequest",
     "GeminiVideoRequest",
-    "AgentExecuteRequest",
-    "AgentExecuteResponse",
     "CreateChatRequest",
 ]

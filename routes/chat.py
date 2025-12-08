@@ -7,7 +7,6 @@ from schemas import (
     ChatRequestPayload,
     CreateChatRequest,
     TextToSpeechRequest,
-    GeminiToolRouteRequest,
 )
 from services import chat_service
 
@@ -159,33 +158,3 @@ async def create_chat_endpoint(payload: CreateChatRequest, request: Request) -> 
 
 
 __all__ = ["router"]
-
-
-@router.post("/route-gemini")
-async def route_gemini_tools(payload: GeminiToolRouteRequest, request: Request) -> Dict[str, Any]:
-    user_id = _extract_user_id(request)
-    try:
-        logger.info(
-            "Gemini tool route request received",
-            extra={
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "messageCount": len(payload.messages),
-                "toolCount": len(payload.tools),
-                "language": payload.language,
-                "model": payload.model,
-            },
-        )
-        result = chat_service.route_tools_with_gemini(payload)
-        logger.debug("Gemini tool route response payload", extra={"userId": user_id, "response": result.model_dump()})
-        return result.model_dump()
-    except Exception as exc:  # pragma: no cover - defensive guard
-        logger.exception("Gemini tool routing failed")
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "success": False,
-                "error": "internal_server_error",
-                "message": "Failed to route tools with Gemini",
-            },
-        ) from exc
