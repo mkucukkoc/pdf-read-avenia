@@ -660,8 +660,9 @@ class ChatService:
         return label_map.get(normalized, "English")
 
     def _select_model(self, payload: ChatRequestPayload) -> str:
-        if payload.has_image:
-            return os.getenv("CHAT_IMAGE_MODEL", "gpt-4o")
+        """
+        Choose Gemini text model. Image flag is ignored; we always use _default_model.
+        """
         return self._default_model
 
     def _serialize_timestamp(self, value: Any) -> str:
