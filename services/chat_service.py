@@ -276,7 +276,8 @@ class ChatService:
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
-            await asyncio.to_thread(producer)
+            # Run producer in a thread concurrently; consume queue as soon as items arrive
+            producer_task = asyncio.create_task(asyncio.to_thread(producer))
 
             final_content = ""
             while True:
@@ -304,6 +305,9 @@ class ChatService:
                         "isFinal": False,
                     },
                 )
+
+            # ensure producer thread is finished
+            await producer_task
 
             assistant_message = ChatMessagePayload(
                 role="assistant",
