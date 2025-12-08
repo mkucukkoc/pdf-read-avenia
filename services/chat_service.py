@@ -12,6 +12,7 @@ import json
 from google.cloud import firestore as firestore_client
 
 from firebase import db
+from agents import get_agent_definitions, get_agent_by_name
 from schemas import (
     ChatMessagePayload,
     ChatRequestPayload,
@@ -577,19 +578,28 @@ class ChatService:
                 }
             )
 
-        # Build tools schema as Gemini "function_declarations"
+        # Build tools schema from backend registry (ignore client-sent tools), strip additionalProperties
+        registry_tools = get_agent_definitions()
         function_decls = []
-        for tool in payload.tools:
-            sanitized_params = self._strip_additional_properties(tool.parameters)
+        for tool in registry_tools:
+            sanitized_params = self._strip_additional_properties(tool.get("parameters") or {})
             function_decls.append(
                 {
-                    "name": tool.name,
-                    "description": tool.description or "",
+                    "name": tool.get("name"),
+                    "description": tool.get("description", ""),
                     "parameters": sanitized_params,
                 }
             )
 
         system_instruction = "Only select the best tool and arguments for the user intent. Do not answer the user."
+        system_instruction += (
+            " Routing rules: "
+            "If the prompt wants to GENERATE an image/photo/picture/görsel/foto, call generate_image_gemini. "
+            "If it wants to EDIT/modify a photo (düzenle/değiştir/retouch), call image_edit_gemini. "
+            "If it wants to create a video/reel/veo/movie/tiktok/kısa film, call generate_video_gemini. "
+            "If none of the above applies, call chat_agent to request a normal text response. "
+            "Always pick exactly one tool. Do not produce an assistant reply."
+        )
         if payload.language:
             system_instruction += f" User language: {payload.language}."
 
@@ -606,9 +616,10 @@ class ChatService:
             extra={
                 "chatId": payload.chat_id,
                 "messageCount": len(payload.messages),
-                "toolCount": len(payload.tools),
+                "toolCount": len(registry_tools),
                 "model": model_name,
                 "language": payload.language,
+                "promptPreview": (payload.messages[-1].content or "")[:120] if payload.messages else "",
             },
         )
 
@@ -644,14 +655,17 @@ class ChatService:
                 for part in parts:
                     func_call = part.get("function_call")
                     if func_call and func_call.get("name"):
+                        tool_name = func_call.get("name")
                         logger.info(
                             "Gemini tool routing selected tool",
                             extra={
                                 "chatId": payload.chat_id,
-                                "toolName": func_call.get("name"),
+                                "toolName": tool_name,
                                 "argKeys": list((func_call.get("args") or {}).keys()),
                             },
                         )
+                        if not get_agent_by_name(tool_name):
+                            logger.warning("Selected tool not found in backend registry", extra={"toolName": tool_name})
                         return GeminiToolRouteResponse(
                             success=True,
                             tool_call={

@@ -52,7 +52,13 @@ from language_support import (
     quality_flag_from_value,
 )
 # NOTE: image_edit_router temporarily disabled (frontend handles messaging)
-from routes import chat_router, presentation_router, gemini_image_router, gemini_video_router
+from routes import (
+    chat_router,
+    presentation_router,
+    gemini_image_router,
+    gemini_video_router,
+    agent_executor_router,
+)
 # from routes import image_edit_router
 from websocket_manager import sio
 from websocket_manager import sio
@@ -145,6 +151,7 @@ app.include_router(chat_router)
 app.include_router(presentation_router)
 app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)
+app.include_router(agent_executor_router)
 # app.include_router(image_edit_router)
 
 socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)

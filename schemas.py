@@ -108,7 +108,7 @@ class ToolDefinition(BaseModel):
 
 class GeminiToolRouteRequest(BaseModel):
     messages: List[ChatMessagePayload]
-    tools: List[ToolDefinition]
+    tools: List[ToolDefinition] = Field(default_factory=list)
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
     model: Optional[str] = None  # override default router model if provided
@@ -124,6 +124,22 @@ class GeminiToolRouteResponse(BaseModel):
 
 
 GeminiToolRouteResponse.model_rebuild()
+
+
+class AgentExecuteRequest(BaseModel):
+    tool_name: str = Field(..., alias="toolName")
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AgentExecuteResponse(BaseModel):
+    success: bool
+    tool_name: str = Field(..., alias="toolName")
+    result: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
 
 
 class TextToSpeechRequest(BaseModel):
@@ -190,5 +206,7 @@ __all__ = [
     "GeminiImageRequest",
     "GeminiImageEditRequest",
     "GeminiVideoRequest",
+    "AgentExecuteRequest",
+    "AgentExecuteResponse",
     "CreateChatRequest",
 ]
