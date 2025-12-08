@@ -7,8 +7,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import requests
+import json
 from google.cloud import firestore as firestore_client
-from openai import AsyncOpenAI, OpenAI
 
 from firebase import db
 from schemas import ChatMessagePayload, ChatRequestPayload
@@ -23,19 +24,14 @@ class ChatService:
     _instance: Optional["ChatService"] = None
 
     def __init__(self) -> None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        self._client = OpenAI(api_key=api_key)
-        self._async_client = AsyncOpenAI(api_key=api_key)
+        self._gemini_api_key = os.getenv("GEMINI_API_KEY")
         self._db = db
-        preferred_models = [
-            os.getenv("FINE_TUNED_MODEL_ID"),
-            os.getenv("OPENAI_MODEL"),
-            "gpt-5.1",
-            "gpt-4.1",
-            "gpt-4o-mini",
-        ]
-        self._default_model = next((model for model in preferred_models if model), "gpt-4o-mini")
+        self._default_model = os.getenv("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
         self._title_model = os.getenv("CHAT_TITLE_MODEL", self._default_model)
+        self._system_instruction = os.getenv(
+            "GEMINI_SYSTEM_PROMPT",
+            "You are an AI chat. Your name is Avenia.",
+        )
         logger.debug("ChatService initialized with model=%s titleModel=%s", self._default_model, self._title_model)
         logger.info("ChatService ready; default=%s title=%s", self._default_model, self._title_model)
         logger.debug("Firestore client configured: %s", bool(self._db))
@@ -54,8 +50,8 @@ class ChatService:
             raise ValueError("User ID is required to send chat messages")
         if not payload.messages:
             raise ValueError("messages field must contain at least one message")
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OpenAI API key not configured")
+        if not self._gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY not configured")
 
         logger.info(
             "Processing chat send request",
@@ -88,17 +84,13 @@ class ChatService:
                 "message": "Streaming response started",
             }
 
-        openai_messages = self._prepare_openai_messages(payload.messages, payload.image_file_url)
-
-        response = await asyncio.to_thread(
-            self._client.chat.completions.create,
-            model=self._select_model(payload),
-            messages=openai_messages,
-            temperature=0.7,
+        prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url)
+        assistant_content = await asyncio.to_thread(
+            self._call_gemini_generate_content,
+            prompt_text,
+            self._select_model(payload),
+            self._system_instruction,
         )
-
-        choice = response.choices[0].message
-        assistant_content = (choice.content or "").strip()
         assistant_message = ChatMessagePayload(
             role="assistant",
             content=assistant_content,
@@ -249,7 +241,6 @@ class ChatService:
         message_id: str,
         request_id: str,
     ) -> None:
-        final_content = ""
         logger.info(
             "Starting streaming response",
             extra={
@@ -260,55 +251,42 @@ class ChatService:
             },
         )
         try:
-            openai_messages = self._prepare_openai_messages(payload.messages, payload.image_file_url)
-            stream = await self._async_client.chat.completions.create(
-                model=self._select_model(payload),
-                messages=openai_messages,
-                temperature=0.7,
-                stream=True,
-            )
+            prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url)
+            model = self._select_model(payload)
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
-            async for chunk in stream:
-                choice = chunk.choices[0] if chunk.choices else None
-                if not choice:
-                    continue
-                delta_text = self._extract_delta_text(choice.delta)
-                if not delta_text:
-                    continue
-                final_content += delta_text
-                logger.debug(
-                    "Received OpenAI stream delta",
-                    extra={
-                        "requestId": request_id,
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "deltaLen": len(delta_text),
-                        "totalLen": len(final_content),
-                        "deltaPreview": delta_text[:80],
-                    },
-                )
+            def producer():
+                try:
+                    for delta in self._call_gemini_generate_content_stream(
+                        prompt_text,
+                        model,
+                        self._system_instruction,
+                    ):
+                        asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
+                except Exception as exc:
+                    logger.exception("Gemini streaming producer error", extra={"requestId": request_id, "chatId": payload.chat_id})
+                finally:
+                    asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+
+            await asyncio.to_thread(producer)
+
+            final_content = ""
+            while True:
+                delta = await queue.get()
+                if delta is None:
+                    break
+                final_content += delta
                 await stream_manager.emit_chunk(
                     payload.chat_id,
                     {
                         "chatId": payload.chat_id,
                         "messageId": message_id,
                         "content": final_content,
-                        "delta": delta_text,
+                        "delta": delta,
                         "isFinal": False,
                     },
                 )
-
-            if not final_content:
-                await stream_manager.emit_chunk(
-                    payload.chat_id,
-                    {
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "content": final_content,
-                        "isFinal": True,
-                    },
-                )
-                return
 
             assistant_message = ChatMessagePayload(
                 role="assistant",
@@ -390,40 +368,93 @@ class ChatService:
     def _generate_message_id(self) -> str:
         return f"assistant_{uuid.uuid4().hex}"
 
-    def _extract_delta_text(self, delta: Any) -> str:
-        if not delta:
-            return ""
-        content = getattr(delta, "content", None)
-        if isinstance(content, list):
-            parts: List[str] = []
-            for item in content:
-                if isinstance(item, dict):
-                    parts.append(item.get("text") or "")
-                else:
-                    text = getattr(item, "text", None)
-                    if text:
-                        parts.append(text)
-            return "".join(parts)
-        if isinstance(content, str):
-            return content
-        text = getattr(delta, "text", None)
-        if isinstance(text, str):
-            return text
-        return ""
-
-    def _prepare_openai_messages(
+    def _prepare_gemini_prompt(
         self,
         messages: List[ChatMessagePayload],
         image_file_url: Optional[str],
-    ) -> List[Dict[str, str]]:
-        prepared: List[Dict[str, str]] = []
+    ) -> str:
+        lines: List[str] = []
+        # Always prepend system instruction
+        if self._system_instruction:
+            lines.append(f"System: {self._system_instruction}")
         for message in messages:
+            role = message.role or "user"
             content = (message.content or "").strip()
             file_url = message.file_url or image_file_url
             if file_url and file_url not in content:
                 content = f"{content}\n[Dosya Bağlantısı]: {file_url}".strip()
-            prepared.append({"role": message.role, "content": content})
-        return prepared
+            prefix = "System" if role == "system" else ("Assistant" if role == "assistant" else "User")
+            lines.append(f"{prefix}: {content}")
+        return "\n".join(lines)
+
+    def _call_gemini_generate_content(self, prompt_text: str, model: str, system_instruction: Optional[str] = None) -> str:
+        if not self._gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY not configured")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self._gemini_api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+        }
+        if system_instruction:
+            payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+        resp = requests.post(url, json=payload, timeout=120)
+        logger.info(
+            "Gemini text request completed",
+            extra={"status": resp.status_code, "body_preview": (resp.text or "")[:400]},
+        )
+        if not resp.ok:
+            raise RuntimeError(f"Gemini text generation failed: {resp.status_code} {resp.text[:400]}")
+        data = resp.json()
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return ""
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        texts: List[str] = []
+        for part in parts:
+            if "text" in part and isinstance(part["text"], str):
+                texts.append(part["text"])
+        return "\n".join(texts).strip()
+
+    def _call_gemini_generate_content_stream(
+        self, prompt_text: str, model: str, system_instruction: Optional[str] = None
+    ) -> List[str]:
+        """
+        Streams text deltas from Gemini (streamGenerateContent). Returns a generator of delta strings.
+        """
+        if not self._gemini_api_key:
+            raise RuntimeError("GEMINI_API_KEY not configured")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={self._gemini_api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+        }
+        if system_instruction:
+            payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+
+        resp = requests.post(url, json=payload, timeout=120, stream=True)
+        logger.info(
+            "Gemini text stream request started",
+            extra={"status": resp.status_code},
+        )
+        if not resp.ok:
+            body_preview = (resp.text or "")[:400]
+            raise RuntimeError(f"Gemini text stream failed: {resp.status_code} {body_preview}")
+
+        def _iter_deltas():
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                candidates = obj.get("candidates") or []
+                for candidate in candidates:
+                    parts = (candidate.get("content") or {}).get("parts") or []
+                    for part in parts:
+                        text = part.get("text")
+                        if isinstance(text, str) and text:
+                            yield text
+
+        return _iter_deltas()
 
     def _save_message_to_firestore(
         self,
@@ -524,17 +555,11 @@ class ChatService:
         )
 
         try:
-            response = await asyncio.to_thread(
-                self._client.chat.completions.create,
-                model=self._title_model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": content[:500]},
-                ],
-                max_completion_tokens=32,
-                temperature=0.5,
+            generated = await asyncio.to_thread(
+                self._call_gemini_generate_content,
+                f"{prompt}\nUser: {content[:500]}",
+                self._title_model,
             )
-            generated = (response.choices[0].message.content or "").strip()
             if generated:
                 logger.info(
                     "Generated chat title",
