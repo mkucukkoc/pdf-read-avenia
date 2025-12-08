@@ -455,13 +455,15 @@ class ChatService:
         resp = requests.post(url, json=payload, timeout=120, stream=True)
         logger.info(
             "Gemini text stream request started",
-            extra={"status": resp.status_code},
+            extra={"status": resp.status_code, "model": model, "prompt_preview": prompt_text[:120]},
         )
         if not resp.ok:
             body_preview = (resp.text or "")[:400]
             raise RuntimeError(f"Gemini text stream failed: {resp.status_code} {body_preview}")
 
         def _iter_deltas():
+            first_line_preview = None
+            chunk_count = 0
             for line in resp.iter_lines(decode_unicode=True):
                 if not line:
                     continue
@@ -470,6 +472,8 @@ class ChatService:
                     line = line[len("data:") :].strip()
                 if not line:
                     continue
+                if first_line_preview is None:
+                    first_line_preview = str(line)[:200]
                 try:
                     obj = json.loads(line)
                 except json.JSONDecodeError:
@@ -486,7 +490,12 @@ class ChatService:
                                 "Gemini stream delta",
                                 extra={"len": len(text), "preview": text[:120]},
                             )
+                            chunk_count += 1
                             yield text
+            logger.info(
+                "Gemini stream completed",
+                extra={"first_line_preview": first_line_preview, "chunk_count": chunk_count},
+            )
 
         return _iter_deltas()
 
