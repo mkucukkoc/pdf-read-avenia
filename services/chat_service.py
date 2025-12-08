@@ -445,14 +445,23 @@ class ChatService:
         """
         if not self._gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY not configured")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={self._gemini_api_key}"
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:streamGenerateContent?alt=sse&key={self._gemini_api_key}"
+        )
         payload = {
             "contents": [{"parts": [{"text": prompt_text}]}],
         }
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
-        resp = requests.post(url, json=payload, timeout=120, stream=True)
+        resp = requests.post(
+            url,
+            json=payload,
+            timeout=120,
+            stream=True,
+            headers={"Accept": "text/event-stream"},
+        )
         logger.info(
             "Gemini text stream request started",
             extra={"status": resp.status_code, "model": model, "prompt_preview": prompt_text[:120]},
@@ -462,23 +471,25 @@ class ChatService:
             raise RuntimeError(f"Gemini text stream failed: {resp.status_code} {body_preview}")
 
         def _iter_deltas():
-            first_line_preview = None
+            first_event_preview = None
             chunk_count = 0
-            for line in resp.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                # Lines may be prefixed with "data: "
-                if isinstance(line, str) and line.startswith("data:"):
-                    line = line[len("data:") :].strip()
-                if not line:
-                    continue
-                if first_line_preview is None:
-                    first_line_preview = str(line)[:200]
+            buffer: list[str] = []
+
+            def flush_event():
+                nonlocal first_event_preview, chunk_count
+                if not buffer:
+                    return
+                data_str = "\n".join(buffer).strip()
+                buffer.clear()
+                if not data_str:
+                    return
+                if first_event_preview is None:
+                    first_event_preview = data_str[:200]
                 try:
-                    obj = json.loads(line)
+                    obj = json.loads(data_str)
                 except json.JSONDecodeError:
-                    logger.debug("Gemini stream non-JSON line", extra={"line_preview": str(line)[:200]})
-                    continue
+                    logger.debug("Gemini stream non-JSON event", extra={"event_preview": data_str[:200]})
+                    return
                 logger.debug("Gemini stream chunk parsed", extra={"keys": list(obj.keys())})
                 candidates = obj.get("candidates") or []
                 for candidate in candidates:
@@ -486,15 +497,35 @@ class ChatService:
                     for part in parts:
                         text = part.get("text")
                         if isinstance(text, str) and text:
+                            chunk_count += 1
                             logger.debug(
                                 "Gemini stream delta",
                                 extra={"len": len(text), "preview": text[:120]},
                             )
-                            chunk_count += 1
                             yield text
+
+            for raw_line in resp.iter_lines(decode_unicode=True):
+                line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="ignore")
+                if line is None:
+                    continue
+                line = line.rstrip("\r")
+                if not line:
+                    yield from flush_event()
+                    continue
+                if line.startswith("data:"):
+                    buffer.append(line[len("data:") :].strip())
+                elif line.startswith(":"):
+                    # comment/keep-alive
+                    continue
+                else:
+                    buffer.append(line.strip())
+
+            # flush any remaining buffered data
+            yield from flush_event()
+
             logger.info(
                 "Gemini stream completed",
-                extra={"first_line_preview": first_line_preview, "chunk_count": chunk_count},
+                extra={"first_event_preview": first_event_preview, "chunk_count": chunk_count},
             )
 
         return _iter_deltas()
