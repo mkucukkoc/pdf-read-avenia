@@ -7,6 +7,8 @@ import time
 from typing import Any, Dict, Optional
 
 import requests
+import firebase_admin
+from firebase_admin import firestore
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
@@ -26,6 +28,48 @@ def _get_storage():
 def _extract_user_id(request: Request) -> str:
     payload = getattr(request.state, "token_payload", {}) or {}
     return payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
+
+
+def _save_message_to_firestore(
+    user_id: str,
+    chat_id: str,
+    content: str,
+    image_url: Optional[str],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    if not firebase_admin._apps:
+        logger.debug("Skipping Firestore save; firebase app not initialized")
+        return
+    if not chat_id:
+        logger.debug("Skipping Firestore save; chat_id missing")
+        return
+
+    db = firestore.client()
+    data: Dict[str, Any] = {
+        "role": "assistant",
+        "content": content,
+        "timestamp": firestore.SERVER_TIMESTAMP,
+        "metadata": metadata or {},
+    }
+    if image_url:
+        data["imageUrl"] = image_url
+
+    try:
+        logger.info(
+            "Saving assistant message to Firestore",
+            extra={
+                "userId": user_id or "anonymous",
+                "chatId": chat_id,
+                "hasImage": bool(image_url),
+                "metadata": metadata or {},
+            },
+        )
+        db.collection("users").document(user_id or "anonymous") \
+            .collection("chats").document(chat_id) \
+            .collection("messages").add(data)
+        logger.info("Firestore message saved", extra={"chatId": chat_id, "hasImage": bool(image_url)})
+    except Exception as exc:  # pragma: no cover
+        logger.exception("Firestore save failed", extra={"error": str(exc), "chatId": chat_id})
 
 
 def _build_storage_path(user_id: str, file_name: Optional[str]) -> str:
@@ -323,6 +367,31 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             "model": model,
             "mimeType": inline_data["mimeType"],
         }
+        final_image_link = final_url or data_url
+        metadata = {
+            "prompt": prompt,
+            "model": model,
+            "useGoogleSearch": use_google_search,
+            "aspectRatio": aspect_ratio,
+            "tool": "generate_image_gemini",
+        }
+        logger.info(
+            "Writing Gemini generate message to Firestore",
+            extra={
+                "userId": user_id or "anonymous",
+                "chatId": payload.chat_id,
+                "hasImageUrl": bool(final_url),
+                "hasDataUrl": bool(data_url),
+                "model": model,
+            },
+        )
+        _save_message_to_firestore(
+            user_id=user_id,
+            chat_id=payload.chat_id or "",
+            content="Görsel hazır!",
+            image_url=final_image_link,
+            metadata=metadata,
+        )
         logger.info("Gemini image response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
         return result
     except HTTPException:
@@ -515,6 +584,29 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             "model": "gemini-2.5-flash-image",
             "mimeType": inline_data["mimeType"],
         }
+        final_image_link = final_url or data_url
+        metadata = {
+            "prompt": prompt,
+            "model": "gemini-2.5-flash-image",
+            "tool": "image_edit_gemini",
+        }
+        logger.info(
+            "Writing Gemini edit message to Firestore",
+            extra={
+                "userId": user_id or "anonymous",
+                "chatId": payload.chat_id,
+                "hasImageUrl": bool(final_url),
+                "hasDataUrl": bool(data_url),
+                "model": "gemini-2.5-flash-image",
+            },
+        )
+        _save_message_to_firestore(
+            user_id=user_id,
+            chat_id=payload.chat_id or "",
+            content="Görsel düzenlendi!",
+            image_url=final_image_link,
+            metadata=metadata,
+        )
         logger.info("Gemini edit response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
         return result
     except HTTPException:
