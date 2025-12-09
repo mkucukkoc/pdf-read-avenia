@@ -56,8 +56,8 @@ from endpoints.chat import router as chat_router
 from endpoints.presentation import router as presentation_router
 from endpoints.generate_image.gemini_image import router as gemini_image_router
 from endpoints.video_gemini.gemini_video import router as gemini_video_router
+from endpoints.stt_and_tts import stt_router, tts_router
 # from endpoints.image_edit import router as image_edit_router
-from core.websocket_manager import sio
 from core.websocket_manager import sio
 
 
