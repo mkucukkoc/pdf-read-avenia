@@ -2,7 +2,7 @@ import base64
 import io
 import logging
 from fastapi import APIRouter, Body, HTTPException
-from main import client
+from core.openai_client import get_client
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.stt")
 router = APIRouter()
@@ -24,6 +24,7 @@ async def speech_to_text(data: dict = Body(...)):
 
         bio = io.BytesIO(audio_bytes)
         bio.name = "audio.m4a"
+        client = get_client()
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
             file=bio,

@@ -2,7 +2,7 @@ import base64
 from typing import List, Dict
 import logging
 from fastapi import APIRouter, Body, HTTPException
-from main import client
+from core.openai_client import get_client
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.tts_chat")
 router = APIRouter()
@@ -39,6 +39,7 @@ async def tts_chat(payload: dict = Body(...)):
     logger.debug("TTS text preview", extra={"preview": combined_text[:300]})
 
     try:
+        client = get_client()
         speech = client.audio.speech.create(
             model="tts-1",
             voice="alloy",
