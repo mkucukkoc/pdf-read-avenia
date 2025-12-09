@@ -1,13 +1,14 @@
 import base64
 import io
 import logging
-from fastapi import Body, HTTPException
-from main import app, client
+from fastapi import APIRouter, Body, HTTPException
+from main import client
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.stt")
+router = APIRouter()
 
 
-@app.post("/stt")
+@router.post("/stt")
 async def speech_to_text(data: dict = Body(...)):
     logger.info("STT request received")
 
@@ -36,3 +37,6 @@ async def speech_to_text(data: dict = Body(...)):
     except Exception as e:
         logger.exception("STT request failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+__all__ = ["router"]

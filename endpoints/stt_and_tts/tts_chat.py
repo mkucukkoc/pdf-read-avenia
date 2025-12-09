@@ -1,13 +1,14 @@
 import base64
 from typing import List, Dict
 import logging
-from fastapi import Body, HTTPException
-from main import app, client
+from fastapi import APIRouter, Body, HTTPException
+from main import client
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.tts_chat")
+router = APIRouter()
 
 
-@app.post("/tts-chat")
+@router.post("/tts-chat")
 async def tts_chat(payload: dict = Body(...)):
     """
     Beklenen payload:
@@ -53,3 +54,6 @@ async def tts_chat(payload: dict = Body(...)):
     except Exception as e:
         logger.exception("TTS chat failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+__all__ = ["router"]

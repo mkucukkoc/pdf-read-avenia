@@ -149,6 +149,8 @@ app.include_router(presentation_router)
 app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)
 # app.include_router(image_edit_router)
+app.include_router(stt_router)
+app.include_router(tts_router)
 
 socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
@@ -606,8 +608,7 @@ import endpoints.summarize.summarize_pdf_url
 import endpoints.generate_doffice.generate_doc
 import endpoints.generate_doffice.generate_excel
 import endpoints.generate_doffice.generate_ppt
-import endpoints.stt_and_tts.stt
-import endpoints.stt_and_tts.tts_chat
+from endpoints.stt_and_tts import stt_router, tts_router
 import endpoints.summarize.summarize_excel_url
 import endpoints.summarize.summarize_word_url
 import endpoints.summarize.summarize_ppt_url
