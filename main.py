@@ -151,6 +151,7 @@ app.include_router(gemini_video_router)
 # app.include_router(image_edit_router)
 app.include_router(stt_router)
 app.include_router(tts_router)
+app.include_router(export_chat_router)
 
 socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
@@ -623,13 +624,13 @@ import endpoints.ai_or_not.ai_analyze_image
 import endpoints.generate_doffice.generate_doc_advanced
 import endpoints.generate_doffice.generate_ppt_advanced
 import endpoints.ai_or_not.ai_detect_video
+from endpoints.file_export import router as export_chat_router
 try:
     import endpoints.ai_or_not.check_ai
 except Exception as exc:
     logging.getLogger("pdfread.endpoints").warning(
         "check_ai endpoint disabled (optional deps missing): %s", exc
     )
-import endpoints.file_export.export_chat
 import endpoints.convert_office.pdf_to_word
 import endpoints.convert_office.pdf_to_ppt
 import endpoints.convert_office.pdf_to_excel

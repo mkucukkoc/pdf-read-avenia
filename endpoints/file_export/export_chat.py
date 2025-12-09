@@ -4,16 +4,16 @@ import tempfile
 import logging
 
 import requests
-from fastapi import Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from firebase_admin import firestore
 from fpdf import FPDF
-from main import app
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.export_chat")
+router = APIRouter()
 
 
-@app.post("/export-chat")
+@router.post("/export-chat")
 async def export_chat(payload: dict = Body(...)):
     logger.info("Export chat request received", extra={"payload": payload})
     try:
@@ -90,3 +90,6 @@ async def export_chat(payload: dict = Body(...)):
     except Exception as e:
         logger.exception("Export chat failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+__all__ = ["router"]
