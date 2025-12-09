@@ -57,6 +57,7 @@ from endpoints.presentation import router as presentation_router
 from endpoints.generate_image.gemini_image import router as gemini_image_router
 from endpoints.video_gemini.gemini_video import router as gemini_video_router
 from endpoints.stt_and_tts import stt_router, tts_router
+from endpoints.file_export import router as export_chat_router
 # from endpoints.image_edit import router as image_edit_router
 from core.websocket_manager import sio
 
@@ -624,7 +625,6 @@ import endpoints.ai_or_not.ai_analyze_image
 import endpoints.generate_doffice.generate_doc_advanced
 import endpoints.generate_doffice.generate_ppt_advanced
 import endpoints.ai_or_not.ai_detect_video
-from endpoints.file_export import router as export_chat_router
 try:
     import endpoints.ai_or_not.check_ai
 except Exception as exc:
