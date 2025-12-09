@@ -620,7 +620,6 @@ import endpoints.ask_question_file.ask_with_embeddings
 import endpoints.search_docs
 import endpoints.healthz
 import endpoints.ai_or_not.ai_analyze_image
-import endpoints.image_caption
 import endpoints.generate_doffice.generate_doc_advanced
 import endpoints.generate_doffice.generate_ppt_advanced
 import endpoints.ai_or_not.ai_detect_video
