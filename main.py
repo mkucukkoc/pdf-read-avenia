@@ -42,8 +42,8 @@ import os, sys, logging
 import socketio as socketio_lib
 
 # Import error handler
-from error_handler import setup_error_handlers, CustomHTTPException, ValidationError, BusinessLogicError, ExternalServiceError
-from language_support import (
+from core.error_handler import setup_error_handlers, CustomHTTPException, ValidationError, BusinessLogicError, ExternalServiceError
+from core.language_support import (
     build_ai_detection_messages,
     extract_generator_info,
     format_ai_detection_summary,
@@ -52,10 +52,13 @@ from language_support import (
     quality_flag_from_value,
 )
 # NOTE: image_edit_router temporarily disabled (frontend handles messaging)
-from routes import chat_router, presentation_router, gemini_image_router, gemini_video_router
-# from routes import image_edit_router
-from websocket_manager import sio
-from websocket_manager import sio
+from endpoints.chat import router as chat_router
+from endpoints.presentation import router as presentation_router
+from endpoints.generate_image.gemini_image import router as gemini_image_router
+from endpoints.video_gemini.gemini_video import router as gemini_video_router
+# from endpoints.image_edit import router as image_edit_router
+from core.websocket_manager import sio
+from core.websocket_manager import sio
 
 
 router = APIRouter()
@@ -594,46 +597,45 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
         print("[/analyze-image] Firestore yazım hatası:", e)
         return None
 
-import endpoints.generate_video
-import endpoints.generate_video_prompt
-import endpoints.summarize_pdf
-import endpoints.ask_pdf_question
-import endpoints.ask_file_question
-import endpoints.summarize_pdf_url
-import endpoints.generate_doc
-import endpoints.generate_excel
-import endpoints.generate_ppt
-import endpoints.audio_isolation
-import endpoints.stt
-import endpoints.tts_chat
-import endpoints.summarize_excel_url
-import endpoints.summarize_word_url
-import endpoints.summarize_ppt_url
-import endpoints.summarize_html_url
-import endpoints.summarize_json_url
-import endpoints.summarize_csv_url
-import endpoints.summarize_txt_url
-import endpoints.ask_with_embeddings
+import endpoints.generate_doffice.generate_video
+import endpoints.generate_doffice.generate_video_prompt
+import endpoints.summarize.summarize_pdf
+import endpoints.ask_question_file.ask_pdf_question
+import endpoints.ask_question_file.ask_file_question
+import endpoints.summarize.summarize_pdf_url
+import endpoints.generate_doffice.generate_doc
+import endpoints.generate_doffice.generate_excel
+import endpoints.generate_doffice.generate_ppt
+import endpoints.stt_and_tts.stt
+import endpoints.stt_and_tts.tts_chat
+import endpoints.summarize.summarize_excel_url
+import endpoints.summarize.summarize_word_url
+import endpoints.summarize.summarize_ppt_url
+import endpoints.summarize.summarize_html_url
+import endpoints.summarize.summarize_json_url
+import endpoints.summarize.summarize_csv_url
+import endpoints.summarize.summarize_txt_url
+import endpoints.ask_question_file.ask_with_embeddings
 import endpoints.search_docs
 import endpoints.healthz
-import endpoints.ai_analyze_image
+import endpoints.ai_or_not.ai_analyze_image
 import endpoints.image_caption
-import endpoints.generate_doc_advanced
-import endpoints.generate_ppt_advanced
-import endpoints.ai_detect_video
+import endpoints.generate_doffice.generate_doc_advanced
+import endpoints.generate_doffice.generate_ppt_advanced
+import endpoints.ai_or_not.ai_detect_video
 try:
-    import endpoints.check_ai
+    import endpoints.ai_or_not.check_ai
 except Exception as exc:
     logging.getLogger("pdfread.endpoints").warning(
         "check_ai endpoint disabled (optional deps missing): %s", exc
     )
-import endpoints.export_chat
-import endpoints.pdf_to_word
-import endpoints.pdf_to_ppt
-import endpoints.pdf_to_excel
-import endpoints.word_to_pdf
-import endpoints.ppt_to_pdf
-import endpoints.excel_to_pdf
+import endpoints.file_export.export_chat
+import endpoints.convert_office.pdf_to_word
+import endpoints.convert_office.pdf_to_ppt
+import endpoints.convert_office.pdf_to_excel
+import endpoints.convert_office.word_to_pdf
+import endpoints.convert_office.ppt_to_pdf
+import endpoints.convert_office.excel_to_pdf
 
 
 if __name__ == "__main__":
