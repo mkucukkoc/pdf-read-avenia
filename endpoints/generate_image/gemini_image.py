@@ -12,6 +12,7 @@ from firebase_admin import firestore
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from errors_response.image_errors import get_no_image_generate_message
 from schemas import GeminiImageEditRequest, GeminiImageRequest
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image")
@@ -398,9 +399,18 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         raise
     except Exception as exc:
         logger.error("Gemini image generation failed", exc_info=exc)
+        message = get_no_image_generate_message(payload.language)
+        if firebase_admin._apps and payload.chat_id:
+            _save_message_to_firestore(
+                user_id=user_id,
+                chat_id=payload.chat_id or "",
+                content=message,
+                image_url=None,
+                metadata={"tool": "generate_image_gemini", "error": "no_image_generate"},
+            )
         raise HTTPException(
             status_code=500,
-            detail={"success": False, "error": "gemini_image_error", "message": str(exc)},
+            detail={"success": False, "error": "no_image_generate", "message": message},
         ) from exc
     finally:
         if tmp_file_path:
@@ -411,218 +421,6 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 logger.warning("Temp file cleanup failed", extra={"path": tmp_file_path})
 
 
-@router.post("/gemini-search")
-async def generate_gemini_image_with_search(payload: GeminiImageRequest, request: Request) -> Dict[str, Any]:
-    """
-    Generate an image via Gemini with optional Google Search grounding.
-    This endpoint allows use_google_search and aspect_ratio to be configured.
-    """
-    if not payload.prompt or not payload.prompt.strip():
-        raise HTTPException(
-            status_code=400,
-            detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
-        )
-
-    logger.info(
-        "Gemini search endpoint called",
-        extra={
-          "chat_id": payload.chat_id,
-          "language_raw": payload.language,
-          "file_name": payload.file_name,
-          "prompt_len": len(payload.prompt or ""),
-          "prompt_preview": (payload.prompt or "")[:120],
-          "use_google_search": payload.use_google_search,
-          "aspect_ratio": payload.aspect_ratio,
-        },
-    )
-
-    user_id = _extract_user_id(request)
-    language = normalize_language(payload.language)
-    prompt = payload.prompt.strip()
-    gemini_key = os.getenv("GEMINI_API_KEY")
-
-    tmp_file_path = None
-    final_url: Optional[str] = None
-    data_url: Optional[str] = None
-
-    try:
-        use_google_search = bool(payload.use_google_search)
-        aspect_ratio = payload.aspect_ratio
-        model = payload.model or "gemini-2.5-flash-image"
-
-        logger.info(
-            "Gemini search image generation request",
-            extra={
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "language": language,
-                "useGoogleSearch": use_google_search,
-                "aspectRatio": aspect_ratio,
-                "model": model,
-            },
-        )
-
-        response_json = await _call_gemini_api(prompt, gemini_key, model, use_google_search, aspect_ratio)
-        logger.info(
-            "Gemini search API response received",
-            extra={"has_candidates": bool(response_json.get("candidates")), "model": model, "useGoogleSearch": use_google_search},
-        )
-        inline_data = _extract_image_data(response_json)
-        logger.info("Inline data extracted (search)", extra={"mimeType": inline_data.get("mimeType")})
-        tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
-        logger.info("Temp file ready for upload (search)", extra={"tmp_path": tmp_file_path})
-
-        try:
-            final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name)
-            logger.info("Image uploaded to storage (search)", extra={"final_url": final_url})
-        except Exception as storage_exc:
-            logger.warning("Firebase upload failed; returning data URL", extra={"error": str(storage_exc)})
-            data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
-            logger.info("Using data URL fallback", extra={"has_data_url": bool(data_url)})
-
-        result = {
-            "success": True,
-            "imageUrl": final_url,
-            "dataUrl": data_url,
-            "chatId": payload.chat_id,
-            "language": language,
-            "model": model,
-            "mimeType": inline_data["mimeType"],
-        }
-        logger.info("Gemini search response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Gemini search image generation failed", exc_info=exc)
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "gemini_search_generation_error", "message": str(exc)},
-        ) from exc
-    finally:
-        if tmp_file_path:
-            try:
-                os.remove(tmp_file_path)
-                logger.info("Temp file removed", extra={"path": tmp_file_path})
-            except OSError:
-                logger.warning("Temp file cleanup failed", extra={"path": tmp_file_path})
-
-
-@router.post("/gemini-edit")
-async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -> Dict[str, Any]:
-    """Edit/transform an image via Google Gemini API using a prompt and an input image URL."""
-    if not payload.prompt or not payload.prompt.strip():
-        raise HTTPException(
-            status_code=400,
-            detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
-        )
-    if not payload.image_url or not payload.image_url.strip():
-        raise HTTPException(
-            status_code=400,
-            detail={"success": False, "error": "invalid_image_url", "message": "imageUrl is required"},
-        )
-
-    logger.info(
-        "Gemini edit endpoint called",
-        extra={
-          "chat_id": payload.chat_id,
-          "language_raw": payload.language,
-          "file_name": payload.file_name,
-          "prompt_len": len(payload.prompt or ""),
-          "prompt_preview": (payload.prompt or "")[:120],
-          "image_url": payload.image_url[:200],
-        },
-    )
-
-    user_id = _extract_user_id(request)
-    language = normalize_language(payload.language)
-    prompt = payload.prompt.strip()
-    gemini_key = os.getenv("GEMINI_API_KEY")
-
-    tmp_file_path = None
-    final_url: Optional[str] = None
-    data_url: Optional[str] = None
-
-    try:
-        logger.info(
-            "Downloading source image for edit",
-            extra={
-                "image_url": payload.image_url[:200],
-                "chat_id": payload.chat_id,
-                "prompt_len": len(prompt),
-            },
-        )
-        inline = _download_image_as_base64(payload.image_url)
-        logger.info(
-            "Source image downloaded",
-            extra={"mime_type": inline["mimeType"], "data_len": len(inline["data"])},
-        )
-
-        logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
-        response_json = await _call_gemini_edit_api(prompt, inline["data"], inline["mimeType"], gemini_key)
-        logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
-
-        inline_data = _extract_image_data(response_json)
-        logger.info("Inline data extracted (edit)", extra={"mimeType": inline_data.get("mimeType")})
-        tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
-        logger.info("Temp file ready for upload (edit)", extra={"tmp_path": tmp_file_path})
-
-        try:
-            final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name or f"gemini-edit{_guess_extension_from_mime(inline_data['mimeType'])}")
-            logger.info("Edited image uploaded to storage", extra={"final_url": final_url})
-        except Exception as storage_exc:
-            logger.warning("Firebase upload failed for edit; returning data URL", extra={"error": str(storage_exc)})
-            data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
-            logger.info("Using data URL fallback (edit)", extra={"has_data_url": bool(data_url)})
-
-        result = {
-            "success": True,
-            "imageUrl": final_url,
-            "dataUrl": data_url,
-            "chatId": payload.chat_id,
-            "language": language,
-            "model": "gemini-2.5-flash-image",
-            "mimeType": inline_data["mimeType"],
-        }
-        final_image_link = final_url or data_url
-        metadata = {
-            "prompt": prompt,
-            "model": "gemini-2.5-flash-image",
-            "tool": "image_edit_gemini",
-        }
-        logger.info(
-            "Writing Gemini edit message to Firestore",
-            extra={
-                "userId": user_id or "anonymous",
-                "chatId": payload.chat_id,
-                "hasImageUrl": bool(final_url),
-                "hasDataUrl": bool(data_url),
-                "model": "gemini-2.5-flash-image",
-            },
-        )
-        _save_message_to_firestore(
-            user_id=user_id,
-            chat_id=payload.chat_id or "",
-            content="Görsel düzenlendi!",
-            image_url=final_image_link,
-            metadata=metadata,
-        )
-        logger.info("Gemini edit response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Gemini image edit failed", exc_info=exc)
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "gemini_edit_error", "message": str(exc)},
-        ) from exc
-    finally:
-        if tmp_file_path:
-            try:
-                os.remove(tmp_file_path)
-                logger.info("Temp file removed (edit)", extra={"path": tmp_file_path})
-            except OSError:
-                logger.warning("Temp file cleanup failed (edit)", extra={"path": tmp_file_path})
+## Edit endpoint moved to endpoints/generate_image/edit_image_gemini.py
 
 

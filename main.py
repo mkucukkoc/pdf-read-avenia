@@ -56,8 +56,17 @@ from endpoints.chat import router as chat_router
 from endpoints.presentation import router as presentation_router
 from endpoints.generate_image.gemini_image import router as gemini_image_router
 from endpoints.video_gemini.gemini_video import router as gemini_video_router
+from endpoints.generate_image.generateImageGeminiSearch import router as gemini_image_search_router
+from endpoints.generate_image.edit_image_gemini import router as gemini_image_edit_router
 from endpoints.stt_and_tts import stt_router, tts_router
 from endpoints.file_export import router as export_chat_router
+from endpoints.files_pdf import (
+    pdf_analyze_router,
+    pdf_summary_router,
+    pdf_qna_router,
+    pdf_extract_router,
+    pdf_compare_router,
+)
 # from endpoints.image_edit import router as image_edit_router
 from core.websocket_manager import sio
 
@@ -149,6 +158,14 @@ app.include_router(chat_router)
 app.include_router(presentation_router)
 app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)
+app.include_router(gemini_image_search_router)
+app.include_router(gemini_image_edit_router)
+# PDF document processing
+app.include_router(pdf_analyze_router)
+app.include_router(pdf_summary_router)
+app.include_router(pdf_qna_router)
+app.include_router(pdf_extract_router)
+app.include_router(pdf_compare_router)
 # app.include_router(image_edit_router)
 app.include_router(stt_router)
 app.include_router(tts_router)

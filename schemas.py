@@ -129,7 +129,7 @@ class GeminiImageRequest(BaseModel):
 
 class GeminiImageEditRequest(BaseModel):
     prompt: str
-    image_url: str = Field(..., alias="imageUrl")
+    image_url: Optional[str] = Field(default=None, alias="imageUrl")
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
@@ -151,6 +151,55 @@ class CreateChatRequest(BaseModel):
     title: Optional[str] = None
 
 
+class PdfAnalyzeRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfSummaryRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfQnaRequest(BaseModel):
+    file_id: Optional[str] = Field(default=None, alias="fileId")
+    file_url: Optional[str] = Field(default=None, alias="fileUrl")
+    question: str
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfCompareRequest(BaseModel):
+    file1: str = Field(..., alias="file1")
+    file2: str = Field(..., alias="file2")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 __all__ = [
     "PresentationRequest",
     "Slide",
@@ -165,4 +214,9 @@ __all__ = [
     "GeminiImageEditRequest",
     "GeminiVideoRequest",
     "CreateChatRequest",
+    "PdfAnalyzeRequest",
+    "PdfSummaryRequest",
+    "PdfQnaRequest",
+    "PdfExtractRequest",
+    "PdfCompareRequest",
 ]
