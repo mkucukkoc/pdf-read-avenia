@@ -39,13 +39,11 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
 
     prompt = (payload.prompt or "").strip() or f"Extract the most important facts from this PDF in {language}."
     logger.debug(
-        "PDF extract prompt",
-        extra={
-            "chatId": payload.chat_id,
-            "userId": user_id,
-            "language": language,
-            "prompt": prompt[:1000],
-        },
+        "PDF extract prompt | chatId=%s userId=%s lang=%s prompt=%s",
+        payload.chat_id,
+        user_id,
+        language,
+        prompt,
     )
     try:
         logger.info("PDF extract upload start", extra={"chatId": payload.chat_id})

@@ -61,6 +61,14 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
         logger.info("PDF QnA file ready", extra={"chatId": payload.chat_id, "fileUri": file_uri})
         user_prompt = (payload.prompt or "").strip()
         instructions = user_prompt or f"Answer in {language}. Maintain citations if available."
+        logger.debug(
+            "PDF QnA prompt | chatId=%s userId=%s lang=%s instructions=%s question=%s",
+            payload.chat_id,
+            user_id,
+            language,
+            instructions,
+            payload.question,
+        )
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
             {"text": f"Answer the user's question. {instructions}"},

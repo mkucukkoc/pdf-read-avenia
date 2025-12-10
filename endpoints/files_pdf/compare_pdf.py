@@ -58,13 +58,11 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
 
         prompt = (payload.prompt or "").strip() or f"Compare these PDFs in {language} and highlight the key differences."
         logger.debug(
-            "PDF compare prompt",
-            extra={
-                "chatId": payload.chat_id,
-                "userId": user_id,
-                "language": language,
-                "prompt": prompt[:1000],
-            },
+            "PDF compare prompt | chatId=%s userId=%s lang=%s prompt=%s",
+            payload.chat_id,
+            user_id,
+            language,
+            prompt,
         )
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file1_uri}},

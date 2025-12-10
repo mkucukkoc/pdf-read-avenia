@@ -39,13 +39,11 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
 
     prompt = (payload.prompt or "").strip() or f"Analyze this PDF in {language} and return your insights."
     logger.debug(
-        "PDF analyze prompt",
-        extra={
-            "chatId": payload.chat_id,
-            "userId": user_id,
-            "language": language,
-            "prompt": prompt[:1000],
-        },
+        "PDF analyze prompt | chatId=%s userId=%s lang=%s prompt=%s",
+        payload.chat_id,
+        user_id,
+        language,
+        prompt,
     )
     try:
         logger.info("PDF analyze upload start", extra={"chatId": payload.chat_id})

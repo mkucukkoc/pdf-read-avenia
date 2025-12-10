@@ -39,14 +39,12 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
 
     prompt = (payload.prompt or "").strip() or f"Summarize this PDF in {language} with any useful structure you choose."
     logger.debug(
-        "PDF summary prompt",
-        extra={
-            "chatId": payload.chat_id,
-            "userId": user_id,
-            "language": language,
-            "prompt": prompt[:1000],
-            "summaryLevel": payload.summary_level or "basic",
-        },
+        "PDF summary prompt | chatId=%s userId=%s lang=%s level=%s prompt=%s",
+        payload.chat_id,
+        user_id,
+        language,
+        payload.summary_level or "basic",
+        prompt,
     )
     try:
         logger.info("PDF summary upload start", extra={"chatId": payload.chat_id})
