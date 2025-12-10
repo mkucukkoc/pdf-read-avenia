@@ -24,16 +24,15 @@ router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 COMPARE_PROMPT = """
 Compare the two PDFs. Identify differences, added/removed/modified sections, risk areas, and provide a concise summary of changes.
-Return JSON with:
-{
-  "differences": [...],
-  "removed": [...],
-  "added": [...],
-  "modified": [...],
-  "riskAreas": [...],
-  "summary": "..."
-}
-Write all textual values in {language}.
+
+Return Markdown with these sections:
+## Summary of Changes
+## Added Content
+## Removed Content
+## Modified Sections
+## Risk Areas
+
+Write everything in {language}. Do not return JSON.
 """
 
 

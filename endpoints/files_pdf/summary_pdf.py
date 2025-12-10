@@ -23,31 +23,16 @@ router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
 SUMMARY_PROMPT_TEMPLATE = """
-You are a PDF summarizer. Produce a concise summary with three levels:
-- Basic: 3-5 bullet points.
-- Professional: 5-8 bullet points with key metrics/figures.
-- Expert: structured paragraph with context, implications, risks.
-Also include:
-- Keywords (5-10)
-- Document structure (sections/headings)
-- If tables exist: brief table insights.
-- If figures exist: brief visual insights.
-Return Markdown text with sections:
-## Basic
-...
-## Professional
-...
-## Expert
-...
-## Keywords
-- ...
-## Structure
-- ...
-## Tables
-- ...
-## Figures
-- ...
-Adjust language to: {language}
+You are a PDF summarizer. Produce a concise Markdown summary with these sections:
+- ## Basic Summary (3-5 bullets)
+- ## Professional Summary (5-8 bullets with metrics/figures)
+- ## Expert Summary (structured paragraph with context, implications, risks)
+- ## Keywords (5-10 inline, comma separated)
+- ## Document Structure (list sections/headings)
+- ## Tables (if any, bullet list of insights)
+- ## Figures (if any, bullet list of insights)
+
+Write all content in {language}. Do not return JSON.
 """
 
 

@@ -31,20 +31,22 @@ You are a PDF analyst. Perform FULL ANALYSIS:
 - Section summaries and overall professional+academic summary.
 - Actionable recommendations.
 - Consistency / risk / issues.
-Return JSON with keys:
-{
-  "summary": { "brief": "...", "professional": "...", "academic": "..." },
-  "sections": [ { "title": "...", "summary": "..." } ],
-  "tables": [ { "title": "...", "insights": "...", "totals": "...", "anomalies": "..." } ],
-  "figures": [ { "description": "...", "insights": "..." } ],
-  "numbers": [ { "label": "...", "value": "...", "unit": "...", "context": "..." } ],
-  "entities": [ { "type": "person|org|location|other", "name": "...", "role": "...", "context": "..." } ],
-  "dates": [ { "value": "...", "context": "..." } ],
-  "actions": [ "..." ],
-  "risks": [ "..." ],
-  "consistency": [ "..." ]
-}
-Keep it concise but complete. All textual values (not JSON keys) must be written in {language}.
+
+Return the result as Markdown with the following sections:
+## Brief Summary
+## Professional Summary
+## Academic Summary
+## Section Insights
+## Tables
+## Figures
+## Numbers
+## Entities
+## Dates
+## Recommended Actions
+## Risks
+## Consistency Notes
+
+Write all text in {language}. Do not return JSON.
 """
 
 

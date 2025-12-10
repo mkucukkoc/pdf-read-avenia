@@ -22,7 +22,7 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.qna")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
-QNA_PROMPT = "Answer the question using only the provided PDF. Be concise and cite sections if possible."
+QNA_PROMPT = "Answer the question using only the provided PDF. Return a short Markdown response with headings if helpful. Cite sections/pages if possible."
 
 
 def _ensure_file_uri(payload: PdfQnaRequest, api_key: str) -> str:

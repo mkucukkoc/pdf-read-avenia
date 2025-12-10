@@ -23,18 +23,17 @@ router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
 EXTRACT_PROMPT = """
-Extract structured data from this PDF. Return JSON with:
-{
-  "tables": [...],          // summarize tables and key values
-  "numbers": [...],         // numeric values with context and units
-  "entities": [...],        // names, roles, organizations
-  "definitions": [...],     // key definitions
-  "dates": [...],           // important dates with context
-  "emails": [...],          // any emails found with context
-  "headings": [...],        // document headings/sections
-  "metadata": {...}         // detected meta info (title, author if any)
-}
-Be concise; include source context where possible. All textual values must be written in {language}.
+Extract structured insights from this PDF and present them as Markdown bullet lists:
+- Tables & Key Values
+- Numbers with context and units
+- Important entities (name, role, context)
+- Definitions of key concepts
+- Important dates with descriptions
+- Emails (if any) with surrounding context
+- Document headings/sections
+- Detected metadata (title, author, etc.)
+
+For each section, use clear headings and bullet points. Write the entire response in {language}. Do not return JSON.
 """
 
 
