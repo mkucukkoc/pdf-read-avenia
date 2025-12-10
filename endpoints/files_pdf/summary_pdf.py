@@ -22,20 +22,6 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.summary")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
-SUMMARY_PROMPT_TEMPLATE = """
-You are a PDF summarizer. Produce a concise Markdown summary with these sections:
-- ## Basic Summary (3-5 bullets)
-- ## Professional Summary (5-8 bullets with metrics/figures)
-- ## Expert Summary (structured paragraph with context, implications, risks)
-- ## Keywords (5-10 inline, comma separated)
-- ## Document Structure (list sections/headings)
-- ## Tables (if any, bullet list of insights)
-- ## Figures (if any, bullet list of insights)
-
-Write all content in {language}. Do not return JSON.
-"""
-
-
 @router.post("/summary")
 async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
@@ -51,7 +37,17 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
     logger.info("PDF summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    prompt = SUMMARY_PROMPT_TEMPLATE.replace("{language}", language)
+    prompt = (payload.prompt or "").strip() or f"Summarize this PDF in {language} with any useful structure you choose."
+    logger.debug(
+        "PDF summary prompt",
+        extra={
+            "chatId": payload.chat_id,
+            "userId": user_id,
+            "language": language,
+            "prompt": prompt[:1000],
+            "summaryLevel": payload.summary_level or "basic",
+        },
+    )
     try:
         logger.info("PDF summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)

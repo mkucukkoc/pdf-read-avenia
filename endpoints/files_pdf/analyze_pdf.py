@@ -22,34 +22,6 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.analyze")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
-ANALYZE_PROMPT = """
-You are a PDF analyst. Perform FULL ANALYSIS:
-- Extract key findings, metrics, entities (people/orgs/locations), dates.
-- Table understanding: summarize tables, totals, anomalies.
-- Visual insight: describe important charts/figures.
-- Numerical insight: KPIs, trends, comparisons.
-- Section summaries and overall professional+academic summary.
-- Actionable recommendations.
-- Consistency / risk / issues.
-
-Return the result as Markdown with the following sections:
-## Brief Summary
-## Professional Summary
-## Academic Summary
-## Section Insights
-## Tables
-## Figures
-## Numbers
-## Entities
-## Dates
-## Recommended Actions
-## Risks
-## Consistency Notes
-
-Write all text in {language}. Do not return JSON.
-"""
-
-
 @router.post("/analyze")
 async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
@@ -65,7 +37,16 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
     logger.info("PDF analyze download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    prompt = ANALYZE_PROMPT.replace("{language}", language)
+    prompt = (payload.prompt or "").strip() or f"Analyze this PDF in {language} and return your insights."
+    logger.debug(
+        "PDF analyze prompt",
+        extra={
+            "chatId": payload.chat_id,
+            "userId": user_id,
+            "language": language,
+            "prompt": prompt[:1000],
+        },
+    )
     try:
         logger.info("PDF analyze upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)

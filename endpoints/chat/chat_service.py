@@ -64,6 +64,25 @@ class ChatService:
                 "imageFileUrl": payload.image_file_url,
             },
         )
+        message_previews = [
+            {
+                "role": message.role,
+                "preview": (message.content or "")[:500],
+                "hasFile": bool(message.file_url),
+                "fileUrl": message.file_url,
+            }
+            for message in payload.messages
+        ]
+        logger.debug(
+            "Chat messages received",
+            extra={
+                "requestId": request_id,
+                "userId": user_id,
+                "chatId": payload.chat_id,
+                "language": payload.language or "unknown",
+                "messages": message_previews,
+            },
+        )
 
         if payload.stream:
             stream_message_id = self._generate_message_id()
@@ -86,6 +105,16 @@ class ChatService:
 
         system_instruction = self._build_system_instruction(payload.language)
         prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
+        logger.debug(
+            "Chat prompt prepared",
+            extra={
+                "requestId": request_id,
+                "userId": user_id,
+                "chatId": payload.chat_id,
+                "language": payload.language or "unknown",
+                "promptPreview": prompt_text[:1000],
+            },
+        )
         assistant_content = await asyncio.to_thread(
             self._call_gemini_generate_content,
             prompt_text,
@@ -254,6 +283,16 @@ class ChatService:
         try:
             system_instruction = self._build_system_instruction(payload.language)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
+            logger.debug(
+                "Chat prompt prepared (stream)",
+                extra={
+                    "requestId": request_id,
+                    "userId": user_id,
+                    "chatId": payload.chat_id,
+                    "language": payload.language or "unknown",
+                    "promptPreview": prompt_text[:1000],
+                },
+            )
             model = self._select_model(payload)
 
             # Real streaming: consume streamGenerateContent deltas and forward as websocket chunks

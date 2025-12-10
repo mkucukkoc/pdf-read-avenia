@@ -22,20 +22,6 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.compare")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
-COMPARE_PROMPT = """
-Compare the two PDFs. Identify differences, added/removed/modified sections, risk areas, and provide a concise summary of changes.
-
-Return Markdown with these sections:
-## Summary of Changes
-## Added Content
-## Removed Content
-## Modified Sections
-## Risk Areas
-
-Write everything in {language}. Do not return JSON.
-"""
-
-
 def _resolve_file(item: str, api_key: str, label: str, max_mb: int = 25) -> Tuple[str, int]:
     # item can be a file uri/id or an http(s) url
     if item.lower().startswith(("http://", "https://")):
@@ -70,7 +56,16 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 detail={"success": False, "error": "file_too_large", "message": get_pdf_error_message("file_too_large", language)},
             )
 
-        prompt = COMPARE_PROMPT.replace("{language}", language)
+        prompt = (payload.prompt or "").strip() or f"Compare these PDFs in {language} and highlight the key differences."
+        logger.debug(
+            "PDF compare prompt",
+            extra={
+                "chatId": payload.chat_id,
+                "userId": user_id,
+                "language": language,
+                "prompt": prompt[:1000],
+            },
+        )
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file1_uri}},
             {"file_data": {"mime_type": "application/pdf", "file_uri": file2_uri}},

@@ -22,21 +22,6 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.extract")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
-EXTRACT_PROMPT = """
-Extract structured insights from this PDF and present them as Markdown bullet lists:
-- Tables & Key Values
-- Numbers with context and units
-- Important entities (name, role, context)
-- Definitions of key concepts
-- Important dates with descriptions
-- Emails (if any) with surrounding context
-- Document headings/sections
-- Detected metadata (title, author, etc.)
-
-For each section, use clear headings and bullet points. Write the entire response in {language}. Do not return JSON.
-"""
-
-
 @router.post("/extract")
 async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
@@ -52,7 +37,16 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
     logger.info("PDF extract download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    prompt = EXTRACT_PROMPT.replace("{language}", language)
+    prompt = (payload.prompt or "").strip() or f"Extract the most important facts from this PDF in {language}."
+    logger.debug(
+        "PDF extract prompt",
+        extra={
+            "chatId": payload.chat_id,
+            "userId": user_id,
+            "language": language,
+            "prompt": prompt[:1000],
+        },
+    )
     try:
         logger.info("PDF extract upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)

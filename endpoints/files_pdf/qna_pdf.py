@@ -22,9 +22,6 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.qna")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
-QNA_PROMPT = "Answer the question using only the provided PDF. Return a short Markdown response with headings if helpful. Cite sections/pages if possible."
-
-
 def _ensure_file_uri(payload: PdfQnaRequest, api_key: str) -> str:
     if payload.file_id:
         return payload.file_id
@@ -47,16 +44,26 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
         "PDF QnA request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
     )
+    logger.debug(
+        "PDF QnA question received",
+        extra={
+            "chatId": payload.chat_id,
+            "userId": user_id,
+            "language": language,
+            "question": (payload.question or "")[:500],
+        },
+    )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     try:
         logger.info("PDF QnA ensure file", extra={"chatId": payload.chat_id, "fileId": payload.file_id, "fileUrl": payload.file_url})
         file_uri = _ensure_file_uri(payload, gemini_key)
         logger.info("PDF QnA file ready", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        user_prompt = (payload.prompt or "").strip()
+        instructions = user_prompt or f"Answer in {language}. Maintain citations if available."
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
-            {"text": f"Answer in {language}. Maintain citations if available."},
-            {"text": QNA_PROMPT},
+            {"text": f"Answer the user's question. {instructions}"},
             {"text": payload.question},
         ]
         response_json = await asyncio.to_thread(call_gemini_generate, parts, gemini_key)

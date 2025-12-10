@@ -156,6 +156,7 @@ class PdfAnalyzeRequest(BaseModel):
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -166,6 +167,7 @@ class PdfSummaryRequest(BaseModel):
     language: Optional[str] = None
     summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -177,6 +179,7 @@ class PdfQnaRequest(BaseModel):
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -186,6 +189,7 @@ class PdfExtractRequest(BaseModel):
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -196,6 +200,7 @@ class PdfCompareRequest(BaseModel):
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
