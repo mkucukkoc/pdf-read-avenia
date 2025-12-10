@@ -66,7 +66,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
     logger.info("PDF summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    prompt = SUMMARY_PROMPT_TEMPLATE.format(language=language)
+    prompt = SUMMARY_PROMPT_TEMPLATE.replace("{language}", language)
     try:
         logger.info("PDF summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)

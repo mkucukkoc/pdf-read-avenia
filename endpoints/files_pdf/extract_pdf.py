@@ -53,7 +53,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
     logger.info("PDF extract download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    prompt = EXTRACT_PROMPT.format(language=language)
+    prompt = EXTRACT_PROMPT.replace("{language}", language)
     try:
         logger.info("PDF extract upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)

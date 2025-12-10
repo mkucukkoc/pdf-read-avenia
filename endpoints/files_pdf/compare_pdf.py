@@ -71,7 +71,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 detail={"success": False, "error": "file_too_large", "message": get_pdf_error_message("file_too_large", language)},
             )
 
-        prompt = COMPARE_PROMPT.format(language=language)
+        prompt = COMPARE_PROMPT.replace("{language}", language)
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file1_uri}},
             {"file_data": {"mime_type": "application/pdf", "file_uri": file2_uri}},
