@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
 
+from core.language_support import normalize_language
 from schemas import PdfCompareRequest
 from errors_response import get_pdf_error_message
 from endpoints.files_pdf.utils import (
@@ -32,6 +33,7 @@ Return JSON with:
   "riskAreas": [...],
   "summary": "..."
 }
+Write all textual values in {language}.
 """
 
 
@@ -47,7 +49,8 @@ def _resolve_file(item: str, api_key: str, label: str, max_mb: int = 25) -> Tupl
 @router.post("/compare")
 async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
-    language = payload.language
+    raw_language = payload.language
+    language = normalize_language(raw_language) or "English"
     logger.info(
         "PDF compare request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -68,10 +71,12 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 detail={"success": False, "error": "file_too_large", "message": get_pdf_error_message("file_too_large", language)},
             )
 
+        prompt = COMPARE_PROMPT.format(language=language)
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file1_uri}},
             {"file_data": {"mime_type": "application/pdf", "file_uri": file2_uri}},
-            {"text": COMPARE_PROMPT},
+            {"text": f"Language: {language}"},
+            {"text": prompt},
         ]
         response_json = await asyncio.to_thread(call_gemini_generate, parts, gemini_key)
         diff = extract_text_response(response_json)

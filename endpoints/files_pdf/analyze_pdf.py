@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
+from core.language_support import normalize_language
 from errors_response import get_pdf_error_message
 from schemas import PdfAnalyzeRequest
 from endpoints.files_pdf.utils import (
@@ -43,14 +44,15 @@ Return JSON with keys:
   "risks": [ "..." ],
   "consistency": [ "..." ]
 }
-Keep it concise but complete.
+Keep it concise but complete. All textual values (not JSON keys) must be written in {language}.
 """
 
 
 @router.post("/analyze")
 async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
-    language = payload.language
+    raw_language = payload.language
+    language = normalize_language(raw_language) or "English"
     logger.info(
         "PDF analyze request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -61,6 +63,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
     logger.info("PDF analyze download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
+    prompt = ANALYZE_PROMPT.format(language=language)
     try:
         logger.info("PDF analyze upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
@@ -69,7 +72,8 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             call_gemini_generate,
             [
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
-                {"text": ANALYZE_PROMPT},
+                {"text": f"Language: {language}"},
+                {"text": prompt},
             ],
             gemini_key,
         )

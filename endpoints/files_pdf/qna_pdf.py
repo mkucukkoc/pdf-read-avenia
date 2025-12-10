@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
+from core.language_support import normalize_language
 from schemas import PdfQnaRequest
 from errors_response import get_pdf_error_message
 from endpoints.files_pdf.utils import (
@@ -40,7 +41,8 @@ def _ensure_file_uri(payload: PdfQnaRequest, api_key: str) -> str:
 @router.post("/qna")
 async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
-    language = payload.language
+    raw_language = payload.language
+    language = normalize_language(raw_language) or "English"
     logger.info(
         "PDF QnA request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -53,7 +55,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
         logger.info("PDF QnA file ready", extra={"chatId": payload.chat_id, "fileUri": file_uri})
         parts = [
             {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
-            {"text": f"Language: {language or 'en'}"},
+            {"text": f"Answer in {language}. Maintain citations if available."},
             {"text": QNA_PROMPT},
             {"text": payload.question},
         ]

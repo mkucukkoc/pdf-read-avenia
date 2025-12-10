@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
+from core.language_support import normalize_language
 from errors_response import get_pdf_error_message
 from schemas import PdfSummaryRequest
 from endpoints.files_pdf.utils import (
@@ -53,7 +54,8 @@ Adjust language to: {language}
 @router.post("/summary")
 async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
-    language = payload.language
+    raw_language = payload.language
+    language = normalize_language(raw_language) or "English"
     logger.info(
         "PDF summary request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -64,7 +66,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
     logger.info("PDF summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
-    prompt = SUMMARY_PROMPT_TEMPLATE.format(language=language or "English")
+    prompt = SUMMARY_PROMPT_TEMPLATE.format(language=language)
     try:
         logger.info("PDF summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)

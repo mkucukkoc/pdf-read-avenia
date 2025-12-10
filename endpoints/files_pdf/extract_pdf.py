@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
+from core.language_support import normalize_language
 from schemas import PdfExtractRequest
 from errors_response import get_pdf_error_message
 from endpoints.files_pdf.utils import (
@@ -33,14 +34,15 @@ Extract structured data from this PDF. Return JSON with:
   "headings": [...],        // document headings/sections
   "metadata": {...}         // detected meta info (title, author if any)
 }
-Be concise; include source context where possible.
+Be concise; include source context where possible. All textual values must be written in {language}.
 """
 
 
 @router.post("/extract")
 async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
-    language = payload.language
+    raw_language = payload.language
+    language = normalize_language(raw_language) or "English"
     logger.info(
         "PDF extract request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -51,6 +53,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
     logger.info("PDF extract download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
 
+    prompt = EXTRACT_PROMPT.format(language=language)
     try:
         logger.info("PDF extract upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
@@ -59,7 +62,8 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             call_gemini_generate,
             [
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
-                {"text": EXTRACT_PROMPT},
+                {"text": f"Language: {language}"},
+                {"text": prompt},
             ],
             gemini_key,
         )
