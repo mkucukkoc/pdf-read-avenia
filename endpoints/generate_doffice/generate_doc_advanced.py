@@ -485,3 +485,4 @@ async def generate_doc_advanced(data: DocAdvancedRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+

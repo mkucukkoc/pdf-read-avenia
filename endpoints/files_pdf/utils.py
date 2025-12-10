@@ -129,9 +129,24 @@ def extract_text_response(response_json: Dict[str, Any]) -> str:
     return "\n".join(texts).strip()
 
 
-def save_message_to_firestore(user_id: str, chat_id: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> None:
-    if not firebase_admin._apps or not chat_id:
-        return
+def save_message_to_firestore(
+    user_id: str,
+    chat_id: str,
+    content: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if not firebase_admin._apps:
+        logger.warning(
+            "Firestore save skipped (firebase app not initialized)",
+            extra={"chatId": chat_id, "userId": user_id},
+        )
+        return False
+    if not chat_id:
+        logger.warning(
+            "Firestore save skipped (missing chatId)",
+            extra={"userId": user_id},
+        )
+        return False
     db = firestore.client()
     data: Dict[str, Any] = {
         "role": "assistant",
@@ -143,12 +158,21 @@ def save_message_to_firestore(user_id: str, chat_id: str, content: str, metadata
         db.collection("users").document(user_id or "anonymous") \
             .collection("chats").document(chat_id) \
             .collection("messages").add(data)
-        logger.info("Firestore message saved", extra={"chatId": chat_id})
+        logger.info(
+            "Firestore message saved",
+            extra={"chatId": chat_id, "userId": user_id, "status": "success"},
+        )
+        return True
     except Exception as exc:  # pragma: no cover
-        logger.exception("Firestore save failed", extra={"error": str(exc), "chatId": chat_id})
+        logger.exception(
+            "Firestore save failed",
+            extra={"error": str(exc), "chatId": chat_id, "userId": user_id, "status": "error"},
+        )
+        return False
 
 
 def localize_message(key: str, language: Optional[str]) -> str:
     lang = normalize_language(language)
     return get_pdf_error_message(key, lang)
+
 

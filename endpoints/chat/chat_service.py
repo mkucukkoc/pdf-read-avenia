@@ -705,3 +705,4 @@ class ChatService:
 chat_service = ChatService.get_instance()
 
 __all__ = ["chat_service", "ChatService"]
+

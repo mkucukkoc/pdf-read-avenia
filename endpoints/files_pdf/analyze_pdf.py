@@ -73,10 +73,13 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             ],
             gemini_key,
         )
-        logger.info("PDF analyze gemini response", extra={"chatId": payload.chat_id})
         text = extract_text_response(response_json)
         if not text:
             raise RuntimeError("Empty response from Gemini")
+        logger.info(
+            "PDF analyze gemini response",
+            extra={"chatId": payload.chat_id, "preview": text[:500]},
+        )
 
         result = {
             "success": True,
@@ -89,7 +92,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
         save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
-            content="PDF analizi tamamlandı.",
+            content=text,
             metadata={
                 "tool": "pdf_analyze",
                 "fileUrl": payload.file_url,

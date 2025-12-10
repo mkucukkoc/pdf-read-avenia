@@ -34,3 +34,4 @@ async def summarize_pdf(file: UploadFile):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+

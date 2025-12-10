@@ -74,10 +74,13 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             {"text": COMPARE_PROMPT},
         ]
         response_json = await asyncio.to_thread(call_gemini_generate, parts, gemini_key)
-        logger.info("PDF compare gemini response", extra={"chatId": payload.chat_id})
         diff = extract_text_response(response_json)
         if not diff:
             raise RuntimeError("Empty response from Gemini")
+        logger.info(
+            "PDF compare gemini response",
+            extra={"chatId": payload.chat_id, "preview": diff[:500]},
+        )
 
         result = {
             "success": True,
@@ -89,7 +92,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
         save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
-            content="PDF karşılaştırması tamamlandı.",
+            content=diff,
             metadata={
                 "tool": "pdf_compare",
                 "file1": payload.file1,

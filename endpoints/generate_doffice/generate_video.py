@@ -84,3 +84,4 @@ async def generate_video(user_prompt: str = Body(..., embed=True)):
         raise HTTPException(status_code=500, detail="Runway video üretim hatası: " + str(e))
 
 
+

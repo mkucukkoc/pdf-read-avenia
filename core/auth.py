@@ -76,3 +76,4 @@ def create_auth_middleware():
 __all__ = ["create_auth_middleware", "PUBLIC_PATHS"]
 
 
+

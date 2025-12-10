@@ -45,3 +45,4 @@ async def generate_video_prompt(prompt: str = Body(..., embed=True)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+

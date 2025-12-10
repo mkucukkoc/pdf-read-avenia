@@ -67,3 +67,4 @@ async def summarize_pdf_url(payload: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+

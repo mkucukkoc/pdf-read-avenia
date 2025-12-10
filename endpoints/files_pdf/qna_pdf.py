@@ -58,7 +58,6 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             {"text": payload.question},
         ]
         response_json = await asyncio.to_thread(call_gemini_generate, parts, gemini_key)
-        logger.info("PDF QnA gemini response", extra={"chatId": payload.chat_id})
         answer = extract_text_response(response_json)
         if not answer:
             msg = get_pdf_error_message("no_answer_found", language)
@@ -66,6 +65,10 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
                 status_code=404,
                 detail={"success": False, "error": "no_answer_found", "message": msg},
             )
+        logger.info(
+            "PDF QnA gemini response",
+            extra={"chatId": payload.chat_id, "preview": answer[:500]},
+        )
 
         result = {
             "success": True,

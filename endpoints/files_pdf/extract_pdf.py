@@ -63,10 +63,13 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             ],
             gemini_key,
         )
-        logger.info("PDF extract gemini response", extra={"chatId": payload.chat_id})
         extracted = extract_text_response(response_json)
         if not extracted:
             raise RuntimeError("Empty response from Gemini")
+        logger.info(
+            "PDF extract gemini response",
+            extra={"chatId": payload.chat_id, "preview": extracted[:500]},
+        )
 
         result = {
             "success": True,
@@ -79,7 +82,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
         save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
-            content="PDF verileri çıkarıldı.",
+            content=extracted,
             metadata={
                 "tool": "pdf_extract",
                 "fileUrl": payload.file_url,

@@ -87,3 +87,4 @@ async def summarize_ppt_from_url(data: dict = Body(...)):
         raise HTTPException(status_code=500, detail="GPT summarization error")
 
 
+

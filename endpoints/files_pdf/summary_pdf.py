@@ -77,10 +77,13 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             ],
             gemini_key,
         )
-        logger.info("PDF summary gemini response", extra={"chatId": payload.chat_id})
         text = extract_text_response(response_json)
         if not text:
             raise RuntimeError("Empty response from Gemini")
+        logger.info(
+            "PDF summary gemini response",
+            extra={"chatId": payload.chat_id, "preview": text[:500]},
+        )
 
         result = {
             "success": True,
@@ -94,7 +97,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
         save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
-            content="PDF özeti hazır.",
+            content=text,
             metadata={
                 "tool": "pdf_summary",
                 "fileUrl": payload.file_url,

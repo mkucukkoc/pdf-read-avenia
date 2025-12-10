@@ -59,3 +59,4 @@ async def generate_excel(data: DocRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+

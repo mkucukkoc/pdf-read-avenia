@@ -54,3 +54,4 @@ async def generate_doc(data: DocRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+

@@ -118,3 +118,4 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
