@@ -15,6 +15,7 @@ from endpoints.files_pdf.utils import (
     call_gemini_generate,
     extract_text_response,
     save_message_to_firestore,
+    log_full_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.qna")
@@ -40,6 +41,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
     raw_language = payload.language
     language = normalize_language(raw_language) or "English"
+    log_full_payload(logger, "pdf_qna", payload)
     logger.info(
         "PDF QnA request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -83,8 +85,9 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
                 detail={"success": False, "error": "no_answer_found", "message": msg},
             )
         logger.info(
-            "PDF QnA gemini response",
-            extra={"chatId": payload.chat_id, "preview": answer[:500]},
+            "PDF QnA gemini response | chatId=%s preview=%s",
+            payload.chat_id,
+            answer[:500],
         )
 
         result = {
@@ -94,7 +97,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             "language": language,
             "model": "gemini-2.5-flash",
         }
-        save_message_to_firestore(
+        firestore_ok = save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
             content=answer,
@@ -104,6 +107,10 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
                 "fileName": payload.file_name,
             },
         )
+        if firestore_ok:
+            logger.info("PDF QnA Firestore save success | chatId=%s", payload.chat_id)
+        else:
+            logger.error("PDF QnA Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
         msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)

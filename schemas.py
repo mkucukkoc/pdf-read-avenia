@@ -205,6 +205,100 @@ class PdfCompareRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class PdfRewriteRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    style: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfClassifyRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    labels: Optional[list[str]] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfMultiAnalyzeRequest(BaseModel):
+    file_urls: list[str] = Field(..., alias="fileUrls")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfOcrExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfLayoutRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfDeepExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    fields: Optional[list[str]] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfGroundedSearchRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    question: str = Field(..., alias="question")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfTranslateRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    target_language: str = Field(..., alias="targetLanguage")
+    source_language: Optional[str] = Field(default=None, alias="sourceLanguage")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfStructureExportRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 __all__ = [
     "PresentationRequest",
     "Slide",
@@ -224,4 +318,13 @@ __all__ = [
     "PdfQnaRequest",
     "PdfExtractRequest",
     "PdfCompareRequest",
+    "PdfRewriteRequest",
+    "PdfClassifyRequest",
+    "PdfMultiAnalyzeRequest",
+    "PdfOcrExtractRequest",
+    "PdfLayoutRequest",
+    "PdfDeepExtractRequest",
+    "PdfGroundedSearchRequest",
+    "PdfTranslateRequest",
+    "PdfStructureExportRequest",
 ]

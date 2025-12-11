@@ -1,0 +1,121 @@
+import logging
+import os
+import asyncio
+from typing import Any, Dict
+
+from fastapi import APIRouter, HTTPException, Request
+
+from core.language_support import normalize_language
+from errors_response import get_pdf_error_message
+from schemas import PdfRewriteRequest
+from endpoints.files_pdf.utils import (
+    extract_user_id,
+    download_file,
+    upload_to_gemini_files,
+    call_gemini_generate,
+    extract_text_response,
+    save_message_to_firestore,
+    log_full_payload,
+)
+
+logger = logging.getLogger("pdf_read_refresh.files_pdf.rewrite")
+
+router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
+
+
+@router.post("/rewrite")
+async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str, Any]:
+    user_id = extract_user_id(request)
+    language = normalize_language(payload.language) or "English"
+    log_full_payload(logger, "pdf_rewrite", payload)
+    logger.info(
+        "PDF rewrite request",
+        extra={
+            "chatId": payload.chat_id,
+            "userId": user_id,
+            "language": language,
+            "fileName": payload.file_name,
+            "style": payload.style,
+        },
+    )
+
+    logger.info("PDF rewrite download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
+    content, mime = download_file(payload.file_url, max_mb=30, require_pdf=True)
+    logger.info("PDF rewrite download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
+    gemini_key = os.getenv("GEMINI_API_KEY")
+
+    tone = (payload.style or "professional and clear").strip()
+    base_prompt = (
+        payload.prompt or f"Rewrite and improve this PDF in {language}. Keep meaning, improve clarity, "
+        f"and use a {tone} tone. Preserve tables, lists, headings, and references. Respond in {language}."
+    ).strip()
+
+    try:
+        logger.info("PDF rewrite upload start", extra={"chatId": payload.chat_id})
+        file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
+        logger.info("PDF rewrite upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        response_json = await asyncio.to_thread(
+            call_gemini_generate,
+            [
+                {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
+                {"text": f"Language: {language}"},
+                {"text": base_prompt},
+            ],
+            gemini_key,
+        )
+        rewritten = extract_text_response(response_json)
+        if not rewritten:
+            raise RuntimeError("Empty response from Gemini")
+        logger.info("PDF rewrite gemini response | chatId=%s preview=%s", payload.chat_id, rewritten[:500])
+
+        result = {
+            "success": True,
+            "chatId": payload.chat_id,
+            "rewrite": rewritten,
+            "language": language,
+            "model": "gemini-2.5-flash",
+        }
+
+        firestore_ok = save_message_to_firestore(
+            user_id=user_id,
+            chat_id=payload.chat_id,
+            content=rewritten,
+            metadata={
+                "tool": "pdf_rewrite",
+                "fileUrl": payload.file_url,
+                "fileName": payload.file_name,
+                "style": tone,
+            },
+        )
+        if firestore_ok:
+            logger.info("PDF rewrite Firestore save success | chatId=%s", payload.chat_id)
+        else:
+            logger.error("PDF rewrite Firestore save failed | chatId=%s", payload.chat_id)
+        return result
+    except HTTPException as hexc:
+        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
+        if payload.chat_id:
+            save_message_to_firestore(
+                user_id=user_id,
+                chat_id=payload.chat_id,
+                content=msg,
+                metadata={"tool": "pdf_rewrite", "error": hexc.detail},
+            )
+        logger.error("PDF rewrite HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
+        raise
+    except Exception as exc:
+        logger.error("PDF rewrite failed", exc_info=exc)
+        msg = get_pdf_error_message("pdf_rewrite_failed", language)
+        if payload.chat_id:
+            save_message_to_firestore(
+                user_id=user_id,
+                chat_id=payload.chat_id,
+                content=msg,
+                metadata={"tool": "pdf_rewrite", "error": str(exc)},
+            )
+        raise HTTPException(
+            status_code=500,
+            detail={"success": False, "error": "pdf_rewrite_failed", "message": msg},
+        ) from exc
+
+

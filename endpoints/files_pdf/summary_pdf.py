@@ -15,6 +15,7 @@ from endpoints.files_pdf.utils import (
     call_gemini_generate,
     extract_text_response,
     save_message_to_firestore,
+    log_full_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.summary")
@@ -27,6 +28,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
     user_id = extract_user_id(request)
     raw_language = payload.language
     language = normalize_language(raw_language) or "English"
+    log_full_payload(logger, "pdf_summary", payload)
     logger.info(
         "PDF summary request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -62,8 +64,9 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
         if not text:
             raise RuntimeError("Empty response from Gemini")
         logger.info(
-            "PDF summary gemini response",
-            extra={"chatId": payload.chat_id, "preview": text[:500]},
+            "PDF summary gemini response | chatId=%s preview=%s",
+            payload.chat_id,
+            text[:500],
         )
 
         result = {
@@ -75,7 +78,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             "summaryLevel": payload.summary_level or "basic",
         }
 
-        save_message_to_firestore(
+        firestore_ok = save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
             content=text,
@@ -86,6 +89,10 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
                 "summaryLevel": payload.summary_level or "basic",
             },
         )
+        if firestore_ok:
+            logger.info("PDF summary Firestore save success | chatId=%s", payload.chat_id)
+        else:
+            logger.error("PDF summary Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
         msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)

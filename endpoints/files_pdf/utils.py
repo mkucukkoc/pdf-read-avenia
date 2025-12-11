@@ -14,6 +14,14 @@ from errors_response import get_pdf_error_message
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
 
 
+def log_full_payload(logger_obj: logging.Logger, name: str, payload_obj: Any) -> None:
+    try:
+        payload_dict = getattr(payload_obj, "model_dump", lambda **kwargs: {})(by_alias=True, exclude_none=False)
+    except Exception:
+        payload_dict = str(payload_obj)
+    logger_obj.info("PDF endpoint payload dump", extra={"endpoint": name, "payload": payload_dict})
+
+
 def extract_user_id(request: Request) -> str:
     payload = getattr(request.state, "token_payload", {}) or {}
     return payload.get("uid") or payload.get("userId") or payload.get("sub") or ""

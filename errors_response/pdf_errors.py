@@ -87,6 +87,78 @@ PDF_ERROR_MESSAGES = {
         "pt": "O upload do PDF para a API Gemini Files falhou.",
         "ru": "Не удалось загрузить PDF в Gemini Files API.",
     },
+    "pdf_rewrite_failed": {
+        "tr": "PDF yeniden yazma işlemi başarısız oldu. Lütfen tekrar deneyin.",
+        "en": "PDF rewrite failed. Please try again.",
+        "es": "La reescritura del PDF falló. Inténtalo de nuevo.",
+        "fr": "La réécriture du PDF a échoué. Veuillez réessayer.",
+        "pt": "A reescrita do PDF falhou. Por favor, tente novamente.",
+        "ru": "Не удалось перезаписать PDF. Пожалуйста, попробуйте еще раз.",
+    },
+    "pdf_classify_failed": {
+        "tr": "PDF sınıflandırması başarısız oldu. Lütfen tekrar deneyin.",
+        "en": "PDF classification failed. Please try again.",
+        "es": "La clasificación del PDF falló. Inténtalo de nuevo.",
+        "fr": "La classification du PDF a échoué. Veuillez réessayer.",
+        "pt": "A classificação do PDF falhou. Por favor, tente novamente.",
+        "ru": "Не удалось классифицировать PDF. Пожалуйста, попробуйте еще раз.",
+    },
+    "pdf_multianalyze_failed": {
+        "tr": "PDF çoklu analiz işlemi başarısız oldu.",
+        "en": "PDF multi-analyze failed.",
+        "es": "El análisis múltiple de PDF falló.",
+        "fr": "L'analyse multiple du PDF a échoué.",
+        "pt": "A análise múltipla do PDF falhou.",
+        "ru": "Не удалось выполнить многофайловый анализ PDF.",
+    },
+    "pdf_ocr_extract_failed": {
+        "tr": "PDF OCR metin çıkarma işlemi başarısız oldu.",
+        "en": "PDF OCR extraction failed.",
+        "es": "La extracción OCR del PDF falló.",
+        "fr": "L'extraction OCR du PDF a échoué.",
+        "pt": "A extração OCR do PDF falhou.",
+        "ru": "Не удалось выполнить OCR извлечение из PDF.",
+    },
+    "pdf_layout_failed": {
+        "tr": "PDF düzen analizi başarısız oldu.",
+        "en": "PDF layout analysis failed.",
+        "es": "El análisis de diseño del PDF falló.",
+        "fr": "L'analyse de la mise en page du PDF a échoué.",
+        "pt": "A análise de layout do PDF falhou.",
+        "ru": "Не удалось выполнить анализ макета PDF.",
+    },
+    "pdf_deepextract_failed": {
+        "tr": "PDF detaylı veri çıkarma işlemi başarısız oldu.",
+        "en": "PDF deep extraction failed.",
+        "es": "La extracción avanzada de PDF falló.",
+        "fr": "L'extraction approfondie du PDF a échoué.",
+        "pt": "A extração avançada do PDF falhou.",
+        "ru": "Не удалось выполнить расширенное извлечение данных из PDF.",
+    },
+    "pdf_grounded_search_failed": {
+        "tr": "PDF doğrulamalı arama işlemi başarısız oldu.",
+        "en": "PDF grounded search failed.",
+        "es": "La búsqueda fundamentada en PDF falló.",
+        "fr": "La recherche validée sur le PDF a échoué.",
+        "pt": "A busca fundamentada no PDF falhou.",
+        "ru": "Не удалось выполнить проверочный поиск по PDF.",
+    },
+    "pdf_translate_failed": {
+        "tr": "PDF çeviri işlemi başarısız oldu.",
+        "en": "PDF translation failed.",
+        "es": "La traducción del PDF falló.",
+        "fr": "La traduction du PDF a échoué.",
+        "pt": "A tradução do PDF falhou.",
+        "ru": "Не удалось выполнить перевод PDF.",
+    },
+    "pdf_structure_export_failed": {
+        "tr": "PDF yapısı çıkarılamadı.",
+        "en": "PDF structure export failed.",
+        "es": "La exportación de la estructura del PDF falló.",
+        "fr": "L'exportation de la structure du PDF a échoué.",
+        "pt": "A exportação da estrutura do PDF falhou.",
+        "ru": "Не удалось выгрузить структуру PDF.",
+    },
 }
 
 
@@ -98,5 +170,6 @@ def get_pdf_error_message(key: str, language: str | None) -> str:
 
 
 __all__ = ["get_pdf_error_message"]
+
 
 

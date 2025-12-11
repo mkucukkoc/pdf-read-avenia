@@ -15,6 +15,7 @@ from endpoints.files_pdf.utils import (
     call_gemini_generate,
     extract_text_response,
     save_message_to_firestore,
+    log_full_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.analyze")
@@ -27,6 +28,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
     user_id = extract_user_id(request)
     raw_language = payload.language
     language = normalize_language(raw_language) or "English"
+    log_full_payload(logger, "pdf_analyze", payload)
     logger.info(
         "PDF analyze request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -62,8 +64,9 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
         if not text:
             raise RuntimeError("Empty response from Gemini")
         logger.info(
-            "PDF analyze gemini response",
-            extra={"chatId": payload.chat_id, "preview": text[:500]},
+            "PDF analyze gemini response | chatId=%s preview=%s",
+            payload.chat_id,
+            text[:500],
         )
 
         result = {
@@ -74,7 +77,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             "model": "gemini-2.5-flash",
         }
 
-        save_message_to_firestore(
+        firestore_ok = save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
             content=text,
@@ -84,6 +87,10 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
                 "fileName": payload.file_name,
             },
         )
+        if firestore_ok:
+            logger.info("PDF analyze Firestore save success | chatId=%s", payload.chat_id)
+        else:
+            logger.error("PDF analyze Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
         msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)

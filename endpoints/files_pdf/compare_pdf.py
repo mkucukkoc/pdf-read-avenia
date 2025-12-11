@@ -15,6 +15,7 @@ from endpoints.files_pdf.utils import (
     call_gemini_generate,
     extract_text_response,
     save_message_to_firestore,
+    log_full_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.compare")
@@ -36,6 +37,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
     user_id = extract_user_id(request)
     raw_language = payload.language
     language = normalize_language(raw_language) or "English"
+    log_full_payload(logger, "pdf_compare", payload)
     logger.info(
         "PDF compare request",
         extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
@@ -75,8 +77,9 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
         if not diff:
             raise RuntimeError("Empty response from Gemini")
         logger.info(
-            "PDF compare gemini response",
-            extra={"chatId": payload.chat_id, "preview": diff[:500]},
+            "PDF compare gemini response | chatId=%s preview=%s",
+            payload.chat_id,
+            diff[:500],
         )
 
         result = {
@@ -86,7 +89,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             "language": language,
             "model": "gemini-2.5-flash",
         }
-        save_message_to_firestore(
+        firestore_ok = save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,
             content=diff,
@@ -97,6 +100,10 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 "fileName": payload.file_name,
             },
         )
+        if firestore_ok:
+            logger.info("PDF compare Firestore save success | chatId=%s", payload.chat_id)
+        else:
+            logger.error("PDF compare Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
         msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
