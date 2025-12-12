@@ -12,6 +12,7 @@ from .deepextract_pdf import router as pdf_deepextract_router
 from .grounded_search_pdf import router as pdf_grounded_search_router
 from .translate_pdf import router as pdf_translate_router
 from .structure_export_pdf import router as pdf_structure_export_router
+from .test_pdf import router as pdf_test_router
 
 __all__ = [
     "pdf_analyze_router",
@@ -28,5 +29,6 @@ __all__ = [
     "pdf_grounded_search_router",
     "pdf_translate_router",
     "pdf_structure_export_router",
+    "pdf_test_router",
 ]
 

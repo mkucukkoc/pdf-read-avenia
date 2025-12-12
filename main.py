@@ -75,6 +75,7 @@ from endpoints.files_pdf import (
     pdf_grounded_search_router,
     pdf_translate_router,
     pdf_structure_export_router,
+    pdf_test_router,
 )
 # from endpoints.image_edit import router as image_edit_router
 from core.websocket_manager import sio
@@ -184,6 +185,7 @@ app.include_router(pdf_deepextract_router)
 app.include_router(pdf_grounded_search_router)
 app.include_router(pdf_translate_router)
 app.include_router(pdf_structure_export_router)
+app.include_router(pdf_test_router)
 # app.include_router(image_edit_router)
 app.include_router(stt_router)
 app.include_router(tts_router)
