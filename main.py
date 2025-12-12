@@ -203,6 +203,32 @@ PUBLIC_PATHS = {"/healthz", "/health", "/docs", "/openapi.json", "/redoc"}
 
 auth_logger = logging.getLogger("pdfread.auth")
 
+from fastapi.openapi.utils import get_openapi  # noqa: E402
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description="Avenia PDF Read API",
+        routes=app.routes,
+    )
+    openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})[
+        "BearerAuth"
+    ] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    openapi_schema["security"] = [{"BearerAuth": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
 
 def _verify_bearer_token(auth_header: str) -> Dict:
     if not auth_header:
