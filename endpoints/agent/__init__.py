@@ -39,16 +39,17 @@ async def dispatch_message(payload: AgentDispatchRequest, request: Request) -> D
         "Agent dispatch request received",
         extra={
             "userId": user_id,
-            "agent": payload.agent_name,
             "chatId": payload.chat_id,
             "language": payload.language,
+            "hasPrompt": bool(payload.prompt),
+            "conversationLen": len(payload.conversation or []),
         },
     )
 
     result = await determine_agent_and_run(payload, user_id)
     logger.debug(
         "Agent dispatch response ready",
-        extra={"userId": user_id, "agent": payload.agent_name, "success": result.get("success", True)},
+        extra={"userId": user_id, "chatId": payload.chat_id, "success": result.get("success", True)},
     )
     return result
 
