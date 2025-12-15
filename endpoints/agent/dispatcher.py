@@ -47,6 +47,12 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
     if payload.source_language is not None:
         merged_params.setdefault("sourceLanguage", payload.source_language)
 
+    if payload.file_url and "selectedFile" not in merged_params:
+        merged_params["selectedFile"] = {
+            "fileUrl": payload.file_url,
+            "fileName": payload.file_name,
+        }
+
     context = FunctionCallingContext(
         prompt=payload.prompt or "",
         conversation=payload.conversation or [],
@@ -72,7 +78,21 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         extra={"agent": result.agent_name, "chatId": payload.chat_id},
     )
 
-    return result.agent_response or {"success": True, "message": "Agent executed"}
+    if not result.agent_response:
+        logger.error(
+            "Agent returned empty response",
+            extra={"agent": result.agent_name, "chatId": payload.chat_id},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": "agent_empty_response",
+                "message": "Agent geçerli bir yanıt döndürmedi.",
+            },
+        )
+
+    return result.agent_response
 
 
 async def _forward_to_default_chat(payload: AgentDispatchRequest, user_id: str) -> Dict[str, Any]:
@@ -140,7 +160,11 @@ async def _forward_to_default_chat(payload: AgentDispatchRequest, user_id: str) 
         )
 
     parameters = payload.parameters or {}
-    has_image = bool(parameters.get("hasImage"))
+    has_image = bool(
+        parameters.get("hasImage")
+        or payload.file_url
+        or any(msg.file_url for msg in fallback_messages)
+    )
     image_file_url = (
         parameters.get("imageFileUrl")
         or payload.file_url

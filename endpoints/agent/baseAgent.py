@@ -45,7 +45,17 @@ class HandlerBackedAgent(BaseAgent):
         self.description = description
         self.request_model = request_model
         self.handler = handler
-        self.parameters = request_model.model_json_schema().get("properties", {})
+        schema = request_model.model_json_schema()
+        self.parameters = {
+            "type": "object",
+            "properties": schema.get("properties", {}),
+            "required": schema.get("required", []),
+            "additionalProperties": False,
+        }
+        logger.debug(
+            "Agent schema prepared",
+            extra={"agent": self.name, "params": list(self.parameters["properties"].keys())},
+        )
 
     async def execute(self, args: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         logger.info("Executing agent", extra={"agent": self.name, "userId": user_id})

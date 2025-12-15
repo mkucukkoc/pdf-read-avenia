@@ -79,6 +79,13 @@ def serialize_conversation(conversation: Optional[List[Dict[str, str]]]) -> List
 def build_tool_definitions() -> List[Dict[str, Any]]:
     tools = []
     for agent in agentFunctions:
+        logger.debug(
+            "Registering agent tool",
+            extra={
+                "agent": agent.name,
+                "schemaKeys": list(agent.parameters.get("properties", {}).keys()),
+            },
+        )
         tools.append(
             {
                 "type": "function",
@@ -149,6 +156,12 @@ class ChatAgentRouter:
             except json.JSONDecodeError as exc:
                 logger.warning("Failed to parse function arguments JSON", extra={"rawArgs": raw_args, "error": str(exc)})
                 parsed_args = {}
+
+        if not parsed_args:
+            logger.warning(
+                "Agent selected but no arguments provided",
+                extra={"agent": target_agent.name},
+            )
 
         logger.debug(
             "Agent router selected tool",
