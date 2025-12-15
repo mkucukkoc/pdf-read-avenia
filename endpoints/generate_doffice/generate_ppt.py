@@ -120,3 +120,6 @@ Image: (Bu başlıkla ilgili kısa bir sahne betimlemesi örn: "kitap okuyan bir
 
 
 
+
+
+

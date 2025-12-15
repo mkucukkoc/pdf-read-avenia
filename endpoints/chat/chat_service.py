@@ -62,6 +62,7 @@ class ChatService:
                 "messageCount": len(payload.messages),
                 "hasImage": payload.has_image,
                 "imageFileUrl": payload.image_file_url,
+                "stream": payload.stream,
             },
         )
         message_previews = [
@@ -86,6 +87,15 @@ class ChatService:
 
         if payload.stream:
             stream_message_id = self._generate_message_id()
+            logger.info(
+                "Chat send entering streaming mode",
+                extra={
+                    "requestId": request_id,
+                    "userId": user_id,
+                    "chatId": payload.chat_id,
+                    "messageId": stream_message_id,
+                },
+            )
             asyncio.create_task(
                 self._handle_streaming_response(
                     user_id=user_id,
@@ -103,6 +113,10 @@ class ChatService:
                 "message": "Streaming response started",
             }
 
+        logger.debug(
+            "Chat send building system instruction",
+            extra={"requestId": request_id, "chatId": payload.chat_id, "language": payload.language},
+        )
         system_instruction = self._build_system_instruction(payload.language)
         prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
         logger.debug(
@@ -115,11 +129,28 @@ class ChatService:
                 "promptPreview": prompt_text[:1000],
             },
         )
+        logger.info(
+            "Calling Gemini text generation",
+            extra={
+                "requestId": request_id,
+                "chatId": payload.chat_id,
+                "model": self._select_model(payload),
+            },
+        )
+
         assistant_content = await asyncio.to_thread(
             self._call_gemini_generate_content,
             prompt_text,
             self._select_model(payload),
             system_instruction,
+        )
+        logger.info(
+            "Gemini text generation completed",
+            extra={
+                "requestId": request_id,
+                "chatId": payload.chat_id,
+                "assistantPreview": assistant_content[:200],
+            },
         )
         assistant_message = ChatMessagePayload(
             role="assistant",
@@ -132,6 +163,14 @@ class ChatService:
             user_id,
             payload.chat_id,
             assistant_message,
+        )
+        logger.debug(
+            "Assistant message persisted",
+            extra={
+                "requestId": request_id,
+                "chatId": payload.chat_id,
+                "messageLen": len(assistant_message.content or ""),
+            },
         )
 
         chat_title = await self._maybe_generate_chat_title(
@@ -147,6 +186,10 @@ class ChatService:
             payload.chat_id,
             assistant_content,
             chat_title,
+        )
+        logger.debug(
+            "Chat metadata updated",
+            extra={"requestId": request_id, "chatId": payload.chat_id, "chatTitle": chat_title},
         )
 
         processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000

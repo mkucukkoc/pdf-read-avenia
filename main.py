@@ -53,6 +53,7 @@ from core.language_support import (
 )
 # NOTE: image_edit_router temporarily disabled (frontend handles messaging)
 from endpoints.chat import router as chat_router
+from endpoints.agent import router as agent_router
 from endpoints.presentation import router as presentation_router
 from endpoints.generate_image.gemini_image import router as gemini_image_router
 from endpoints.video_gemini.gemini_video import router as gemini_video_router
@@ -165,6 +166,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router)
+app.include_router(agent_router)
 app.include_router(presentation_router)
 app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)

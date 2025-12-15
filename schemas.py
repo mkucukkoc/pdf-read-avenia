@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -149,6 +149,27 @@ class GeminiVideoRequest(BaseModel):
 
 class CreateChatRequest(BaseModel):
     title: Optional[str] = None
+
+
+class AgentDispatchRequest(BaseModel):
+    prompt: Optional[str] = None
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+    conversation: List[ChatMessagePayload] = Field(default_factory=list)
+    file_url: Optional[str] = Field(default=None, alias="fileUrl")
+    file_urls: Optional[List[str]] = Field(default=None, alias="fileUrls")
+    file1: Optional[str] = None
+    file2: Optional[str] = None
+    question: Optional[str] = None
+    file_id: Optional[str] = Field(default=None, alias="fileId")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    target_language: Optional[str] = Field(default=None, alias="targetLanguage")
+    source_language: Optional[str] = Field(default=None, alias="sourceLanguage")
+    user_id: Optional[str] = Field(default=None, alias="userId")
+    stream: bool = False
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PdfAnalyzeRequest(BaseModel):
@@ -313,6 +334,7 @@ __all__ = [
     "GeminiImageEditRequest",
     "GeminiVideoRequest",
     "CreateChatRequest",
+    "AgentDispatchRequest",
     "PdfAnalyzeRequest",
     "PdfSummaryRequest",
     "PdfQnaRequest",

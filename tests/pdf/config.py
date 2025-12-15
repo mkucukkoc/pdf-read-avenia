@@ -37,7 +37,7 @@ PDF_OCR_EXTRACT_PROMPT: str = "Taranmış sayfaları OCR ile okuyup metni ver."
 PDF_LAYOUT_PROMPT: str = "Başlık, paragraf ve tabloların düzenini JSON olarak çıkar."
 PDF_DEEPEXTRACT_PROMPT: str = "Fatura alanlarını JSON olarak çıkar (tarih, tutar, vergi)."
 PDF_GROUNDED_SEARCH_PROMPT: str = "İddiaları doğrula, güven yoksa belirt."
-PDF_TRANSLATE_PROMPT: str = "Belgeyi düzgün Türkçeye çevir."
+PDF_TRANSLATE_PROMPT: str = "Belgeyi düzgün ingilizceye çevir."
 PDF_STRUCTURE_EXPORT_PROMPT: str = "PDF yapısını headings/paragraphs/tables olarak JSON dök."
 
 

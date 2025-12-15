@@ -36,3 +36,6 @@ async def summarize_pdf(file: UploadFile):
 
 
 
+
+
+
