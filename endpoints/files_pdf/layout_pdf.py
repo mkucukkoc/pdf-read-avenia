@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,10 +11,10 @@ from endpoints.files_pdf.utils import (
     extract_user_id,
     download_file,
     upload_to_gemini_files,
-    call_gemini_generate,
-    extract_text_response,
+    generate_text_with_optional_stream,
     save_message_to_firestore,
     log_full_payload,
+    attach_streaming_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.layout")
@@ -48,27 +47,41 @@ async def layout_pdf(payload: PdfLayoutRequest, request: Request) -> Dict[str, A
         logger.info("PDF layout upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
         logger.info("PDF layout upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
-        response_json = await asyncio.to_thread(
-            call_gemini_generate,
-            [
+        layout, stream_message_id = await generate_text_with_optional_stream(
+            parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
                 {"text": f"Language: {language}"},
                 {"text": prompt},
             ],
-            gemini_key,
+            api_key=gemini_key,
+            stream=bool(payload.stream),
+            chat_id=payload.chat_id,
+            tool="pdf_layout",
+            chunk_metadata={"language": language},
         )
-        layout = extract_text_response(response_json)
         if not layout:
             raise RuntimeError("Empty response from Gemini")
         logger.info("PDF layout gemini response | chatId=%s preview=%s", payload.chat_id, layout[:500])
 
-        result = {
+        extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
             "layout": layout,
             "language": language,
             "model": "gemini-2.5-flash",
         }
+        result = attach_streaming_payload(
+            extra_fields,
+            tool="pdf_layout",
+            content=layout,
+            streaming=bool(stream_message_id),
+            message_id=stream_message_id,
+            extra_data={
+                "layout": layout,
+                "language": language,
+                "model": "gemini-2.5-flash",
+            },
+        )
 
         firestore_ok = save_message_to_firestore(
             user_id=user_id,

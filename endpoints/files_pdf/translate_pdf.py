@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,10 +11,10 @@ from endpoints.files_pdf.utils import (
     extract_user_id,
     download_file,
     upload_to_gemini_files,
-    call_gemini_generate,
-    extract_text_response,
+    generate_text_with_optional_stream,
     save_message_to_firestore,
     log_full_payload,
+    attach_streaming_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.translate")
@@ -55,27 +54,45 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
         logger.info("PDF translate upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
         logger.info("PDF translate upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
-        response_json = await asyncio.to_thread(
-            call_gemini_generate,
-            [
+        translation, stream_message_id = await generate_text_with_optional_stream(
+            parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
                 {"text": f"Target language: {target_language}"},
                 {"text": prompt},
             ],
-            gemini_key,
+            api_key=gemini_key,
+            stream=bool(payload.stream),
+            chat_id=payload.chat_id,
+            tool="pdf_translate",
+            chunk_metadata={
+                "targetLanguage": target_language,
+                "sourceLanguage": source_language,
+            },
         )
-        translation = extract_text_response(response_json)
         if not translation:
             raise RuntimeError("Empty response from Gemini")
         logger.info("PDF translate gemini response | chatId=%s preview=%s", payload.chat_id, translation[:500])
 
-        result = {
+        extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
             "translation": translation,
             "targetLanguage": target_language,
             "model": "gemini-2.5-flash",
         }
+        result = attach_streaming_payload(
+            extra_fields,
+            tool="pdf_translate",
+            content=translation,
+            streaming=bool(stream_message_id),
+            message_id=stream_message_id,
+            extra_data={
+                "translation": translation,
+                "targetLanguage": target_language,
+                "sourceLanguage": source_language,
+                "model": "gemini-2.5-flash",
+            },
+        )
 
         firestore_ok = save_message_to_firestore(
             user_id=user_id,

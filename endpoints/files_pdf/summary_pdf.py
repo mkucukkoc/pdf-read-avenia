@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,10 +11,10 @@ from endpoints.files_pdf.utils import (
     extract_user_id,
     download_file,
     upload_to_gemini_files,
-    call_gemini_generate,
-    extract_text_response,
+    generate_text_with_optional_stream,
     save_message_to_firestore,
     log_full_payload,
+    attach_streaming_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.summary")
@@ -52,15 +51,20 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
         logger.info("PDF summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
         logger.info("PDF summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
-        response_json = await asyncio.to_thread(
-            call_gemini_generate,
-            [
+        text, stream_message_id = await generate_text_with_optional_stream(
+            parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
                 {"text": prompt},
             ],
-            gemini_key,
+            api_key=gemini_key,
+            stream=bool(payload.stream),
+            chat_id=payload.chat_id,
+            tool="pdf_summary",
+            chunk_metadata={
+                "language": language,
+                "summaryLevel": payload.summary_level or "basic",
+            },
         )
-        text = extract_text_response(response_json)
         if not text:
             raise RuntimeError("Empty response from Gemini")
         logger.info(
@@ -69,7 +73,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             text[:500],
         )
 
-        result = {
+        extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
             "summary": text,
@@ -77,6 +81,19 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             "model": "gemini-2.5-flash",
             "summaryLevel": payload.summary_level or "basic",
         }
+        result = attach_streaming_payload(
+            extra_fields,
+            tool="pdf_summary",
+            content=text,
+            streaming=bool(stream_message_id),
+            message_id=stream_message_id,
+            extra_data={
+                "summary": text,
+                "language": language,
+                "model": "gemini-2.5-flash",
+                "summaryLevel": payload.summary_level or "basic",
+            },
+        )
 
         firestore_ok = save_message_to_firestore(
             user_id=user_id,

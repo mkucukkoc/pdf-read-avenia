@@ -68,8 +68,11 @@ class ImageEditGeminiMultiAgent(BaseAgent):
         internal_request = build_internal_request(user_id)
 
         logger.info(
-            "Starting multi-step image edit",
-            extra={"chatId": chat_id, "steps": len(instructions), "userId": user_id},
+            "Starting multi-step image edit chatId=%s userId=%s stepCount=%s imageUrl=%s",
+            chat_id,
+            user_id,
+            len(instructions),
+            image_url,
         )
 
         for idx, instruction in enumerate(instructions):
@@ -82,17 +85,25 @@ class ImageEditGeminiMultiAgent(BaseAgent):
             )
 
             logger.info(
-                "Executing edit step",
-                extra={"step": idx, "chatId": chat_id, "promptPreview": instruction[:120]},
+                "Executing image edit step chatId=%s step=%s promptPreview=%s",
+                chat_id,
+                idx + 1,
+                instruction[:120],
             )
 
             try:
                 result = await edit_gemini_image(request_model, internal_request)
             except HTTPException as exc:
-                logger.error("Image edit step failed", extra={"step": idx, "status": exc.status_code, "detail": exc.detail})
+                logger.error(
+                    "Image edit step failed chatId=%s step=%s status=%s detail=%s",
+                    chat_id,
+                    idx + 1,
+                    exc.status_code,
+                    exc.detail,
+                )
                 raise
             except Exception as exc:  # pragma: no cover
-                logger.exception("Unexpected error during image edit step", extra={"step": idx})
+                logger.exception("Unexpected error during image edit step chatId=%s step=%s", chat_id, idx + 1)
                 raise HTTPException(
                     status_code=500,
                     detail={"success": False, "error": "image_edit_failed", "message": str(exc)},
@@ -100,15 +111,22 @@ class ImageEditGeminiMultiAgent(BaseAgent):
 
             if not result.get("success"):
                 message = result.get("message") or "Image edit failed."
-                logger.warning("Image edit step returned error", extra={"step": idx, "message": message})
+                logger.warning(
+                    "Image edit step returned error chatId=%s step=%s message=%s",
+                    chat_id,
+                    idx + 1,
+                    message,
+                )
                 return {"error": message, "details": result}
 
             current_image_url = result.get("imageUrl") or result.get("dataUrl") or current_image_url
             last_response = result
 
         logger.info(
-            "Multi-step image edit completed",
-            extra={"chatId": chat_id, "steps": len(instructions), "finalUrl": current_image_url},
+            "Multi-step image edit completed chatId=%s stepCount=%s finalUrl=%s",
+            chat_id,
+            len(instructions),
+            current_image_url,
         )
 
         return {

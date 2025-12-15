@@ -80,11 +80,9 @@ def build_tool_definitions() -> List[Dict[str, Any]]:
     tools = []
     for agent in agentFunctions:
         logger.debug(
-            "Registering agent tool",
-            extra={
-                "agent": agent.name,
-                "schemaKeys": list(agent.parameters.get("properties", {}).keys()),
-            },
+            "Registering agent tool %s schemaKeys=%s",
+            agent.name,
+            list(agent.parameters.get("properties", {}).keys()),
         )
         tools.append(
             {
@@ -127,7 +125,7 @@ class ChatAgentRouter:
             "tools": build_tool_definitions(),
         }
 
-        logger.debug("Agent router request prepared", extra={"model": self.model})
+        logger.debug("Agent router request prepared model=%s", self.model)
         response = await asyncio.to_thread(self.client.chat.completions.create, **payload)
         choice = (response.choices or [None])[0]
         if not choice:
@@ -142,7 +140,7 @@ class ChatAgentRouter:
 
         target_agent = next((agent for agent in agentFunctions if agent.name == function_call.name), None)
         if not target_agent:
-            logger.warning("No agent found for router result", extra={"functionName": function_call.name})
+            logger.warning("No agent found for router result functionName=%s", function_call.name)
             return None
 
         raw_args = function_call.arguments or "{}"
@@ -154,18 +152,23 @@ class ChatAgentRouter:
             try:
                 parsed_args = json.loads(raw_args or "{}")
             except json.JSONDecodeError as exc:
-                logger.warning("Failed to parse function arguments JSON", extra={"rawArgs": raw_args, "error": str(exc)})
+                logger.warning(
+                    "Failed to parse function arguments JSON rawArgs=%s error=%s",
+                    raw_args,
+                    str(exc),
+                )
                 parsed_args = {}
 
         if not parsed_args:
             logger.warning(
-                "Agent selected but no arguments provided",
-                extra={"agent": target_agent.name},
+                "Agent selected but no arguments provided agent=%s",
+                target_agent.name,
             )
 
         logger.debug(
-            "Agent router selected tool",
-            extra={"agent": target_agent.name, "rawArgs": raw_arguments},
+            "Agent router selected tool agent=%s rawArgs=%s",
+            target_agent.name,
+            raw_arguments,
         )
 
         return {

@@ -67,8 +67,10 @@ class FunctionCallingService:
         }
 
         logger.info(
-            "FunctionCallingService: detecting agent via OpenAI",
-            extra={"chatId": ctx.chat_id, "hasConversation": bool(conversation_payload)},
+            "FunctionCallingService detecting agent chatId=%s hasConversation=%s promptPreview=%s",
+            ctx.chat_id,
+            bool(conversation_payload),
+            prompt[:120],
         )
         detection = await self.router.detect_agent(
             prompt=prompt,
@@ -77,7 +79,11 @@ class FunctionCallingService:
         )
 
         if not detection:
-            logger.warning("FunctionCallingService: router returned no agent", extra={"chatId": ctx.chat_id})
+            logger.warning(
+                "FunctionCallingService router returned no agent chatId=%s leftoverPromptPreview=%s",
+                ctx.chat_id,
+                prompt[:120],
+            )
             return FunctionCallingResult(handled=False, leftover_prompt=prompt)
 
         target_agent: BaseAgent = detection["agent"]
@@ -98,13 +104,16 @@ class FunctionCallingService:
         execute_args.setdefault("userId", ctx.user_id)
 
         logger.info(
-            "FunctionCallingService: dispatching agent",
-            extra={"agent": target_agent.name, "chatId": ctx.chat_id},
+            "FunctionCallingService dispatching agent=%s chatId=%s",
+            target_agent.name,
+            ctx.chat_id,
         )
         response = await target_agent.execute(execute_args, ctx.user_id or "")
         logger.info(
-            "FunctionCallingService: agent execution finished",
-            extra={"agent": target_agent.name, "chatId": ctx.chat_id, "success": response.get("success", True)},
+            "FunctionCallingService agent execution finished agent=%s chatId=%s success=%s",
+            target_agent.name,
+            ctx.chat_id,
+            response.get("success", True),
         )
 
         return FunctionCallingResult(

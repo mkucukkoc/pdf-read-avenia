@@ -178,6 +178,7 @@ class PdfAnalyzeRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -189,6 +190,7 @@ class PdfSummaryRequest(BaseModel):
     summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -201,6 +203,7 @@ class PdfQnaRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -211,6 +214,7 @@ class PdfExtractRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -222,6 +226,7 @@ class PdfCompareRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -233,6 +238,7 @@ class PdfRewriteRequest(BaseModel):
     style: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -244,6 +250,7 @@ class PdfClassifyRequest(BaseModel):
     labels: Optional[list[str]] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -253,6 +260,7 @@ class PdfMultiAnalyzeRequest(BaseModel):
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -263,6 +271,7 @@ class PdfOcrExtractRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -273,6 +282,7 @@ class PdfLayoutRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -284,6 +294,7 @@ class PdfDeepExtractRequest(BaseModel):
     fields: Optional[list[str]] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -295,6 +306,7 @@ class PdfGroundedSearchRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -306,6 +318,7 @@ class PdfTranslateRequest(BaseModel):
     source_language: Optional[str] = Field(default=None, alias="sourceLanguage")
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -316,6 +329,7 @@ class PdfStructureExportRequest(BaseModel):
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 

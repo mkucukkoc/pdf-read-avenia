@@ -19,3 +19,13 @@ def build_internal_request(user_id: str) -> Request:
     request.state.token_payload = {"uid": user_id} if user_id else {}
     return request
 
+
+def get_request_user_id(request: Request) -> str:
+    payload = getattr(request.state, "token_payload", {}) or {}
+    return (
+        payload.get("uid")
+        or payload.get("userId")
+        or payload.get("sub")
+        or ""
+    )
+

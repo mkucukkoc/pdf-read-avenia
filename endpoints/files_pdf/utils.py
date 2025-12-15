@@ -1,7 +1,10 @@
+import asyncio
 import base64
+import json
 import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+import uuid
+from typing import Any, AsyncGenerator, Dict, Generator, Optional, Tuple
 
 import requests
 import firebase_admin
@@ -9,6 +12,7 @@ from firebase_admin import firestore
 from fastapi import HTTPException, Request
 
 from core.language_support import normalize_language
+from core.websocket_manager import stream_manager
 from errors_response import get_pdf_error_message
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
@@ -125,6 +129,86 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: str =
     return resp.json()
 
 
+def call_gemini_generate_stream(
+    parts: list[Dict[str, Any]],
+    api_key: str,
+    model: str = "gemini-2.5-flash",
+) -> Generator[str, None, None]:
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
+        )
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+    )
+    payload = {"contents": [{"role": "user", "parts": parts}]}
+    resp = requests.post(
+        url,
+        json=payload,
+        timeout=180,
+        stream=True,
+        headers={"Accept": "text/event-stream"},
+    )
+    resp.encoding = "utf-8"
+    logger.info(
+        "Gemini doc stream request started status=%s model=%s",
+        resp.status_code,
+        model,
+    )
+    if not resp.ok:
+        body_preview = (resp.text or "")[:400]
+        logger.error(
+            "Gemini doc stream failed status=%s body=%s",
+            resp.status_code,
+            body_preview,
+        )
+        raise HTTPException(
+            status_code=resp.status_code,
+            detail={"success": False, "error": "gemini_doc_failed", "message": get_pdf_error_message("gemini_doc_failed", None)},
+        )
+
+    buffer: list[str] = []
+
+    def flush_buffer():
+        nonlocal buffer
+        if not buffer:
+            return
+        data_str = "\n".join(buffer).strip()
+        buffer.clear()
+        if not data_str:
+            return
+        try:
+            obj = json.loads(data_str)
+        except json.JSONDecodeError:
+            logger.debug("Gemini doc stream non-JSON event preview=%s", data_str[:200])
+            return
+        candidates = obj.get("candidates") or []
+        for candidate in candidates:
+            parts = (candidate.get("content") or {}).get("parts") or []
+            for part in parts:
+                text = part.get("text")
+                if isinstance(text, str) and text:
+                    yield text
+
+    for raw_line in resp.iter_lines(decode_unicode=True):
+        line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="ignore")
+        if line is None:
+            continue
+        line = line.rstrip("\r")
+        if not line:
+            yield from flush_buffer()
+            continue
+        if line.startswith("data:"):
+            buffer.append(line[len("data:") :].strip())
+        elif line.startswith(":"):
+            continue
+        else:
+            buffer.append(line.strip())
+
+    yield from flush_buffer()
+
+
 def extract_text_response(response_json: Dict[str, Any]) -> str:
     candidates = response_json.get("candidates") or []
     if not candidates:
@@ -182,5 +266,123 @@ def save_message_to_firestore(
 def localize_message(key: str, language: Optional[str]) -> str:
     lang = normalize_language(language)
     return get_pdf_error_message(key, lang)
+
+
+async def stream_gemini_text(
+    parts: list[Dict[str, Any]],
+    api_key: str,
+    model: str = "gemini-2.5-flash",
+) -> AsyncGenerator[str, None]:
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+
+    def producer():
+        try:
+            for chunk in call_gemini_generate_stream(parts, api_key, model):
+                if chunk:
+                    asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Gemini doc stream producer error: %s", exc)
+        finally:
+            asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+
+    producer_task = asyncio.create_task(asyncio.to_thread(producer))
+    try:
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
+            yield chunk
+    finally:
+        await producer_task
+
+
+async def generate_text_with_optional_stream(
+    *,
+    parts: list[Dict[str, Any]],
+    api_key: str,
+    stream: bool,
+    chat_id: Optional[str],
+    tool: str,
+    model: str = "gemini-2.5-flash",
+    chunk_metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, Optional[str]]:
+    if not stream or not chat_id:
+        response_json = await asyncio.to_thread(call_gemini_generate, parts, api_key, model)
+        return extract_text_response(response_json), None
+
+    message_id = f"{tool}_{uuid.uuid4().hex}"
+    accumulated: list[str] = []
+    try:
+        async for chunk in stream_gemini_text(parts, api_key, model):
+            accumulated.append(chunk)
+            payload: Dict[str, Any] = {
+                "chatId": chat_id,
+                "messageId": message_id,
+                "tool": tool,
+                "delta": chunk,
+                "content": "".join(accumulated),
+                "isFinal": False,
+            }
+            if chunk_metadata:
+                payload["metadata"] = chunk_metadata
+            await stream_manager.emit_chunk(chat_id, payload)
+    except Exception:
+        await stream_manager.emit_chunk(
+            chat_id,
+            {
+                "chatId": chat_id,
+                "messageId": message_id,
+                "tool": tool,
+                "isFinal": True,
+                "error": "stream_failed",
+            },
+        )
+        raise
+
+    final_text = "".join(accumulated).strip()
+    await stream_manager.emit_chunk(
+        chat_id,
+        {
+            "chatId": chat_id,
+            "messageId": message_id,
+            "tool": tool,
+            "content": final_text,
+            "delta": None,
+            "isFinal": True,
+            "metadata": chunk_metadata or {},
+        },
+    )
+    return final_text, message_id
+
+
+def attach_streaming_payload(
+    result: Dict[str, Any],
+    *,
+    tool: str,
+    content: str,
+    streaming: bool,
+    message_id: Optional[str],
+    extra_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    data_payload: Dict[str, Any] = {
+        "message": {
+            "role": "assistant",
+            "content": content,
+            "metadata": {"tool": tool},
+        },
+        "tool": tool,
+        "streaming": streaming,
+        "messageId": message_id,
+    }
+    if extra_data:
+        for key, value in extra_data.items():
+            if value is not None:
+                data_payload[key] = value
+    result["data"] = data_payload
+    result["streaming"] = streaming
+    if message_id:
+        result["messageId"] = message_id
+    return result
 
 

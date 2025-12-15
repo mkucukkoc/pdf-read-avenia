@@ -1,6 +1,5 @@
 import logging
 import os
-import asyncio
 from typing import Any, Dict, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,10 +11,10 @@ from endpoints.files_pdf.utils import (
     extract_user_id,
     download_file,
     upload_to_gemini_files,
-    call_gemini_generate,
-    extract_text_response,
+    generate_text_with_optional_stream,
     save_message_to_firestore,
     log_full_payload,
+    attach_streaming_payload,
 )
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.compare")
@@ -72,8 +71,18 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             {"text": f"Language: {language}"},
             {"text": prompt},
         ]
-        response_json = await asyncio.to_thread(call_gemini_generate, parts, gemini_key)
-        diff = extract_text_response(response_json)
+        diff, stream_message_id = await generate_text_with_optional_stream(
+            parts=parts,
+            api_key=gemini_key,
+            stream=bool(payload.stream),
+            chat_id=payload.chat_id,
+            tool="pdf_compare",
+            chunk_metadata={
+                "language": language,
+                "file1": payload.file1,
+                "file2": payload.file2,
+            },
+        )
         if not diff:
             raise RuntimeError("Empty response from Gemini")
         logger.info(
@@ -82,13 +91,25 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             diff[:500],
         )
 
-        result = {
+        extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
             "differences": diff,
             "language": language,
             "model": "gemini-2.5-flash",
         }
+        result = attach_streaming_payload(
+            extra_fields,
+            tool="pdf_compare",
+            content=diff,
+            streaming=bool(stream_message_id),
+            message_id=stream_message_id,
+            extra_data={
+                "differences": diff,
+                "language": language,
+                "model": "gemini-2.5-flash",
+            },
+        )
         firestore_ok = save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id,

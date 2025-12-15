@@ -54,16 +54,14 @@ class ChatService:
             raise RuntimeError("GEMINI_API_KEY not configured")
 
         logger.info(
-            "Processing chat send request",
-            extra={
-                "requestId": request_id,
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "messageCount": len(payload.messages),
-                "hasImage": payload.has_image,
-                "imageFileUrl": payload.image_file_url,
-                "stream": payload.stream,
-            },
+            "Processing chat send request requestId=%s userId=%s chatId=%s messageCount=%s hasImage=%s imageFileUrl=%s stream=%s",
+            request_id,
+            user_id,
+            payload.chat_id,
+            len(payload.messages),
+            payload.has_image,
+            payload.image_file_url,
+            payload.stream,
         )
         message_previews = [
             {
@@ -75,26 +73,22 @@ class ChatService:
             for message in payload.messages
         ]
         logger.debug(
-            "Chat messages received",
-            extra={
-                "requestId": request_id,
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "language": payload.language or "unknown",
-                "messages": message_previews,
-            },
+            "Chat messages received requestId=%s userId=%s chatId=%s language=%s previews=%s",
+            request_id,
+            user_id,
+            payload.chat_id,
+            payload.language or "unknown",
+            message_previews,
         )
 
         if payload.stream:
             stream_message_id = self._generate_message_id()
             logger.info(
-                "Chat send entering streaming mode",
-                extra={
-                    "requestId": request_id,
-                    "userId": user_id,
-                    "chatId": payload.chat_id,
-                    "messageId": stream_message_id,
-                },
+                "Chat send entering streaming mode requestId=%s userId=%s chatId=%s messageId=%s",
+                request_id,
+                user_id,
+                payload.chat_id,
+                stream_message_id,
             )
             asyncio.create_task(
                 self._handle_streaming_response(
@@ -114,28 +108,26 @@ class ChatService:
             }
 
         logger.debug(
-            "Chat send building system instruction",
-            extra={"requestId": request_id, "chatId": payload.chat_id, "language": payload.language},
+            "Chat send building system instruction requestId=%s chatId=%s language=%s",
+            request_id,
+            payload.chat_id,
+            payload.language,
         )
         system_instruction = self._build_system_instruction(payload.language)
         prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
         logger.debug(
-            "Chat prompt prepared",
-            extra={
-                "requestId": request_id,
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "language": payload.language or "unknown",
-                "promptPreview": prompt_text[:1000],
-            },
+            "Chat prompt prepared requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
+            request_id,
+            user_id,
+            payload.chat_id,
+            payload.language or "unknown",
+            prompt_text[:1000],
         )
         logger.info(
-            "Calling Gemini text generation",
-            extra={
-                "requestId": request_id,
-                "chatId": payload.chat_id,
-                "model": self._select_model(payload),
-            },
+            "Calling Gemini text generation requestId=%s chatId=%s model=%s",
+            request_id,
+            payload.chat_id,
+            self._select_model(payload),
         )
 
         assistant_content = await asyncio.to_thread(
@@ -145,12 +137,10 @@ class ChatService:
             system_instruction,
         )
         logger.info(
-            "Gemini text generation completed",
-            extra={
-                "requestId": request_id,
-                "chatId": payload.chat_id,
-                "assistantPreview": assistant_content[:200],
-            },
+            "Gemini text generation completed requestId=%s chatId=%s assistantPreview=%s",
+            request_id,
+            payload.chat_id,
+            assistant_content[:200],
         )
         assistant_message = ChatMessagePayload(
             role="assistant",
@@ -165,12 +155,10 @@ class ChatService:
             assistant_message,
         )
         logger.debug(
-            "Assistant message persisted",
-            extra={
-                "requestId": request_id,
-                "chatId": payload.chat_id,
-                "messageLen": len(assistant_message.content or ""),
-            },
+            "Assistant message persisted requestId=%s chatId=%s messageLen=%s",
+            request_id,
+            payload.chat_id,
+            len(assistant_message.content or ""),
         )
 
         chat_title = await self._maybe_generate_chat_title(
@@ -188,19 +176,19 @@ class ChatService:
             chat_title,
         )
         logger.debug(
-            "Chat metadata updated",
-            extra={"requestId": request_id, "chatId": payload.chat_id, "chatTitle": chat_title},
+            "Chat metadata updated requestId=%s chatId=%s chatTitle=%s",
+            request_id,
+            payload.chat_id,
+            chat_title,
         )
 
         processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
         logger.info(
-            "Chat response generated",
-            extra={
-                "requestId": request_id,
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "processingTimeMs": processing_time,
-            },
+            "Chat response generated requestId=%s userId=%s chatId=%s processingTimeMs=%s",
+            request_id,
+            user_id,
+            payload.chat_id,
+            processing_time,
         )
 
         data: Dict[str, Any] = {
@@ -217,8 +205,8 @@ class ChatService:
 
     async def text_to_speech(self, messages: List[ChatMessagePayload]) -> Dict[str, Any]:
         logger.info(
-            "Received text-to-speech request",
-            extra={"messageCount": len(messages)},
+            "Received text-to-speech request messageCount=%s",
+            len(messages),
         )
         # Placeholder implementation that mirrors the previous TypeScript behavior.
         audio_url = "https://example.com/audio.mp3"
@@ -260,8 +248,10 @@ class ChatService:
             messages.append(data)
 
         logger.info(
-            "Fetched chat messages",
-            extra={"userId": user_id, "chatId": chat_id, "count": len(messages)},
+            "Fetched chat messages userId=%s chatId=%s count=%s",
+            user_id,
+            chat_id,
+            len(messages),
         )
 
         return {
@@ -295,8 +285,10 @@ class ChatService:
             chat_ref.set(data)
 
         logger.info(
-            "Created chat session",
-            extra={"userId": user_id, "chatId": chat_id, "title": chat_title},
+            "Created chat session userId=%s chatId=%s title=%s",
+            user_id,
+            chat_id,
+            chat_title,
         )
 
         return {
@@ -315,26 +307,22 @@ class ChatService:
         request_id: str,
     ) -> None:
         logger.info(
-            "Starting streaming response",
-            extra={
-                "requestId": request_id,
-                "userId": user_id,
-                "chatId": payload.chat_id,
-                "messageId": message_id,
-            },
+            "Starting streaming response requestId=%s userId=%s chatId=%s messageId=%s",
+            request_id,
+            user_id,
+            payload.chat_id,
+            message_id,
         )
         try:
             system_instruction = self._build_system_instruction(payload.language)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
             logger.debug(
-                "Chat prompt prepared (stream)",
-                extra={
-                    "requestId": request_id,
-                    "userId": user_id,
-                    "chatId": payload.chat_id,
-                    "language": payload.language or "unknown",
-                    "promptPreview": prompt_text[:1000],
-                },
+                "Chat prompt prepared (stream) requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
+                request_id,
+                user_id,
+                payload.chat_id,
+                payload.language or "unknown",
+                prompt_text[:1000],
             )
             model = self._select_model(payload)
 
@@ -352,8 +340,9 @@ class ChatService:
                         asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
                 except Exception as exc:
                     logger.exception(
-                        "Gemini streaming producer error",
-                        extra={"requestId": request_id, "chatId": payload.chat_id},
+                        "Gemini streaming producer error requestId=%s chatId=%s",
+                        request_id,
+                        payload.chat_id,
                     )
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop)
@@ -368,14 +357,12 @@ class ChatService:
                     break
                 final_content += delta
                 logger.debug(
-                    "Streaming delta accumulated",
-                    extra={
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "deltaLen": len(delta),
-                        "totalLen": len(final_content),
-                        "deltaPreview": delta[:120],
-                    },
+                    "Streaming delta accumulated chatId=%s messageId=%s deltaLen=%s totalLen=%s deltaPreview=%s",
+                    payload.chat_id,
+                    message_id,
+                    len(delta),
+                    len(final_content),
+                    delta[:120],
                 )
                 await stream_manager.emit_chunk(
                     payload.chat_id,
@@ -397,13 +384,11 @@ class ChatService:
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
             logger.info(
-                "Final streaming content ready",
-                extra={
-                    "requestId": request_id,
-                    "chatId": payload.chat_id,
-                    "messageId": message_id,
-                    "contentLength": len(final_content),
-                },
+                "Final streaming content ready requestId=%s chatId=%s messageId=%s contentLength=%s",
+                request_id,
+                payload.chat_id,
+                message_id,
+                len(final_content),
             )
 
             await asyncio.to_thread(
@@ -441,23 +426,19 @@ class ChatService:
             )
 
             logger.info(
-                "Streaming chat response generated",
-                extra={
-                    "requestId": request_id,
-                    "userId": user_id,
-                    "chatId": payload.chat_id,
-                    "messageId": message_id,
-                },
+                "Streaming chat response generated requestId=%s userId=%s chatId=%s messageId=%s",
+                request_id,
+                user_id,
+                payload.chat_id,
+                message_id,
             )
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception(
-                "Streaming response failed",
-                extra={
-                    "requestId": request_id,
-                    "userId": user_id,
-                    "chatId": payload.chat_id,
-                    "messageId": message_id,
-                },
+                "Streaming response failed requestId=%s userId=%s chatId=%s messageId=%s",
+                request_id,
+                user_id,
+                payload.chat_id,
+                message_id,
             )
             await stream_manager.emit_chunk(
                 payload.chat_id,
@@ -515,8 +496,9 @@ class ChatService:
         resp = requests.post(url, json=payload, timeout=120)
         resp.encoding = "utf-8"
         logger.info(
-            "Gemini text request completed",
-            extra={"status": resp.status_code, "body_preview": (resp.text or "")[:400]},
+            "Gemini text request completed status=%s bodyPreview=%s",
+            resp.status_code,
+            (resp.text or "")[:400],
         )
         if not resp.ok:
             raise RuntimeError(f"Gemini text generation failed: {resp.status_code} {resp.text[:400]}")
@@ -559,8 +541,10 @@ class ChatService:
         # Ensure UTF-8 decoding for Turkish characters
         resp.encoding = "utf-8"
         logger.info(
-            "Gemini text stream request started",
-            extra={"status": resp.status_code, "model": model, "prompt_preview": prompt_text[:120]},
+            "Gemini text stream request started status=%s model=%s promptPreview=%s",
+            resp.status_code,
+            model,
+            prompt_text[:120],
         )
         if not resp.ok:
             body_preview = (resp.text or "")[:400]
@@ -584,9 +568,9 @@ class ChatService:
                 try:
                     obj = json.loads(data_str)
                 except json.JSONDecodeError:
-                    logger.debug("Gemini stream non-JSON event", extra={"event_preview": data_str[:200]})
+                    logger.debug("Gemini stream non-JSON event preview=%s", data_str[:200])
                     return
-                logger.debug("Gemini stream chunk parsed", extra={"keys": list(obj.keys())})
+                logger.debug("Gemini stream chunk parsed keys=%s", list(obj.keys()))
                 candidates = obj.get("candidates") or []
                 for candidate in candidates:
                     parts = (candidate.get("content") or {}).get("parts") or []
@@ -595,8 +579,9 @@ class ChatService:
                         if isinstance(text, str) and text:
                             chunk_count += 1
                             logger.debug(
-                                "Gemini stream delta",
-                                extra={"len": len(text), "preview": text[:120]},
+                                "Gemini stream delta len=%s preview=%s",
+                                len(text),
+                                text[:120],
                             )
                             yield text
 
@@ -620,8 +605,9 @@ class ChatService:
             yield from flush_event()
 
             logger.info(
-                "Gemini stream completed",
-                extra={"first_event_preview": first_event_preview, "chunk_count": chunk_count},
+                "Gemini stream completed firstEventPreview=%s chunkCount=%s",
+                first_event_preview,
+                chunk_count,
             )
 
         return _iter_deltas()
@@ -679,8 +665,9 @@ class ChatService:
                 continue
             if (datetime.now(timezone.utc) - existing_time).total_seconds() < 10:
                 logger.info(
-                    "Skipping duplicate message save",
-                    extra={"userId": user_id, "chatId": chat_id},
+                    "Skipping duplicate message save userId=%s chatId=%s",
+                    user_id,
+                    chat_id,
                 )
                 return
 
@@ -739,8 +726,10 @@ class ChatService:
             )
             if generated:
                 logger.info(
-                    "Generated chat title",
-                    extra={"userId": user_id, "chatId": chat_id, "title": generated},
+                    "Generated chat title userId=%s chatId=%s title=%s",
+                    user_id,
+                    chat_id,
+                    generated,
                 )
                 return generated
         except Exception as exc:  # pragma: no cover - defensive guard
