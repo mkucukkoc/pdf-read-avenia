@@ -63,7 +63,28 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
     except Exception:
         logger.warning("Usage increment failed userId=%s", effective_user)
 
-    # Kullanıcı mesajını (temp olmayan) Firestore'a yaz; agent flow'da da kaçmasın
+    context = FunctionCallingContext(
+        prompt=payload.prompt or "",
+        conversation=payload.conversation or [],
+        chat_id=payload.chat_id,
+        language=payload.language,
+        user_id=effective_user,
+        selected_file=merged_params.get("selectedFile"),
+        parameters=merged_params,
+    )
+
+    logger.info("Dispatcher invoking FunctionCallingService chatId=%s", payload.chat_id)
+    result: FunctionCallingResult = await function_calling_service.maybe_handle_agent_functions(context)
+
+    if not result.handled:
+        logger.info(
+            "FunctionCallingService returned unhandled response chatId=%s leftoverLen=%s -> forwarding to /api/v1/chat/send",
+            payload.chat_id,
+            len(result.leftover_prompt or ""),
+        )
+        return await _forward_to_default_chat(payload, effective_user)
+
+    # Agent handled: user mesajını (tek sefer) kaydet
     try:
         latest_user = None
         for msg in reversed(payload.conversation or []):
@@ -93,27 +114,6 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             )
     except Exception:
         logger.warning("Failed to persist user message in dispatcher", exc_info=True)
-
-    context = FunctionCallingContext(
-        prompt=payload.prompt or "",
-        conversation=payload.conversation or [],
-        chat_id=payload.chat_id,
-        language=payload.language,
-        user_id=effective_user,
-        selected_file=merged_params.get("selectedFile"),
-        parameters=merged_params,
-    )
-
-    logger.info("Dispatcher invoking FunctionCallingService chatId=%s", payload.chat_id)
-    result: FunctionCallingResult = await function_calling_service.maybe_handle_agent_functions(context)
-
-    if not result.handled:
-        logger.info(
-            "FunctionCallingService returned unhandled response chatId=%s leftoverLen=%s -> forwarding to /api/v1/chat/send",
-            payload.chat_id,
-            len(result.leftover_prompt or ""),
-        )
-        return await _forward_to_default_chat(payload, effective_user)
 
     logger.info(
         "Agent handled successfully agent=%s chatId=%s",
