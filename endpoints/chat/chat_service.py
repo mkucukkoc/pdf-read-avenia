@@ -676,7 +676,9 @@ class ChatService:
             snapshot = chat_ref.get()
             if snapshot.exists:
                 data = snapshot.to_dict() or {}
-                if data.get("hasChatTitle"):
+                # Daha önce başlık üretilmişse ya da mevcut başlık varsa yeniden üretme
+                existing_title = (data.get("title") or "").strip()
+                if data.get("hasChatTitle") or existing_title:
                     return None
         except Exception:
             # Başlık kontrolü başarısız olsa bile üretim akışını engelleme
