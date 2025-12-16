@@ -156,14 +156,13 @@ class ChatPersistenceService:
             payload["metadata"]["isTemporary"] = True
 
         messages_ref = self._messages_ref(user_id, chat_id)
-        if message.message_id:
-            messages_ref.document(message.message_id).set(payload, merge=True)
-            doc_id = message.message_id
-        else:
+        if not message.message_id:
             result = messages_ref.add(payload)
-            # google-cloud-firestore add() -> (DocumentReference, write_time)
             doc_ref = result[0] if isinstance(result, tuple) else result
             doc_id = getattr(doc_ref, "id", None) or ""
+        else:
+            messages_ref.document(message.message_id).set(payload, merge=True)
+            doc_id = message.message_id
 
         logger.debug(
             "Message persisted",
