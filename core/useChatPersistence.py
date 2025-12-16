@@ -160,8 +160,10 @@ class ChatPersistenceService:
             messages_ref.document(message.message_id).set(payload, merge=True)
             doc_id = message.message_id
         else:
-            doc_ref = messages_ref.add(payload)
-            doc_id = doc_ref.id
+            result = messages_ref.add(payload)
+            # google-cloud-firestore add() -> (DocumentReference, write_time)
+            doc_ref = result[0] if isinstance(result, tuple) else result
+            doc_id = getattr(doc_ref, "id", None) or ""
 
         logger.debug(
             "Message persisted",
