@@ -5,6 +5,9 @@ from fastapi import HTTPException
 
 from schemas import AgentDispatchRequest, ChatMessagePayload, ChatRequestPayload
 from endpoints.chat.chat_service import chat_service
+from core.useChatPersistence import chat_persistence
+from functools import partial
+import asyncio
 from .select_agents.use_function_calling import (
     FunctionCallingContext,
     FunctionCallingResult,
@@ -59,6 +62,37 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         increment_usage(effective_user, is_premium=bool(merged_params.get("isPremiumUser") or merged_params.get("premium")))
     except Exception:
         logger.warning("Usage increment failed userId=%s", effective_user)
+
+    # Kullanıcı mesajını (temp olmayan) Firestore'a yaz; agent flow'da da kaçmasın
+    try:
+        latest_user = None
+        for msg in reversed(payload.conversation or []):
+            if msg.role == "user":
+                latest_user = msg
+                break
+        if not latest_user and payload.prompt:
+            latest_user = ChatMessagePayload(
+                role="user",
+                content=payload.prompt,
+                file_name=payload.file_name,
+                file_url=payload.file_url,
+                metadata=None,
+                message_id=None,
+            )
+        if latest_user:
+            await asyncio.to_thread(
+                partial(
+                    chat_persistence.save_user_message,
+                    user_id=effective_user,
+                    chat_id=payload.chat_id or "",
+                    content=latest_user.content or "",
+                    file_name=getattr(latest_user, "file_name", None),
+                    file_url=getattr(latest_user, "file_url", None),
+                    metadata=getattr(latest_user, "metadata", None),
+                )
+            )
+    except Exception:
+        logger.warning("Failed to persist user message in dispatcher", exc_info=True)
 
     context = FunctionCallingContext(
         prompt=payload.prompt or "",

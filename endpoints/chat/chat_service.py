@@ -663,6 +663,25 @@ class ChatService:
         assistant_content: str,
         language_code: Optional[str],
     ) -> Optional[str]:
+        # Eğer bu sohbete daha önce başlık atanmışsa tekrar üretme
+        if not chat_id or not self._db:
+            return None
+        try:
+            chat_ref = (
+                self._db.collection("users")
+                .document(user_id)
+                .collection("chats")
+                .document(chat_id)
+            )
+            snapshot = chat_ref.get()
+            if snapshot.exists:
+                data = snapshot.to_dict() or {}
+                if data.get("hasChatTitle"):
+                    return None
+        except Exception:
+            # Başlık kontrolü başarısız olsa bile üretim akışını engelleme
+            logger.debug("Chat title check failed; continuing to generate", exc_info=True)
+
         content = assistant_content.strip()
         if len(content) < 12:
             return None
