@@ -7,13 +7,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from functools import partial
+
 import requests
 import json
 from google.cloud import firestore as firestore_client
 
 from core.firebase import db
+from core.useChatPersistence import chat_persistence
 from schemas import ChatMessagePayload, ChatRequestPayload
 from core.websocket_manager import stream_manager
+from endpoints.chat_title.service import generate_chat_title
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
 
@@ -80,6 +84,8 @@ class ChatService:
             payload.language or "unknown",
             message_previews,
         )
+
+        await self._persist_latest_user_message(user_id=user_id, payload=payload)
 
         if payload.stream:
             stream_message_id = self._generate_message_id()
@@ -148,12 +154,24 @@ class ChatService:
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
-        await asyncio.to_thread(
-            self._save_message_to_firestore,
-            user_id,
-            payload.chat_id,
-            assistant_message,
-        )
+        if payload.chat_id:
+            await asyncio.to_thread(
+                partial(
+                    chat_persistence.save_assistant_message,
+                    user_id=user_id,
+                    chat_id=payload.chat_id,
+                    content=assistant_message.content,
+                    metadata={
+                        "tool": "chat_gemini",
+                        "requestId": request_id,
+                    },
+                )
+            )
+        else:
+            logger.warning(
+                "Skipping assistant persistence due to missing chatId",
+                extra={"requestId": request_id, "userId": user_id},
+            )
         logger.debug(
             "Assistant message persisted requestId=%s chatId=%s messageLen=%s",
             request_id,
@@ -168,13 +186,21 @@ class ChatService:
             payload.language,
         )
 
-        await asyncio.to_thread(
-            self._update_chat_metadata,
-            user_id,
-            payload.chat_id,
-            assistant_content,
-            chat_title,
-        )
+        if chat_title and payload.chat_id:
+            await asyncio.to_thread(
+                partial(
+                    chat_persistence.update_chat_metadata,
+                    user_id=user_id,
+                    chat_id=payload.chat_id,
+                    content=None,
+                    force_title=chat_title,
+                )
+            )
+        elif chat_title:
+            logger.warning(
+                "Cannot persist chat title; chatId missing",
+                extra={"requestId": request_id, "userId": user_id},
+            )
         logger.debug(
             "Chat metadata updated requestId=%s chatId=%s chatTitle=%s",
             request_id,
@@ -391,13 +417,21 @@ class ChatService:
                 len(final_content),
             )
 
-            await asyncio.to_thread(
-                self._save_message_to_firestore,
-                user_id,
-                payload.chat_id,
-                assistant_message,
-                message_id,
-            )
+            if payload.chat_id:
+                await asyncio.to_thread(
+                    partial(
+                        chat_persistence.save_assistant_message,
+                        user_id=user_id,
+                        chat_id=payload.chat_id,
+                        content=assistant_message.content,
+                        metadata={
+                            "tool": "chat_gemini",
+                            "requestId": request_id,
+                            "stream": True,
+                        },
+                        message_id=message_id,
+                    )
+                )
 
             chat_title = await self._maybe_generate_chat_title(
                 user_id,
@@ -406,13 +440,16 @@ class ChatService:
                 payload.language,
             )
 
-            await asyncio.to_thread(
-                self._update_chat_metadata,
-                user_id,
-                payload.chat_id,
-                final_content,
-                chat_title,
-            )
+            if chat_title and payload.chat_id:
+                await asyncio.to_thread(
+                    partial(
+                        chat_persistence.update_chat_metadata,
+                        user_id=user_id,
+                        chat_id=payload.chat_id,
+                        content=None,
+                        force_title=chat_title,
+                    )
+                )
 
             await stream_manager.emit_chunk(
                 payload.chat_id,
@@ -619,87 +656,6 @@ class ChatService:
             return (base + lang_part).strip()
         return base
 
-    def _save_message_to_firestore(
-        self,
-        user_id: str,
-        chat_id: str,
-        message: ChatMessagePayload,
-        message_id: Optional[str] = None,
-    ) -> None:
-        if not self._db:
-            logger.debug("Skipping Firestore save; client not available")
-            return
-
-        collection = (
-            self._db.collection("users")
-            .document(user_id)
-            .collection("chats")
-            .document(chat_id)
-            .collection("messages")
-        )
-
-        message_data = message.model_dump(by_alias=True)
-        message_data["timestamp"] = firestore_client.SERVER_TIMESTAMP
-
-        if message_id:
-            doc_ref = collection.document(message_id)
-            doc_ref.set(message_data)
-            return
-
-        recent = (
-            collection.order_by("timestamp", direction=firestore_client.Query.DESCENDING)
-            .limit(5)
-            .stream()
-        )
-        for doc in recent:
-            data = doc.to_dict() or {}
-            if data.get("role") != message.role:
-                continue
-            if data.get("content") != message.content:
-                continue
-            timestamp = data.get("timestamp")
-            if not timestamp:
-                continue
-            existing_time = self._deserialize_timestamp(timestamp)
-            if not existing_time:
-                continue
-            if (datetime.now(timezone.utc) - existing_time).total_seconds() < 10:
-                logger.info(
-                    "Skipping duplicate message save userId=%s chatId=%s",
-                    user_id,
-                    chat_id,
-                )
-                return
-
-        collection.add(message_data)
-
-    def _update_chat_metadata(
-        self,
-        user_id: str,
-        chat_id: str,
-        last_message: str,
-        chat_title: Optional[str],
-    ) -> None:
-        if not self._db:
-            return
-
-        chat_ref = (
-            self._db.collection("users")
-            .document(user_id)
-            .collection("chats")
-            .document(chat_id)
-        )
-
-        data: Dict[str, Any] = {
-            "lastMessage": last_message[:500],
-            "updatedAt": firestore_client.SERVER_TIMESTAMP,
-        }
-        if chat_title:
-            data.setdefault("title", chat_title)
-
-        chat_ref.set({"id": chat_id, "userId": user_id}, merge=True)
-        chat_ref.update(data)
-
     async def _maybe_generate_chat_title(
         self,
         user_id: str,
@@ -711,45 +667,57 @@ class ChatService:
         if len(content) < 12:
             return None
 
-        language_label = self._resolve_language_label(language_code)
-        prompt = (
-            f"You are naming an AI chat conversation. Generate a short, concise title "
-            f"in {language_label} (max 6 words) that summarizes the following assistant reply. "
-            "Return only the title without quotes and without additional commentary."
-        )
-
         try:
-            generated = await asyncio.to_thread(
-                self._call_gemini_generate_content,
-                f"{prompt}\nUser: {content[:500]}",
-                self._title_model,
-            )
+            generated = await generate_chat_title(content, language_code)
             if generated:
                 logger.info(
-                    "Generated chat title userId=%s chatId=%s title=%s",
+                    "Generated chat title userId=%s chatId=%s title=%s source=openai_gpt35",
                     user_id,
                     chat_id,
                     generated,
                 )
-                return generated
+            return generated
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("Failed to generate chat title: %s", exc)
-        return None
+            return None
 
-    def _resolve_language_label(self, code: Optional[str]) -> str:
-        if not code:
-            return "English"
-        normalized = code.lower()[:2]
-        label_map = {
-            "tr": "Turkish",
-            "es": "Spanish",
-            "fr": "French",
-            "pt": "Portuguese",
-            "ru": "Russian",
-            "de": "German",
-            "ar": "Arabic",
-        }
-        return label_map.get(normalized, "English")
+    async def _persist_latest_user_message(
+        self,
+        *,
+        user_id: str,
+        payload: ChatRequestPayload,
+    ) -> None:
+        if not payload.chat_id:
+            logger.debug(
+                "Skipping user message persistence; chatId missing",
+                extra={"userId": user_id},
+            )
+            return
+
+        for message in reversed(payload.messages):
+            if message.role != "user":
+                continue
+            content = (message.content or "").strip()
+            if not content:
+                continue
+            metadata = getattr(message, "metadata", None) or {}
+            if metadata.get("isTemporary"):
+                continue
+            merged_metadata = dict(metadata)
+            merged_metadata.setdefault("source", "chat_request")
+            merged_metadata["stream"] = payload.stream
+            await asyncio.to_thread(
+                partial(
+                    chat_persistence.save_user_message,
+                    user_id=user_id,
+                    chat_id=payload.chat_id,
+                    content=content,
+                    file_name=message.file_name,
+                    file_url=message.file_url or payload.image_file_url,
+                    metadata=merged_metadata,
+                )
+            )
+            break
 
     def _select_model(self, payload: ChatRequestPayload) -> str:
         """
@@ -771,6 +739,80 @@ class ChatService:
         if hasattr(value, "to_datetime"):
             return value.to_datetime().astimezone(timezone.utc)
         return None
+
+    # ----- Chat management (rename / favorite / delete) ----------------------
+
+    def rename_chat(self, user_id: str, chat_id: str, title: str) -> Dict[str, Any]:
+        if not self._db:
+            raise RuntimeError("Firestore client unavailable")
+        if not user_id or not chat_id:
+            raise ValueError("user_id and chat_id are required")
+        clean_title = (title or "").strip()
+        if not clean_title:
+            raise ValueError("title is required")
+
+        chat_ref = (
+            self._db.collection("users")
+            .document(user_id)
+            .collection("chats")
+            .document(chat_id)
+        )
+        chat_ref.set(
+            {
+                "title": clean_title[:120],
+                "hasChatTitle": True,
+                "updatedAt": firestore_client.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        logger.info("Chat renamed userId=%s chatId=%s title=%s", user_id, chat_id, clean_title)
+        return {"chatId": chat_id, "title": clean_title}
+
+    def set_favorite(self, user_id: str, chat_id: str, favorite: bool) -> Dict[str, Any]:
+        if not self._db:
+            raise RuntimeError("Firestore client unavailable")
+        if not user_id or not chat_id:
+            raise ValueError("user_id and chat_id are required")
+
+        chat_ref = (
+            self._db.collection("users")
+            .document(user_id)
+            .collection("chats")
+            .document(chat_id)
+        )
+        chat_ref.set(
+            {
+                "favorites": bool(favorite),
+                "updatedAt": firestore_client.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        logger.info("Chat favorite updated userId=%s chatId=%s favorite=%s", user_id, chat_id, favorite)
+        return {"chatId": chat_id, "favorites": bool(favorite)}
+
+    def delete_chat(self, user_id: str, chat_id: str) -> Dict[str, Any]:
+        if not self._db:
+            raise RuntimeError("Firestore client unavailable")
+        if not user_id or not chat_id:
+            raise ValueError("user_id and chat_id are required")
+
+        chat_ref = (
+            self._db.collection("users")
+            .document(user_id)
+            .collection("chats")
+            .document(chat_id)
+        )
+        # Soft delete marker; avoids expensive recursive deletes.
+        chat_ref.set(
+            {
+                "deleted": True,
+                "deletedAt": firestore_client.SERVER_TIMESTAMP,
+                "updatedAt": firestore_client.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        logger.info("Chat marked deleted userId=%s chatId=%s", user_id, chat_id)
+        return {"chatId": chat_id, "deleted": True}
 
 
 chat_service = ChatService.get_instance()

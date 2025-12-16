@@ -85,6 +85,8 @@ class ChatMessagePayload(BaseModel):
     timestamp: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
     file_url: Optional[str] = Field(default=None, alias="fileUrl")
+    metadata: Optional[Dict[str, Any]] = None
+    message_id: Optional[str] = Field(default=None, alias="messageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -123,6 +125,7 @@ class GeminiImageRequest(BaseModel):
     use_google_search: bool = Field(default=False, alias="useGoogleSearch")
     aspect_ratio: Optional[str] = Field(default=None, alias="aspectRatio")
     model: Optional[str] = None
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -133,6 +136,7 @@ class GeminiImageEditRequest(BaseModel):
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)
 

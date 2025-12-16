@@ -13,6 +13,7 @@ from fastapi import HTTPException, Request
 
 from core.language_support import normalize_language
 from core.websocket_manager import stream_manager
+from core.useChatPersistence import chat_persistence
 from errors_response import get_pdf_error_message
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
@@ -227,38 +228,35 @@ def save_message_to_firestore(
     content: str,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    if not firebase_admin._apps:
-        logger.warning(
-            "Firestore save skipped (firebase app not initialized)",
-            extra={"chatId": chat_id, "userId": user_id},
-        )
-        return False
     if not chat_id:
         logger.warning(
             "Firestore save skipped (missing chatId)",
             extra={"userId": user_id},
         )
         return False
-    db = firestore.client()
-    data: Dict[str, Any] = {
-        "role": "assistant",
-        "content": content,
-        "timestamp": firestore.SERVER_TIMESTAMP,
-        "metadata": metadata or {},
-    }
     try:
-        db.collection("users").document(user_id or "anonymous") \
-            .collection("chats").document(chat_id) \
-            .collection("messages").add(data)
-        logger.info(
-            "Firestore message saved",
-            extra={"chatId": chat_id, "userId": user_id, "status": "success"},
+        chat_persistence.save_assistant_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            content=content,
+            metadata=metadata or {},
         )
         return True
+    except RuntimeError:
+        logger.warning(
+            "Firestore save skipped (firebase app not initialized)",
+            extra={"chatId": chat_id, "userId": user_id},
+        )
+        return False
     except Exception as exc:  # pragma: no cover
         logger.exception(
             "Firestore save failed",
-            extra={"error": str(exc), "chatId": chat_id, "userId": user_id, "status": "error"},
+            extra={
+                "error": str(exc),
+                "chatId": chat_id,
+                "userId": user_id,
+                "status": "error",
+            },
         )
         return False
 

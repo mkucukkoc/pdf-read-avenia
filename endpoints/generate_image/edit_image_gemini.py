@@ -4,6 +4,7 @@ import logging
 import os
 import tempfile
 import time
+import uuid
 from typing import Any, Dict, Optional
 
 import firebase_admin
@@ -13,8 +14,10 @@ from fastapi import APIRouter, HTTPException, Request
 from PIL import Image
 
 from core.language_support import normalize_language
+from core.websocket_manager import stream_manager
 from errors_response.image_errors import get_image_edit_failed_message
 from schemas import GeminiImageEditRequest
+from endpoints.files_pdf.utils import attach_streaming_payload
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_edit")
 
@@ -58,37 +61,20 @@ def _save_message_to_firestore(
     image_url: Optional[str],
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
-    if not firebase_admin._apps:
-        logger.debug("Skipping Firestore save; firebase app not initialized")
-        return
     if not chat_id:
         logger.debug("Skipping Firestore save; chat_id missing")
         return
 
-    db = firestore.client()
-    data: Dict[str, Any] = {
-        "role": "assistant",
-        "content": content,
-        "timestamp": firestore.SERVER_TIMESTAMP,
-        "metadata": metadata or {},
-    }
-    if image_url:
-        data["imageUrl"] = image_url
-
     try:
-        logger.info(
-            "Saving assistant message to Firestore",
-            extra={
-                "userId": user_id or "anonymous",
-                "chatId": chat_id,
-                "hasImage": bool(image_url),
-                "metadata": metadata or {},
-            },
+        chat_persistence.save_assistant_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            content=content,
+            file_url=image_url,
+            metadata=metadata or {},
         )
-        db.collection("users").document(user_id or "anonymous") \
-            .collection("chats").document(chat_id) \
-            .collection("messages").add(data)
-        logger.info("Firestore message saved", extra={"chatId": chat_id, "hasImage": bool(image_url)})
+    except RuntimeError:
+        logger.debug("Skipping Firestore save; firebase app not initialized")
     except Exception as exc:  # pragma: no cover
         logger.exception("Firestore save failed", extra={"error": str(exc), "chatId": chat_id})
 
@@ -260,6 +246,35 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
     language = normalize_language(payload.language)
     prompt = payload.prompt.strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
+    streaming_enabled = bool(payload.stream and payload.chat_id)
+    message_id = f"image_edit_{uuid.uuid4().hex}" if streaming_enabled else None
+    status_lines: list[str] = []
+
+    async def emit_status(
+        message: Optional[str] = None,
+        *,
+        final: bool = False,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not streaming_enabled:
+            return
+        if message:
+            status_lines.append(message)
+        chunk_payload: Dict[str, Any] = {
+            "chatId": payload.chat_id,
+            "messageId": message_id,
+            "tool": "image_edit_gemini",
+            "content": "\n".join(status_lines),
+            "isFinal": final,
+        }
+        if message:
+            chunk_payload["delta"] = message + ("\n" if not message.endswith("\n") else "")
+        if metadata:
+            chunk_payload["metadata"] = metadata
+        if error:
+            chunk_payload["error"] = error
+        await stream_manager.emit_chunk(payload.chat_id, chunk_payload)
 
     image_url = payload.image_url.strip() if isinstance(payload.image_url, str) else ""
     placeholder_patterns = ["your-image-url", "example.com/your-image-url"]
@@ -268,7 +283,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         found_url = _find_latest_image_url(user_id, payload.chat_id or "")
         if not found_url:
             logger.info("[image_edit_gemini] NO_IMAGE_IN_CHAT", extra={"chatId": payload.chat_id})
-            if firebase_admin._apps and payload.chat_id:
+            if payload.chat_id:
                 _save_message_to_firestore(
                     user_id=user_id,
                     chat_id=payload.chat_id,
@@ -291,6 +306,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
     data_url: Optional[str] = None
 
     try:
+        await emit_status("🖼️ Görsel düzenleme isteği alındı.")
         logger.info(
             "Downloading source image for edit",
             extra={
@@ -304,6 +320,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             "Source image downloaded",
             extra={"mime_type": inline["mimeType"], "data_len": len(inline["data"])},
         )
+        await emit_status("Kaynak görsel indirildi, Gemini düzenleme başlatılıyor...")
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
         response_json = await _call_gemini_edit_api(prompt, inline["data"], inline["mimeType"], gemini_key)
@@ -313,16 +330,19 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         logger.info("Inline data extracted (edit)", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
         logger.info("Temp file ready for upload (edit)", extra={"tmp_path": tmp_file_path})
+        await emit_status("Düzenlenen görsel hazırlanıyor...")
 
         try:
             final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name or f"gemini-edit{_guess_extension_from_mime(inline_data['mimeType'])}")
             logger.info("Edited image uploaded to storage", extra={"final_url": final_url})
+            await emit_status("Düzenlenen görsel depolamaya yüklendi.")
         except Exception as storage_exc:
             logger.warning("Firebase upload failed for edit; returning data URL", extra={"error": str(storage_exc)})
             data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
             logger.info("Using data URL fallback (edit)", extra={"has_data_url": bool(data_url)})
+            await emit_status("Depolama başarısız, data URL hazırlanıyor.")
 
-        result = {
+        result_payload = {
             "success": True,
             "imageUrl": final_url,
             "dataUrl": data_url,
@@ -354,6 +374,27 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             image_url=final_image_link,
             metadata=metadata,
         )
+        await emit_status(
+            "Görsel düzenlendi!",
+            final=True,
+            metadata={
+                "imageUrl": final_image_link,
+                "tool": "image_edit_gemini",
+                "mimeType": inline_data["mimeType"],
+            },
+        )
+        result = attach_streaming_payload(
+            result_payload,
+            tool="image_edit_gemini",
+            content="Görsel düzenlendi!",
+            streaming=streaming_enabled,
+            message_id=message_id if streaming_enabled else None,
+            extra_data={
+                "imageUrl": final_url,
+                "dataUrl": data_url,
+                "mimeType": inline_data["mimeType"],
+            },
+        )
         logger.info("Gemini edit response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
         return result
     except HTTPException:
@@ -361,7 +402,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
     except Exception as exc:
         logger.error("Gemini image edit failed", exc_info=exc)
         message = get_image_edit_failed_message(payload.language)
-        if firebase_admin._apps and payload.chat_id:
+        await emit_status("Görsel düzenlenemedi.", final=True, error="image_edit_failed")
+        if payload.chat_id:
             _save_message_to_firestore(
                 user_id=user_id,
                 chat_id=payload.chat_id or "",

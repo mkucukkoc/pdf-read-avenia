@@ -10,6 +10,7 @@ from .select_agents.use_function_calling import (
     FunctionCallingResult,
     FunctionCallingService,
 )
+from core.usage_limits import increment_usage
 
 logger = logging.getLogger("pdf_read_refresh.agent.dispatcher")
 function_calling_service = FunctionCallingService()
@@ -52,6 +53,12 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             "fileUrl": payload.file_url,
             "fileName": payload.file_name,
         }
+
+    # Usage increment (backend-enforced)
+    try:
+        increment_usage(effective_user, is_premium=bool(merged_params.get("isPremiumUser") or merged_params.get("premium")))
+    except Exception:
+        logger.warning("Usage increment failed userId=%s", effective_user)
 
     context = FunctionCallingContext(
         prompt=payload.prompt or "",
@@ -126,6 +133,7 @@ async def _forward_to_default_chat(payload: AgentDispatchRequest, user_id: str) 
                 timestamp=entry.timestamp,
                 file_name=entry.file_name,
                 file_url=entry.file_url,
+                metadata=getattr(entry, "metadata", None),
             )
         )
 
@@ -148,6 +156,7 @@ async def _forward_to_default_chat(payload: AgentDispatchRequest, user_id: str) 
                     content=prompt_text,
                     file_name=payload.file_name,
                     file_url=payload.file_url,
+                    metadata=None,
                 )
             )
 

@@ -4,16 +4,18 @@ import logging
 import os
 import tempfile
 import time
+import uuid
 from typing import Any, Dict, Optional
 
 import requests
-import firebase_admin
-from firebase_admin import firestore
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.websocket_manager import stream_manager
+from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
 from schemas import GeminiImageEditRequest, GeminiImageRequest
+from endpoints.files_pdf.utils import attach_streaming_payload
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image")
 
@@ -38,37 +40,20 @@ def _save_message_to_firestore(
     image_url: Optional[str],
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
-    if not firebase_admin._apps:
-        logger.debug("Skipping Firestore save; firebase app not initialized")
-        return
     if not chat_id:
         logger.debug("Skipping Firestore save; chat_id missing")
         return
 
-    db = firestore.client()
-    data: Dict[str, Any] = {
-        "role": "assistant",
-        "content": content,
-        "timestamp": firestore.SERVER_TIMESTAMP,
-        "metadata": metadata or {},
-    }
-    if image_url:
-        data["imageUrl"] = image_url
-
     try:
-        logger.info(
-            "Saving assistant message to Firestore",
-            extra={
-                "userId": user_id or "anonymous",
-                "chatId": chat_id,
-                "hasImage": bool(image_url),
-                "metadata": metadata or {},
-            },
+        chat_persistence.save_assistant_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            content=content,
+            file_url=image_url,
+            metadata=metadata or {},
         )
-        db.collection("users").document(user_id or "anonymous") \
-            .collection("chats").document(chat_id) \
-            .collection("messages").add(data)
-        logger.info("Firestore message saved", extra={"chatId": chat_id, "hasImage": bool(image_url)})
+    except RuntimeError:
+        logger.debug("Skipping Firestore save; firebase app not initialized")
     except Exception as exc:  # pragma: no cover
         logger.exception("Firestore save failed", extra={"error": str(exc), "chatId": chat_id})
 
@@ -320,12 +305,42 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
     language = normalize_language(payload.language)
     prompt = payload.prompt.strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
+    streaming_enabled = bool(payload.stream and payload.chat_id)
+    message_id = f"image_{uuid.uuid4().hex}" if streaming_enabled else None
+    status_lines: list[str] = []
+
+    async def emit_status(
+        message: Optional[str] = None,
+        *,
+        final: bool = False,
+        error: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not streaming_enabled:
+            return
+        if message:
+            status_lines.append(message)
+        chunk_payload: Dict[str, Any] = {
+            "chatId": payload.chat_id,
+            "messageId": message_id,
+            "tool": "generate_image_gemini",
+            "content": "\n".join(status_lines),
+            "isFinal": final,
+        }
+        if message:
+            chunk_payload["delta"] = message + ("\n" if not message.endswith("\n") else "")
+        if metadata:
+            chunk_payload["metadata"] = metadata
+        if error:
+            chunk_payload["error"] = error
+        await stream_manager.emit_chunk(payload.chat_id, chunk_payload)
 
     tmp_file_path = None
     final_url: Optional[str] = None
     data_url: Optional[str] = None
 
     try:
+        await emit_status("🎨 Görsel isteği alındı.")
         use_google_search = False  # default endpoint: no search grounding
         aspect_ratio = payload.aspect_ratio
         model = payload.model or "gemini-2.5-flash-image"
@@ -342,6 +357,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             },
         )
 
+        await emit_status("Gemini API çağrılıyor...")
         response_json = await _call_gemini_api(prompt, gemini_key, model, use_google_search, aspect_ratio)
         logger.info(
             "Gemini API response received",
@@ -350,16 +366,19 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         inline_data = _extract_image_data(response_json)
         logger.info("Inline data extracted", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
+        await emit_status("Görsel oluşturuldu, depolamaya aktarılıyor...")
 
         try:
             final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name)
             logger.info("Image uploaded to storage", extra={"final_url": final_url})
+            await emit_status("Görsel depolamaya yüklendi.")
         except Exception as storage_exc:
             logger.warning("Firebase upload failed; returning data URL", extra={"error": str(storage_exc)})
             data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
             logger.info("Using data URL fallback", extra={"has_data_url": bool(data_url)})
+            await emit_status("Depolama başarısız, data URL hazırlanıyor.")
 
-        result = {
+        result_payload = {
             "success": True,
             "imageUrl": final_url,
             "dataUrl": data_url,
@@ -393,6 +412,27 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             image_url=final_image_link,
             metadata=metadata,
         )
+        await emit_status(
+            "Görsel hazır!",
+            final=True,
+            metadata={
+                "imageUrl": final_image_link,
+                "tool": "generate_image_gemini",
+                "mimeType": inline_data["mimeType"],
+            },
+        )
+        result = attach_streaming_payload(
+            result_payload,
+            tool="generate_image_gemini",
+            content="Görsel hazır!",
+            streaming=streaming_enabled,
+            message_id=message_id if streaming_enabled else None,
+            extra_data={
+                "imageUrl": final_url,
+                "dataUrl": data_url,
+                "mimeType": inline_data["mimeType"],
+            },
+        )
         logger.info("Gemini image response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
         return result
     except HTTPException:
@@ -400,7 +440,8 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
     except Exception as exc:
         logger.error("Gemini image generation failed", exc_info=exc)
         message = get_no_image_generate_message(payload.language)
-        if firebase_admin._apps and payload.chat_id:
+        await emit_status("Görsel oluşturulamadı.", final=True, error="image_generation_failed")
+        if payload.chat_id:
             _save_message_to_firestore(
                 user_id=user_id,
                 chat_id=payload.chat_id or "",
