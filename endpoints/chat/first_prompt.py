@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from core.auth import get_request_user_id
+from core.auth import get_request_user_id  # type: ignore[attr-defined]
 from core.useChatPersistence import chat_persistence
 
 

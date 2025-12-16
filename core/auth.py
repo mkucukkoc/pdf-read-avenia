@@ -76,6 +76,15 @@ def create_auth_middleware():
 __all__ = ["create_auth_middleware", "PUBLIC_PATHS"]
 
 
+def get_request_user_id(request: Request) -> str:
+    """
+    Helper to read the authenticated user id from request.state.token_payload.
+    Returns empty string if not present.
+    """
+    payload = getattr(request.state, "token_payload", {}) or {}
+    return payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
+
+
 
 
 
