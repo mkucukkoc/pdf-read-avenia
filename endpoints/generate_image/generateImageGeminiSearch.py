@@ -231,7 +231,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
         await emit_status("🔎 Görsel araması başlatıldı.")
         use_google_search = True
         aspect_ratio = payload.aspect_ratio
-        model = payload.model or "gemini-2.5-flash-image"
+        model = payload.model or os.getenv("GEMINI_IMAGE_SEARCH_MODEL") or "gemini-2.5-flash-image"
 
         logger.info(
             "Gemini search generation request",

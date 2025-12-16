@@ -42,6 +42,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
     content, mime = download_file(payload.file_url, max_mb=30, require_pdf=True)
     logger.info("PDF rewrite download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     tone = (payload.style or "professional and clear").strip()
     base_prompt = (
@@ -63,6 +64,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_rewrite",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "style": tone,
@@ -77,7 +79,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             "chatId": payload.chat_id,
             "rewrite": rewritten,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -88,7 +90,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             extra_data={
                 "rewrite": rewritten,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

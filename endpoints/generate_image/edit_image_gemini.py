@@ -79,14 +79,23 @@ def _save_message_to_firestore(
         logger.exception("Firestore save failed", extra={"error": str(exc), "chatId": chat_id})
 
 
-def _call_gemini_edit_api(prompt: str, base64_image: str, mime_type: str, api_key: str, model: str = "gemini-2.5-flash-image:generateContent") -> Dict[str, Any]:
+def _call_gemini_edit_api(
+    prompt: str,
+    base64_image: str,
+    mime_type: str,
+    api_key: str,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    # Varsayılan olarak metin+görsel için desteklenen model; env ile özelleştirilebilir
+    effective_model = model or os.getenv("GEMINI_IMAGE_EDIT_MODEL") or "gemini-2.5-flash-image"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:generateContent?key={api_key}"
     request_body = {
         "contents": [
             {
@@ -106,7 +115,7 @@ def _call_gemini_edit_api(prompt: str, base64_image: str, mime_type: str, api_ke
 
     logger.info(
         "Calling Gemini edit API",
-        extra={"prompt_len": len(prompt), "prompt_preview": prompt[:120], "mime_type": mime_type, "model": model},
+        extra={"prompt_len": len(prompt), "prompt_preview": prompt[:120], "mime_type": mime_type, "model": effective_model},
     )
     resp = requests.post(url, json=request_body, timeout=120)
     logger.info("Gemini edit API response", extra={"status": resp.status_code, "body_preview": resp.text[:800]})
@@ -246,6 +255,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
     language = normalize_language(payload.language)
     prompt = payload.prompt.strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_IMAGE_EDIT_MODEL") or "gemini-2.5-flash-image"
     streaming_enabled = bool(payload.stream and payload.chat_id)
     message_id = f"image_edit_{uuid.uuid4().hex}" if streaming_enabled else None
     status_lines: list[str] = []
@@ -323,7 +333,13 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status("Kaynak görsel indirildi, Gemini düzenleme başlatılıyor...")
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
-        response_json = await _call_gemini_edit_api(prompt, inline["data"], inline["mimeType"], gemini_key)
+        response_json = await _call_gemini_edit_api(
+            prompt,
+            inline["data"],
+            inline["mimeType"],
+            gemini_key,
+            effective_model,
+        )
         logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
 
         inline_data = _extract_image_data(response_json)
@@ -348,13 +364,13 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             "dataUrl": data_url,
             "chatId": payload.chat_id,
             "language": language,
-            "model": "gemini-2.5-flash-image",
+            "model": effective_model,
             "mimeType": inline_data["mimeType"],
         }
         final_image_link = final_url or data_url
         metadata = {
             "prompt": prompt,
-            "model": "gemini-2.5-flash-image",
+            "model": effective_model,
             "tool": "image_edit_gemini",
         }
         logger.info(
@@ -364,7 +380,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 "chatId": payload.chat_id,
                 "hasImageUrl": bool(final_url),
                 "hasDataUrl": bool(data_url),
-                "model": "gemini-2.5-flash-image",
+                "model": effective_model,
             },
         )
         _save_message_to_firestore(

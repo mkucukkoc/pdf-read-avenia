@@ -41,6 +41,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
     content, mime = download_file(payload.file_url, max_mb=30, require_pdf=True)
     logger.info("PDF grounded search download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     question = (payload.question or "").strip()
     prompt = (
@@ -63,6 +64,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_grounded_search",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "question": question,
@@ -77,7 +79,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
             "chatId": payload.chat_id,
             "answer": answer,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -88,7 +90,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
             extra_data={
                 "answer": answer,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

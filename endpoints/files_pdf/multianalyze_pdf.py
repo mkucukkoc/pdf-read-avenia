@@ -53,6 +53,7 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
         )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
     try:
         logger.info("PDF multianalyze upload start", extra={"chatId": payload.chat_id})
         file_uris, total_size = _resolve_files(payload.file_urls, gemini_key)
@@ -85,6 +86,7 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_multianalyze",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "fileCount": len(payload.file_urls),
@@ -99,7 +101,7 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
             "chatId": payload.chat_id,
             "analysis": analysis,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -110,7 +112,7 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
             extra_data={
                 "analysis": analysis,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

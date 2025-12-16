@@ -37,6 +37,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
     content, mime = download_file(payload.file_url, max_mb=30, require_pdf=True)
     logger.info("PDF extract download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     prompt = (payload.prompt or "").strip() or f"Extract the most important facts from this PDF in {language}."
     logger.debug(
@@ -60,6 +61,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_extract",
+            model=effective_model,
             chunk_metadata={"language": language},
         )
         if not extracted:
@@ -75,7 +77,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             "chatId": payload.chat_id,
             "extracted": extracted,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -86,7 +88,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             extra_data={
                 "extracted": extracted,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

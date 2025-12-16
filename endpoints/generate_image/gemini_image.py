@@ -151,7 +151,13 @@ async def _call_gemini_api(
     return response.json()
 
 
-async def _call_gemini_edit_api(prompt: str, image_base64: str, mime_type: str, api_key: str) -> Dict[str, Any]:
+async def _call_gemini_edit_api(
+    prompt: str,
+    image_base64: str,
+    mime_type: str,
+    api_key: str,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -163,11 +169,8 @@ async def _call_gemini_edit_api(prompt: str, image_base64: str, mime_type: str, 
         extra={"prompt_preview": prompt[:120], "prompt_len": len(prompt), "mime_type": mime_type},
     )
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.5-flash-image:generateContent"
-        f"?key={api_key}"
-    )
+    effective_model = model or os.getenv("GEMINI_IMAGE_EDIT_MODEL") or "gemini-2.5-flash-image"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:generateContent?key={api_key}"
 
     payload = {
         "contents": [
@@ -343,7 +346,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         await emit_status("🎨 Görsel isteği alındı.")
         use_google_search = False  # default endpoint: no search grounding
         aspect_ratio = payload.aspect_ratio
-        model = payload.model or "gemini-2.5-flash-image"
+        model = payload.model or os.getenv("GEMINI_IMAGE_MODEL") or "gemini-2.5-flash-image"
 
         logger.info(
             "Gemini image generation request",

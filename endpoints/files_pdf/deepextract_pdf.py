@@ -42,6 +42,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
     content, mime = download_file(payload.file_url, max_mb=40, require_pdf=True)
     logger.info("PDF deepextract download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     field_prompt = _build_field_prompt(payload.fields)
     prompt = (
@@ -63,6 +64,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_deepextract",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "fields": payload.fields,
@@ -77,7 +79,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
             "chatId": payload.chat_id,
             "extracted": extracted,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -88,7 +90,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
             extra_data={
                 "extracted": extracted,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

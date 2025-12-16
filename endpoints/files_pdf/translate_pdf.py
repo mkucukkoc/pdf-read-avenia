@@ -43,6 +43,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
     content, mime = download_file(payload.file_url, max_mb=35, require_pdf=True)
     logger.info("PDF translate download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     prompt = (
         payload.prompt
@@ -64,6 +65,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_translate",
+            model=effective_model,
             chunk_metadata={
                 "targetLanguage": target_language,
                 "sourceLanguage": source_language,
@@ -78,7 +80,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             "chatId": payload.chat_id,
             "translation": translation,
             "targetLanguage": target_language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -90,7 +92,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
                 "translation": translation,
                 "targetLanguage": target_language,
                 "sourceLanguage": source_language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

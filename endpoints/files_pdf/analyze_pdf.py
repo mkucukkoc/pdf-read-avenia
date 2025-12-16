@@ -37,6 +37,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
     content, mime = download_file(payload.file_url, max_mb=50, require_pdf=True)
     logger.info("PDF analyze download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     prompt = (payload.prompt or "").strip() or f"Analyze this PDF in {language} and return your insights."
     logger.debug(
@@ -60,6 +61,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_analyze",
+            model=effective_model,
             chunk_metadata={"language": language},
         )
         if not text:
@@ -75,7 +77,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             "chatId": payload.chat_id,
             "analysis": text,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             base_payload,
@@ -86,7 +88,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             extra_data={
                 "analysis": text,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

@@ -36,6 +36,7 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
     content, mime = download_file(payload.file_url, max_mb=30, require_pdf=True)
     logger.info("PDF structure export download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     prompt = (
         payload.prompt
@@ -57,6 +58,7 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_structure_export",
+            model=effective_model,
             chunk_metadata={"language": language},
         )
         if not structure:
@@ -68,7 +70,7 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
             "chatId": payload.chat_id,
             "structure": structure,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -79,7 +81,7 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
             extra_data={
                 "structure": structure,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

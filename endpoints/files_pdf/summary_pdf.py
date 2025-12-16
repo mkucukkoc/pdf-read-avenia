@@ -37,6 +37,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
     content, mime = download_file(payload.file_url, max_mb=20, require_pdf=True)
     logger.info("PDF summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     prompt = (payload.prompt or "").strip() or f"Summarize this PDF in {language} with any useful structure you choose."
     logger.debug(
@@ -60,6 +61,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_summary",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "summaryLevel": payload.summary_level or "basic",
@@ -78,7 +80,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             "chatId": payload.chat_id,
             "summary": text,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
             "summaryLevel": payload.summary_level or "basic",
         }
         result = attach_streaming_payload(
@@ -90,7 +92,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             extra_data={
                 "summary": text,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
                 "summaryLevel": payload.summary_level or "basic",
             },
         )

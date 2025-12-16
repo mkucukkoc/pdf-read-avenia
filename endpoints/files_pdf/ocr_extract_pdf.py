@@ -36,6 +36,7 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
     content, mime = download_file(payload.file_url, max_mb=40, require_pdf=True)
     logger.info("PDF OCR extract download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     prompt = (
         payload.prompt
@@ -56,6 +57,7 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_ocr_extract",
+            model=effective_model,
             chunk_metadata={"language": language},
         )
         if not extracted:
@@ -67,7 +69,7 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
             "chatId": payload.chat_id,
             "text": extracted,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -78,7 +80,7 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
             extra_data={
                 "text": extracted,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 

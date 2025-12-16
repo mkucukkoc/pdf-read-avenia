@@ -43,6 +43,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
     )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     try:
         logger.info("PDF compare resolve file1", extra={"chatId": payload.chat_id, "file1": payload.file1})
@@ -77,6 +78,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_compare",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "file1": payload.file1,
@@ -96,7 +98,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             "chatId": payload.chat_id,
             "differences": diff,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -107,7 +109,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             extra_data={
                 "differences": diff,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
         firestore_ok = save_message_to_firestore(

@@ -112,13 +112,18 @@ def upload_to_gemini_files(content: bytes, mime_type: str, display_name: str, ap
     return file_uri
 
 
-def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: str = "gemini-2.5-flash") -> Dict[str, Any]:
+def _effective_pdf_model(model: Optional[str]) -> str:
+    return model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
+
+
+def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optional[str] = None) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    effective_model = _effective_pdf_model(model)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:generateContent?key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}
     resp = requests.post(url, json=payload, timeout=180)
     logger.info("Gemini doc request", extra={"status": resp.status_code})
@@ -133,16 +138,15 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: str =
 def call_gemini_generate_stream(
     parts: list[Dict[str, Any]],
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: Optional[str] = None,
 ) -> Generator[str, None, None]:
     if not api_key:
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
-    )
+    effective_model = _effective_pdf_model(model)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:streamGenerateContent?alt=sse&key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}
     resp = requests.post(
         url,
@@ -155,7 +159,7 @@ def call_gemini_generate_stream(
     logger.info(
         "Gemini doc stream request started status=%s model=%s",
         resp.status_code,
-        model,
+        effective_model,
     )
     if not resp.ok:
         body_preview = (resp.text or "")[:400]
@@ -269,14 +273,16 @@ def localize_message(key: str, language: Optional[str]) -> str:
 async def stream_gemini_text(
     parts: list[Dict[str, Any]],
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
+    effective_model = _effective_pdf_model(model)
+
     def producer():
         try:
-            for chunk in call_gemini_generate_stream(parts, api_key, model):
+            for chunk in call_gemini_generate_stream(parts, api_key, effective_model):
                 if chunk:
                     asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
         except Exception as exc:  # pragma: no cover - defensive guard
@@ -302,17 +308,18 @@ async def generate_text_with_optional_stream(
     stream: bool,
     chat_id: Optional[str],
     tool: str,
-    model: str = "gemini-2.5-flash",
+    model: Optional[str] = None,
     chunk_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[str]]:
+    effective_model = _effective_pdf_model(model)
     if not stream or not chat_id:
-        response_json = await asyncio.to_thread(call_gemini_generate, parts, api_key, model)
+        response_json = await asyncio.to_thread(call_gemini_generate, parts, api_key, effective_model)
         return extract_text_response(response_json), None
 
     message_id = f"{tool}_{uuid.uuid4().hex}"
     accumulated: list[str] = []
     try:
-        async for chunk in stream_gemini_text(parts, api_key, model):
+        async for chunk in stream_gemini_text(parts, api_key, effective_model):
             accumulated.append(chunk)
             payload: Dict[str, Any] = {
                 "chatId": chat_id,

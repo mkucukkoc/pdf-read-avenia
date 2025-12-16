@@ -56,6 +56,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
     )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
     try:
         logger.info("PDF QnA ensure file", extra={"chatId": payload.chat_id, "fileId": payload.file_id, "fileUrl": payload.file_url})
         file_uri = _ensure_file_uri(payload, gemini_key)
@@ -81,6 +82,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_qna",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "question": payload.question,
@@ -103,7 +105,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             "chatId": payload.chat_id,
             "answer": answer,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -114,7 +116,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             extra_data={
                 "answer": answer,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
         firestore_ok = save_message_to_firestore(

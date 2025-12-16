@@ -41,6 +41,7 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
     content, mime = download_file(payload.file_url, max_mb=25, require_pdf=True)
     logger.info("PDF classify download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
+    effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     label_candidates = payload.labels or [
         "contract",
@@ -74,6 +75,7 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_classify",
+            model=effective_model,
             chunk_metadata={
                 "language": language,
                 "labels": label_candidates,
@@ -88,7 +90,7 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
             "chatId": payload.chat_id,
             "classification": classification,
             "language": language,
-            "model": "gemini-2.5-flash",
+            "model": effective_model,
         }
         result = attach_streaming_payload(
             extra_fields,
@@ -99,7 +101,7 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
             extra_data={
                 "classification": classification,
                 "language": language,
-                "model": "gemini-2.5-flash",
+                "model": effective_model,
             },
         )
 
