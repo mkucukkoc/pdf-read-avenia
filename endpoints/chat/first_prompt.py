@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any, Dict, Optional
+import asyncio
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -43,13 +45,16 @@ async def save_first_prompt(payload: FirstPromptRequest, request: Request) -> Di
         )
 
     try:
-        message_id = await chat_persistence.save_user_message(
-            user_id=user_id,
-            chat_id=payload.chat_id,
-            content=content,
-            file_name=payload.file_name,
-            file_url=payload.file_url,
-            metadata={**(payload.metadata or {}), "source": "first_prompt"},
+        message_id = await asyncio.to_thread(
+            partial(
+                chat_persistence.save_user_message,
+                user_id=user_id,
+                chat_id=payload.chat_id,
+                content=content,
+                file_name=payload.file_name,
+                file_url=payload.file_url,
+                metadata={**(payload.metadata or {}), "source": "first_prompt"},
+            )
         )
         logger.info(
             "First prompt saved userId=%s chatId=%s messageId=%s",
