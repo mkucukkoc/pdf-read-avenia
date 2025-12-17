@@ -228,7 +228,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
     data_url: Optional[str] = None
 
     try:
-        await emit_status("🔎 Görsel araması başlatıldı.")
+        await emit_status(None)
         use_google_search = True
         aspect_ratio = payload.aspect_ratio
         model = payload.model or os.getenv("GEMINI_IMAGE_SEARCH_MODEL") or "gemini-2.5-flash-image"
@@ -245,7 +245,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
             },
         )
 
-        await emit_status("Gemini Search API çağrılıyor...")
+        await emit_status(None)
         response_json = await asyncio.to_thread(
             _call_gemini_api,
             prompt,
@@ -262,17 +262,17 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
         inline_data = _extract_image_data(response_json)
         logger.info("Inline data extracted (search)", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
-        await emit_status("Görsel oluşturuldu, depolamaya aktarılıyor...")
+        await emit_status(None)
 
         try:
             final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name)
             logger.info("Image (search) uploaded to storage", extra={"final_url": final_url})
-            await emit_status("Görsel depolamaya yüklendi.")
+            await emit_status(None)
         except Exception as storage_exc:
             logger.warning("Firebase upload failed (search); returning data URL", extra={"error": str(storage_exc)})
             data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
             logger.info("Using data URL fallback (search)", extra={"has_data_url": bool(data_url)})
-            await emit_status("Depolama başarısız, data URL hazırlanıyor.")
+            await emit_status(None)
 
         result_payload = {
             "success": True,

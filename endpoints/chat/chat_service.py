@@ -85,7 +85,13 @@ class ChatService:
             message_previews,
         )
 
-        await self._persist_latest_user_message(user_id=user_id, payload=payload)
+        if getattr(payload, "skip_user_persist", False):
+            logger.debug(
+                "Skipping user message persistence per payload flag",
+                extra={"chatId": payload.chat_id, "userId": user_id},
+            )
+        else:
+            await self._persist_latest_user_message(user_id=user_id, payload=payload)
 
         if payload.stream:
             stream_message_id = self._generate_message_id()

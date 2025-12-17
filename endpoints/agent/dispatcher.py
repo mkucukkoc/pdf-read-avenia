@@ -63,6 +63,39 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
     except Exception:
         logger.warning("Usage increment failed userId=%s", effective_user)
 
+    latest_user = None
+    for msg in reversed(payload.conversation or []):
+        if msg.role == "user":
+            latest_user = msg
+            break
+    if not latest_user and payload.prompt:
+        latest_user = ChatMessagePayload(
+            role="user",
+            content=payload.prompt,
+            file_name=payload.file_name,
+            file_url=payload.file_url,
+            metadata=None,
+            message_id=None,
+        )
+
+    user_message_persisted = False
+    try:
+        if latest_user and payload.chat_id:
+            await asyncio.to_thread(
+                partial(
+                    chat_persistence.save_user_message,
+                    user_id=effective_user,
+                    chat_id=payload.chat_id,
+                    content=latest_user.content or "",
+                    file_name=getattr(latest_user, "file_name", None),
+                    file_url=getattr(latest_user, "file_url", None),
+                    metadata=getattr(latest_user, "metadata", None),
+                )
+            )
+            user_message_persisted = True
+    except Exception:
+        logger.warning("Failed to persist user message in dispatcher", exc_info=True)
+
     context = FunctionCallingContext(
         prompt=payload.prompt or "",
         conversation=payload.conversation or [],
@@ -82,39 +115,13 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             payload.chat_id,
             len(result.leftover_prompt or ""),
         )
-        return await _forward_to_default_chat(payload, effective_user)
+        return await _forward_to_default_chat(
+            payload,
+            effective_user,
+            skip_user_persist=user_message_persisted,
+        )
 
-    # Agent handled: user mesajını (tek sefer) kaydet
-    try:
-        latest_user = None
-        for msg in reversed(payload.conversation or []):
-            if msg.role == "user":
-                latest_user = msg
-                break
-        if not latest_user and payload.prompt:
-            latest_user = ChatMessagePayload(
-                role="user",
-                content=payload.prompt,
-                file_name=payload.file_name,
-                file_url=payload.file_url,
-                metadata=None,
-                message_id=None,
-            )
-        if latest_user:
-            await asyncio.to_thread(
-                partial(
-                    chat_persistence.save_user_message,
-                    user_id=effective_user,
-                    chat_id=payload.chat_id or "",
-                    content=latest_user.content or "",
-                    file_name=getattr(latest_user, "file_name", None),
-                    file_url=getattr(latest_user, "file_url", None),
-                    metadata=getattr(latest_user, "metadata", None),
-                )
-            )
-    except Exception:
-        logger.warning("Failed to persist user message in dispatcher", exc_info=True)
-
+    # Agent handled successfully, assistant response already generated
     logger.info(
         "Agent handled successfully agent=%s chatId=%s",
         result.agent_name,
@@ -139,7 +146,12 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
     return result.agent_response
 
 
-async def _forward_to_default_chat(payload: AgentDispatchRequest, user_id: str) -> Dict[str, Any]:
+async def _forward_to_default_chat(
+    payload: AgentDispatchRequest,
+    user_id: str,
+    *,
+    skip_user_persist: bool = False,
+) -> Dict[str, Any]:
     if not payload.chat_id:
         raise HTTPException(
             status_code=400,
@@ -223,6 +235,7 @@ async def _forward_to_default_chat(payload: AgentDispatchRequest, user_id: str) 
         image_file_url=image_file_url,
         language=payload.language,
         stream=payload.stream,
+        skip_user_persist=skip_user_persist,
     )
 
     logger.info(

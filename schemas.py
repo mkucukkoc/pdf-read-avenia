@@ -98,6 +98,7 @@ class ChatRequestPayload(BaseModel):
     image_file_url: Optional[str] = Field(default=None, alias="imageFileUrl")
     language: Optional[str] = None
     stream: bool = False
+    skip_user_persist: bool = Field(default=False, alias="skipUserPersist")
 
     model_config = ConfigDict(populate_by_name=True)
 

@@ -317,7 +317,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
     data_url: Optional[str] = None
 
     try:
-        await emit_status("🖼️ Görsel düzenleme isteği alındı.")
+        await emit_status(None)
         logger.info(
             "Downloading source image for edit",
             extra={
@@ -331,7 +331,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             "Source image downloaded",
             extra={"mime_type": inline["mimeType"], "data_len": len(inline["data"])},
         )
-        await emit_status("Kaynak görsel indirildi, Gemini düzenleme başlatılıyor...")
+        await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
         response_json = await asyncio.to_thread(
@@ -348,17 +348,17 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         logger.info("Inline data extracted (edit)", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
         logger.info("Temp file ready for upload (edit)", extra={"tmp_path": tmp_file_path})
-        await emit_status("Düzenlenen görsel hazırlanıyor...")
+        await emit_status(None)
 
         try:
             final_url = _upload_to_storage(tmp_file_path, user_id, payload.file_name or f"gemini-edit{_guess_extension_from_mime(inline_data['mimeType'])}")
             logger.info("Edited image uploaded to storage", extra={"final_url": final_url})
-            await emit_status("Düzenlenen görsel depolamaya yüklendi.")
+            await emit_status(None)
         except Exception as storage_exc:
             logger.warning("Firebase upload failed for edit; returning data URL", extra={"error": str(storage_exc)})
             data_url = f"data:{inline_data['mimeType']};base64,{inline_data['data']}"
             logger.info("Using data URL fallback (edit)", extra={"has_data_url": bool(data_url)})
-            await emit_status("Depolama başarısız, data URL hazırlanıyor.")
+            await emit_status(None)
 
         result_payload = {
             "success": True,
