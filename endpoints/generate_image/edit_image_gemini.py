@@ -15,6 +15,7 @@ from PIL import Image
 
 from core.language_support import normalize_language
 from core.websocket_manager import stream_manager
+from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_image_edit_failed_message
 from schemas import GeminiImageEditRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
@@ -333,7 +334,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status("Kaynak görsel indirildi, Gemini düzenleme başlatılıyor...")
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
-        response_json = await _call_gemini_edit_api(
+        response_json = await asyncio.to_thread(
+            _call_gemini_edit_api,
             prompt,
             inline["data"],
             inline["mimeType"],
