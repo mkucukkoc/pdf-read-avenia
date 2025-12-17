@@ -57,3 +57,4 @@ async def generate_chat_title(text: str, language: Optional[str]) -> Optional[st
 
 __all__ = ["generate_chat_title", "DEFAULT_TITLE_MODEL"]
 
+

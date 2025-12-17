@@ -136,6 +136,8 @@ class GeminiImageEditRequest(BaseModel):
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
     file_name: Optional[str] = Field(default=None, alias="fileName")
+    # Opsiyonel model seçimi; yoksa env ya da fallback kullanılır
+    model: Optional[str] = None
     stream: bool = False
 
     model_config = ConfigDict(populate_by_name=True)

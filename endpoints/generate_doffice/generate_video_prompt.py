@@ -51,3 +51,4 @@ async def generate_video_prompt(prompt: str = Body(..., embed=True)):
 
 
 
+
