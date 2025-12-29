@@ -37,4 +37,4 @@ opencv-python==4.8.1.78
 moviepy==1.0.3
 python-jose[cryptography]==3.3.0
 fpdf2==2.7.9
-libreoffice
+
