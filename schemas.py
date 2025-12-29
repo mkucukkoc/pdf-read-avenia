@@ -198,6 +198,7 @@ class PdfAnalyzeRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -210,6 +211,7 @@ class PdfSummaryRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -222,6 +224,7 @@ class DocSummaryRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -234,6 +237,7 @@ class PptxSummaryRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
