@@ -113,14 +113,19 @@ def upload_to_gemini_files(content: bytes, mime_type: str, display_name: str, ap
 
 
 def _effective_pdf_model(model: Optional[str]) -> str:
-    return model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
+    # Öncelik: param > env > güncel yaşan model fallback'leri
+    return (
+        model
+        or os.getenv("GEMINI_PDF_MODEL")
+        or "models/gemini-3-flash-preview"
+    )
 
 
-def _resolve_api_version(model: str) -> str:
-    # 2.5 modelleri için v1 kullanmak gerekiyor; diğerleri v1beta ile çalışmaya devam ediyor.
-    if model.startswith("gemini-2.5"):
-        return "v1"
-    return "v1beta"
+def _normalize_model_name(model: str) -> str:
+    # Beklenen format: models/<model-name>
+    if model.startswith("models/"):
+        return model
+    return f"models/{model}"
 
 
 def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optional[str] = None) -> Dict[str, Any]:
@@ -129,9 +134,9 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optio
             status_code=500,
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
-    effective_model = _effective_pdf_model(model)
-    api_version = _resolve_api_version(effective_model)
-    url = f"https://generativelanguage.googleapis.com/{api_version}/models/{effective_model}:generateContent?key={api_key}"
+    effective_model = _normalize_model_name(_effective_pdf_model(model))
+    # Belirtilen istek: v1beta + models/<name>
+    url = f"https://generativelanguage.googleapis.com/v1beta/{effective_model}:generateContent?key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}
     resp = requests.post(url, json=payload, timeout=180)
     body_preview = (resp.text or "")[:800]
@@ -150,7 +155,7 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optio
             detail={
                 "success": False,
                 "error": "gemini_doc_failed",
-                "message": get_pdf_error_message("gemini_doc_failed", None),
+                "message": "Dosya analizi sırasında bir bağlantı sorunu oluştu. Lütfen model isminin güncelliğini kontrol edin veya birazdan tekrar deneyin.",
                 "body": body_preview,
                 "model": effective_model,
             },

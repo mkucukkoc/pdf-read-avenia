@@ -62,14 +62,13 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     model_candidates = [
-        "gemini-2.5-flash",
         payload.model if hasattr(payload, "model") else None,
         os.getenv("GEMINI_PPTX_MODEL"),
         os.getenv("GEMINI_PDF_MODEL"),
-        # v1beta generateContent için bilinen suffix'li modeller
-        "gemini-1.5-pro-001",
-        "gemini-1.5-flash-001",
-        "gemini-1.5-flash-8b-001",
+        # Güncel canlı modeller (önerilen sıra)
+        "models/gemini-3-flash-preview",
+        "models/gemini-2.5-pro",
+        "models/gemini-2.0-flash-001",
     ]
     seen = set()
     candidate_models: list[str] = []
