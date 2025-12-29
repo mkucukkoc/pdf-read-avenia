@@ -113,12 +113,8 @@ def upload_to_gemini_files(content: bytes, mime_type: str, display_name: str, ap
 
 
 def _effective_pdf_model(model: Optional[str]) -> str:
-    # Öncelik: param > env > güncel yaşan model fallback'leri
-    return (
-        model
-        or os.getenv("GEMINI_PDF_MODEL")
-        or "models/gemini-3-flash-preview"
-    )
+    # Öncelik: param > env > güncel canlı fallback
+    return model or os.getenv("GEMINI_PDF_MODEL") or "models/gemini-3-flash-preview"
 
 
 def _normalize_model_name(model: str) -> str:
@@ -128,6 +124,23 @@ def _normalize_model_name(model: str) -> str:
     return f"models/{model}"
 
 
+def _normalize_parts_for_office(parts: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """
+    If a part has file_data and only file_uri, leave as is (no forced mime).
+    """
+    normalized = []
+    for part in parts:
+        if "file_data" in part:
+            fd = part["file_data"]
+            # Remove mime_type if empty/None to let Gemini infer
+            if fd.get("mime_type") in (None, ""):
+                fd = {k: v for k, v in fd.items() if k != "mime_type"}
+            normalized.append({"file_data": fd})
+        else:
+            normalized.append(part)
+    return normalized
+
+
 def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optional[str] = None) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -135,6 +148,7 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optio
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
     effective_model = _normalize_model_name(_effective_pdf_model(model))
+    parts = _normalize_parts_for_office(parts)
     # Belirtilen istek: v1beta + models/<name>
     url = f"https://generativelanguage.googleapis.com/v1beta/{effective_model}:generateContent?key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}

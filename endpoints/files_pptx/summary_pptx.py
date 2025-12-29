@@ -58,11 +58,9 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
     logger.info("PPTX summary download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
     content, mime = download_file(payload.file_url, max_mb=30, require_pdf=False)
     mime = _validate_pptx_mime(mime)
-    # İstenilen hack: Gemini'a PDF gibi gönder.
-    forced_mime = "application/pdf"
     logger.info(
         "PPTX summary download ok",
-        extra={"chatId": payload.chat_id, "size": len(content), "mime": mime, "forced_mime": forced_mime},
+        extra={"chatId": payload.chat_id, "size": len(content), "mime": mime},
     )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
@@ -96,7 +94,7 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
     )
     try:
         logger.info("PPTX summary upload start", extra={"chatId": payload.chat_id})
-        file_uri = upload_to_gemini_files(content, forced_mime, payload.file_name or "slides.pptx", gemini_key)
+        file_uri = upload_to_gemini_files(content, mime, payload.file_name or "slides.pptx", gemini_key)
         logger.info("PPTX summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
         # Gemini stream endpoint Office MIME (pptx) için destek vermiyor; stream kapalı.
         streaming_enabled = False
@@ -107,11 +105,17 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
         last_error: Exception | None = None
         for idx, model in enumerate(candidate_models):
             try:
+                parts = [
+                    {
+                        "file_data": {
+                            # Strateji A: mime_type eklemeden dosya tipini Gemini'ye bırak
+                            "file_uri": file_uri,
+                        }
+                    },
+                    {"text": prompt},
+                ]
                 text, stream_message_id = await generate_text_with_optional_stream(
-                    parts=[
-                        {"file_data": {"mime_type": forced_mime, "file_uri": file_uri}},
-                        {"text": prompt},
-                    ],
+                    parts=parts,
                     api_key=gemini_key,
                     stream=streaming_enabled,
                     chat_id=payload.chat_id,
