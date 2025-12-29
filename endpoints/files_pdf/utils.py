@@ -126,11 +126,26 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optio
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:generateContent?key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}
     resp = requests.post(url, json=payload, timeout=180)
-    logger.info("Gemini doc request", extra={"status": resp.status_code})
+    body_preview = (resp.text or "")[:800]
+    logger.info("Gemini doc request", extra={"status": resp.status_code, "model": effective_model, "body_preview": body_preview})
     if not resp.ok:
+        logger.error(
+            "Gemini doc request failed",
+            extra={
+                "status": resp.status_code,
+                "model": effective_model,
+                "body": body_preview,
+            },
+        )
         raise HTTPException(
             status_code=resp.status_code,
-            detail={"success": False, "error": "gemini_doc_failed", "message": get_pdf_error_message("gemini_doc_failed", None)},
+            detail={
+                "success": False,
+                "error": "gemini_doc_failed",
+                "message": get_pdf_error_message("gemini_doc_failed", None),
+                "body": body_preview,
+                "model": effective_model,
+            },
         )
     return resp.json()
 

@@ -263,11 +263,12 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
 
     if payload.chat_id:
         try:
+            # Kullanıcı mesajı zaten görsel URL'sini içeriyor; asistanda tekrar görsel ekleme.
             chat_persistence.save_assistant_message(
                 user_id=user_id,
                 chat_id=payload.chat_id,
                 content=analysis_text,
-                file_url=payload.image_url,
+                file_url=None,
                 metadata=metadata,
             )
             logger.info(
