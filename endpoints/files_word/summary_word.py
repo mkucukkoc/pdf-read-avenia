@@ -59,7 +59,12 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
     logger.info("Word summary download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
     content, mime = download_file(payload.file_url, max_mb=20, require_pdf=False)
     mime = _validate_word_mime(mime)
-    logger.info("Word summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
+    # İstenilen hack: Gemini'a PDF gibi gönder.
+    forced_mime = "application/pdf"
+    logger.info(
+        "Word summary download ok",
+        extra={"chatId": payload.chat_id, "size": len(content), "mime": mime, "forced_mime": forced_mime},
+    )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     model_candidates = [
@@ -92,7 +97,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
     )
     try:
         logger.info("Word summary upload start", extra={"chatId": payload.chat_id})
-        file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.docx", gemini_key)
+        file_uri = upload_to_gemini_files(content, forced_mime, payload.file_name or "document.docx", gemini_key)
         logger.info("Word summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
         # Gemini stream endpoint inlineData için Office MIME desteklemiyor; stream'i kapatıyoruz.
         streaming_enabled = False
@@ -104,7 +109,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
             try:
                 text, stream_message_id = await generate_text_with_optional_stream(
                     parts=[
-                        {"file_data": {"mime_type": mime, "file_uri": file_uri}},
+                        {"file_data": {"mime_type": forced_mime, "file_uri": file_uri}},
                         {"text": prompt},
                     ],
                     api_key=gemini_key,
