@@ -145,6 +145,17 @@ class GeminiImageEditRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class GeminiImageAnalyzeRequest(BaseModel):
+    image_url: str = Field(..., alias="imageUrl")
+    prompt: Optional[str] = None
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+    model: Optional[str] = None
+    stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class GeminiVideoRequest(BaseModel):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
@@ -192,6 +203,30 @@ class PdfAnalyzeRequest(BaseModel):
 
 
 class PdfSummaryRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocSummaryRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PptxSummaryRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None

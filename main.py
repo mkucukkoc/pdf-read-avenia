@@ -62,6 +62,9 @@ from endpoints.generate_image.gemini_image import router as gemini_image_router
 from endpoints.video_gemini.gemini_video import router as gemini_video_router
 from endpoints.generate_image.generateImageGeminiSearch import router as gemini_image_search_router
 from endpoints.generate_image.edit_image_gemini import router as gemini_image_edit_router
+from endpoints.generate_image.analyze_image_gemini import router as gemini_image_analyze_router
+from endpoints.files_word import word_summary_router
+from endpoints.files_pptx import pptx_summary_router
 from endpoints.stt_and_tts import stt_router, tts_router
 from endpoints.file_export import router as export_chat_router
 from endpoints.files_pdf import (
@@ -178,6 +181,10 @@ app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)
 app.include_router(gemini_image_search_router)
 app.include_router(gemini_image_edit_router)
+app.include_router(gemini_image_analyze_router)
+# Word/PPTX
+app.include_router(word_summary_router)
+app.include_router(pptx_summary_router)
 # PDF document processing
 app.include_router(pdf_analyze_router)
 app.include_router(pdf_summary_router)

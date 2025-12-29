@@ -67,3 +67,4 @@ async def summarize_word_from_url(data: dict = Body(...)):
 
 
 
+
