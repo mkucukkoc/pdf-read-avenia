@@ -314,6 +314,14 @@ async def generate_text_with_optional_stream(
     effective_model = _effective_pdf_model(model)
     if not stream or not chat_id:
         response_json = await asyncio.to_thread(call_gemini_generate, parts, api_key, effective_model)
+        candidates = response_json.get("candidates", [])
+        if not candidates:
+            feedback = response_json.get("promptFeedback", {}) or {}
+            usage = response_json.get("usageMetadata", {}) or {}
+            logger.error("Gemini generate returned no candidates", extra={"feedback": feedback, "usage": usage})
+            raise RuntimeError(
+                f"Gemini response empty. Feedback: {feedback.get('blockReason', 'Unknown')}"
+            )
         return extract_text_response(response_json), None
 
     message_id = f"{tool}_{uuid.uuid4().hex}"

@@ -77,13 +77,15 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
         logger.info("PPTX summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "slides.pptx", gemini_key)
         logger.info("PPTX summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        # Gemini stream endpoint Office MIME (pptx) için destek vermiyor; stream kapalı.
+        streaming_enabled = False
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": mime, "file_uri": file_uri}},
                 {"text": prompt},
             ],
             api_key=gemini_key,
-            stream=bool(payload.stream),
+            stream=streaming_enabled,
             chat_id=payload.chat_id,
             tool="pptx_summary",
             model=effective_model,

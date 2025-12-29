@@ -93,7 +93,8 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     language = normalize_language(payload.language)
     prompt = (payload.prompt or "Lütfen görseli detaylı analiz et.").strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
-    model = payload.model or os.getenv("GEMINI_IMAGE_ANALYZE_MODEL") or "gemini-1.5-flash"
+    # v1beta generateContent 404 vermesin diye default modeli -latest ile kullan
+    model = payload.model or os.getenv("GEMINI_IMAGE_ANALYZE_MODEL") or "gemini-1.5-flash-latest"
     streaming_enabled = bool(payload.stream and payload.chat_id)
     message_id = f"image_analyze_{uuid.uuid4().hex}" if streaming_enabled else None
     status_lines: list[str] = []

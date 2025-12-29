@@ -78,13 +78,15 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
         logger.info("Word summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.docx", gemini_key)
         logger.info("Word summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        # Gemini stream endpoint inlineData için Office MIME desteklemiyor; stream'i kapatıyoruz.
+        streaming_enabled = False
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": mime, "file_uri": file_uri}},
                 {"text": prompt},
             ],
             api_key=gemini_key,
-            stream=bool(payload.stream),
+            stream=streaming_enabled,
             chat_id=payload.chat_id,
             tool="word_summary",
             model=effective_model,
