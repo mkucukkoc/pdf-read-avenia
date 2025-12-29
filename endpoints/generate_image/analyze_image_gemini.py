@@ -94,9 +94,11 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     prompt = (payload.prompt or "Lütfen görseli detaylı analiz et.").strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
     # Model sırası: payload > env > önerilen fallback listesi
+    # v1beta generateContent için bilinen model adları
     model_candidates = [
         payload.model,
         os.getenv("GEMINI_IMAGE_ANALYZE_MODEL"),
+        # önerilen üçlü (v1beta isimleri -001 ile daha uyumlu):
         "gemini-1.5-flash",
         "gemini-1.5-flash-8b",
         "gemini-1.5-pro",
@@ -215,7 +217,12 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
             raise last_error
         raise HTTPException(
             status_code=500,
-            detail={"success": False, "error": "gemini_analyze_failed", "message": "All model attempts failed"},
+            detail={
+                "success": False,
+                "error": "gemini_analyze_failed",
+                "message": "All model attempts failed",
+                "attemptedModels": candidate_models,
+            },
         )
 
     try:
