@@ -61,8 +61,25 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
     logger.info("PPTX summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
 
     gemini_key = os.getenv("GEMINI_API_KEY")
-    effective_model = payload.model if hasattr(payload, "model") else None
-    effective_model = effective_model or os.getenv("GEMINI_PPTX_MODEL") or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
+    model_candidates = [
+        "gemini-2.5-flash",
+        payload.model if hasattr(payload, "model") else None,
+        os.getenv("GEMINI_PPTX_MODEL"),
+        os.getenv("GEMINI_PDF_MODEL"),
+        # v1beta generateContent için bilinen suffix'li modeller
+        "gemini-1.5-pro-001",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-flash-8b-001",
+    ]
+    seen = set()
+    candidate_models: list[str] = []
+    for m in model_candidates:
+        if not m:
+            continue
+        if m in seen:
+            continue
+        seen.add(m)
+        candidate_models.append(m)
 
     prompt = (payload.prompt or "").strip() or f"Summarize this presentation in {language} with key sections and bullets."
     logger.debug(
@@ -79,21 +96,41 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
         logger.info("PPTX summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
         # Gemini stream endpoint Office MIME (pptx) için destek vermiyor; stream kapalı.
         streaming_enabled = False
-        text, stream_message_id = await generate_text_with_optional_stream(
-            parts=[
-                {"file_data": {"mime_type": mime, "file_uri": file_uri}},
-                {"text": prompt},
-            ],
-            api_key=gemini_key,
-            stream=streaming_enabled,
-            chat_id=payload.chat_id,
-            tool="pptx_summary",
-            model=effective_model,
-            chunk_metadata={
-                "language": language,
-                "summaryLevel": payload.summary_level or "basic",
-            },
-        )
+        text: str | None = None
+        stream_message_id = None
+        selected_model: str | None = None
+
+        last_error: Exception | None = None
+        for idx, model in enumerate(candidate_models):
+            try:
+                text, stream_message_id = await generate_text_with_optional_stream(
+                    parts=[
+                        {"file_data": {"mime_type": mime, "file_uri": file_uri}},
+                        {"text": prompt},
+                    ],
+                    api_key=gemini_key,
+                    stream=streaming_enabled,
+                    chat_id=payload.chat_id,
+                    tool="pptx_summary",
+                    model=model,
+                    chunk_metadata={
+                        "language": language,
+                        "summaryLevel": payload.summary_level or "basic",
+                        "model": model,
+                    },
+                )
+                selected_model = model
+                break
+            except Exception as exc:  # keep last error and continue
+                last_error = exc
+                logger.warning(
+                    "PPTX summary model attempt failed",
+                    extra={"chatId": payload.chat_id, "attempt": idx + 1, "model": model, "error": str(exc)},
+                )
+                continue
+
+        if text is None or selected_model is None:
+            raise last_error or RuntimeError("All PPTX summary model attempts failed")
         if not text:
             raise RuntimeError("Empty response from Gemini")
         logger.info(

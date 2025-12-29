@@ -94,14 +94,14 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     prompt = (payload.prompt or "Lütfen görseli detaylı analiz et.").strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
     # Model sırası: payload > env > önerilen fallback listesi
-    # v1beta generateContent için bilinen model adları
+    # Öncelikli model: gemini-2.5-flash (isteğe göre), sonra env/payload ve fallback'ler
     model_candidates = [
+        "gemini-2.5-flash",
         payload.model,
         os.getenv("GEMINI_IMAGE_ANALYZE_MODEL"),
-        # önerilen üçlü (v1beta isimleri -001 ile daha uyumlu):
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
-        "gemini-1.5-pro",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-flash-8b-001",
+        "gemini-1.5-pro-001",
     ]
     # None ve tekrarları temizle, sıralı tut
     seen = set()
