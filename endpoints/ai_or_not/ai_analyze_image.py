@@ -1,41 +1,93 @@
 import json
 import logging
 import base64
+import os
 from typing import Optional
 
 import httpx
-from fastapi import Body, Query
+from fastapi import Body, Query, APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from firebase_admin import firestore
 
-from core.language_support import normalize_language
-from main import (
-    app,
-    decode_base64_maybe_data_url,
-    interpret_messages_legacy,
-    format_summary_tr,
-    _save_asst_message,
-    IMAGE_ENDPOINT,
-    API_KEY,
-    MOCK_MODE,
+from core.language_support import (
+    normalize_language,
+    build_ai_detection_messages,
+    format_ai_detection_summary,
+    nsfw_flag_from_value,
+    quality_flag_from_value,
 )
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.analyze_image")
 FAIL_MSG = "Görsel şu anda analiz edilemiyor, lütfen tekrar deneyin."
+IMAGE_ENDPOINT = os.getenv("IMAGE_ENDPOINT", "https://api.aiornot.com/v1/reports/image")
+API_KEY = os.getenv("AIORNOT_API_KEY", "")
+router = APIRouter()
+
+
+def decode_base64_maybe_data_url(data: str) -> bytes:
+    """
+    Supports raw base64 or data URLs like data:image/png;base64,....
+    """
+    if not data:
+        raise ValueError("empty data")
+    if data.startswith("data:"):
+        comma = data.find(",")
+        if comma == -1:
+            raise ValueError("Invalid data URL")
+        data = data[comma + 1 :]
+    return base64.b64decode(data)
+
+
+def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, language: Optional[str]):
+    if not user_id or not chat_id:
+        return {"saved": False}
+    try:
+        db = firestore.client()
+        path = f"users/{user_id}/chats/{chat_id}/messages"
+        ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages").add({
+            "role": "assistant",
+            "content": content,
+            "meta": {
+                "language": normalize_language(language),
+                "ai_detect": {"raw": raw},
+            },
+        })
+        message_id = ref[1].id if isinstance(ref, tuple) else ref.id
+        return {"saved": True, "message_id": message_id, "path": path}
+    except Exception as e:  # pragma: no cover
+        logger.warning("Failed to save message to Firestore", exc_info=e)
+        return {"saved": False, "error": str(e)}
+
+
+def _build_messages(verdict: Optional[str], confidence: float, quality, nsfw, language: Optional[str]):
+    ai_conf = confidence if verdict == "ai" else max(0.0, 1.0 - confidence)
+    human_conf = confidence if verdict == "human" else max(0.0, 1.0 - confidence)
+    return build_ai_detection_messages(
+        verdict,
+        ai_conf,
+        human_conf,
+        quality_flag_from_value(quality),
+        nsfw_flag_from_value(nsfw),
+        language=language,
+    )
+
+
+def _build_summary(verdict: Optional[str], confidence: float, quality, nsfw, language: Optional[str]):
+    ai_conf = confidence if verdict == "ai" else max(0.0, 1.0 - confidence)
+    human_conf = confidence if verdict == "human" else max(0.0, 1.0 - confidence)
+    return format_ai_detection_summary(
+        verdict,
+        ai_conf,
+        human_conf,
+        quality_flag_from_value(quality),
+        nsfw_flag_from_value(nsfw),
+        language=language,
+        subject="image",
+    )
 
 
 def _save_failure_message(user_id: str, chat_id: str, language: Optional[str], message: str, raw: Optional[dict] = None):
-    if not user_id or not chat_id:
-        return
-    try:
-        _save_asst_message(
-            user_id=user_id,
-            chat_id=chat_id,
-            content=message,
-            raw=raw or {"error": message},
-            language=normalize_language(language),
-        )
-    except Exception as e:  # pragma: no cover - best effort
-        logger.warning("Failed to save error message to Firestore", exc_info=e)
+    _save_asst_message(user_id, chat_id, message, raw or {"error": message}, language)
 
 
 async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language: Optional[str] = None, mock: bool = False):
@@ -67,8 +119,13 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     result = resp.json()
     logger.debug("AI or Not API JSON response", extra={"response": json.dumps(result, indent=2)})
 
-    messages = interpret_messages_legacy(result, language_norm)
-    summary_tr = format_summary_tr(result, language_norm, subject="image")
+    verdict = (result.get("report") or {}).get("verdict")
+    confidence = float((result.get("report") or {}).get("ai", {}).get("confidence", 0.0) or result.get("confidence", 0.0) or 0.0)
+    quality = (result.get("facets") or {}).get("quality", {}).get("is_detected")
+    nsfw = (result.get("facets") or {}).get("nsfw", {}).get("is_detected")
+
+    messages = _build_messages(verdict, confidence, quality, nsfw, language_norm)
+    summary_tr = _build_summary(verdict, confidence, quality, nsfw, language_norm)
 
     saved_info = _save_asst_message(user_id, chat_id, summary_tr, result, language_norm)
     logger.info("Firestore save result", extra={"saved_info": saved_info})
@@ -112,7 +169,7 @@ async def analyze_image_from_url(image_url: str, user_id: str, chat_id: str, lan
         raise HTTPException(status_code=500, detail=FAIL_MSG)
 
 
-@app.post("/analyze-image")
+@router.post("/analyze-image")
 async def analyze_image(
     payload: dict = Body(...),
     mock: str = Query(default="0"),  # ?mock=1 desteği için,
