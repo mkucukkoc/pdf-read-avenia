@@ -49,7 +49,6 @@ def _validate_pptx_mime(mime: str) -> str:
 def _convert_to_pdf_via_libreoffice(content: bytes, suffix: str = ".pptx") -> bytes:
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_in = Path(tmpdir) / f"input{suffix}"
-        tmp_out = Path(tmpdir) / "output.pdf"
         tmp_in.write_bytes(content)
         cmd = [
             "soffice",
@@ -70,15 +69,18 @@ def _convert_to_pdf_via_libreoffice(content: bytes, suffix: str = ".pptx") -> by
         stdout_preview = result.stdout.decode("utf-8", errors="ignore")[:200] if result.stdout else ""
         logger.info(
             "LibreOffice convert finished",
-            extra={"rc": result.returncode, "stdout": stdout_preview, "stderr": stderr_preview, "out_exists": tmp_out.exists()},
+            extra={"rc": result.returncode, "stdout": stdout_preview, "stderr": stderr_preview},
         )
-        if result.returncode != 0 or not tmp_out.exists():
+        if result.returncode != 0:
             raise RuntimeError(
                 f"LibreOffice conversion failed rc={result.returncode} stderr={stderr_preview}"
             )
-        size = tmp_out.stat().st_size if tmp_out.exists() else 0
-        logger.info("LibreOffice convert success", extra={"output_pdf": str(tmp_out), "size": size})
-        return tmp_out.read_bytes()
+        pdf_path = next(iter(Path(tmpdir).glob("*.pdf")), None)
+        if not pdf_path or not pdf_path.exists():
+            raise RuntimeError("LibreOffice conversion failed: no PDF output produced")
+        size = pdf_path.stat().st_size
+        logger.info("LibreOffice convert success", extra={"output_pdf": str(pdf_path), "size": size})
+        return pdf_path.read_bytes()
 
 
 @router.post("/summary")
