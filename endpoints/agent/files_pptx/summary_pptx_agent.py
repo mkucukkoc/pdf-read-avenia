@@ -22,7 +22,7 @@ async def _logged_summary_pptx(payload: PptxSummaryRequest, request):
 
 summary_pptx_agent = handler_agent(
     name="pptx_summary",
-    description="PPTX sunumundan özet çıkarır.",
+    description="PPTX sunumundan özet çıkarır; .pptx/.ppt içerikler.",
     request_model=PptxSummaryRequest,
     handler=_logged_summary_pptx,
 )

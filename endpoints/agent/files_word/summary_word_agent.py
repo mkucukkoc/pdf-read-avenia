@@ -22,7 +22,7 @@ async def _logged_summary_word(payload: DocSummaryRequest, request):
 
 summary_word_agent = handler_agent(
     name="word_summary",
-    description="Word (DOCX) dosyasından özet çıkarır.",
+    description="Word (DOCX/DOC) dosyasından özet çıkarır; .docx/.doc içerikler.",
     request_model=DocSummaryRequest,
     handler=_logged_summary_word,
 )

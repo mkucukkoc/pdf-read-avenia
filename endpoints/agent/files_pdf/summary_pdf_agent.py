@@ -22,7 +22,7 @@ async def _logged_summary_pdf(payload: PdfSummaryRequest, request):
 
 summary_pdf_agent = handler_agent(
     name="pdf_summary",
-    description="PDF içerisinden özet çıkarır.",
+    description="PDF içerisinden özet çıkarır. Sadece application/pdf dosyaları için.",
     request_model=PdfSummaryRequest,
     handler=_logged_summary_pdf,
 )
