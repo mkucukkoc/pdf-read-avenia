@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional
 
 # Base settings
-API_BASE_URL: str = "https://avenia.onrender.com"
+API_BASE_URL: str = "https://pdf-read-avenia.onrender.com"
 TEST_BEARER_TOKEN: str = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkYzM5MzQ0YS01NDBiLTRjNTgtYjI0ZC1hN2Y3YmRmNmNlMzgiLCJzaWQiOiJiNTRkYmFiMS1jOTg2LTQzNTQtYWFlYy1mMzkyOTE4MzY3Y2MiLCJqdGkiOiIxZmU4MGMyNy1iN2E5LTRhODUtODRlMi03MmQ4NTk0NjUyZjciLCJpYXQiOjE3NjU1MzQ5MzcsImV4cCI6MTc2NTU0MjEzNywiaXNzIjoiY2hhdGdidG1pbmkiLCJhdWQiOiJjaGF0Z2J0bWluaS1tb2JpbGUifQ.i9sT2FcG6hXj--87VeS-qHkMCicM3Z5JwxgMutkllnQ"
 
 TEST_USER_ID: str = "dc39344a-540b-4c58-b24d-a7f7bdf6ce38"

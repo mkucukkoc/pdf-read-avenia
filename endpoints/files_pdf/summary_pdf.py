@@ -1,5 +1,8 @@
 import logging
 import os
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,6 +25,41 @@ logger = logging.getLogger("pdf_read_refresh.files_pdf.summary")
 router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 
 
+def _convert_to_pdf_via_libreoffice(content: bytes, suffix: str = ".pdf") -> bytes:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_in = Path(tmpdir) / f"input{suffix}"
+        tmp_out = Path(tmpdir) / "output.pdf"
+        tmp_in.write_bytes(content)
+        cmd = [
+            "soffice",
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(tmpdir),
+            str(tmp_in),
+        ]
+        logger.info("LibreOffice convert start", extra={"cmd": " ".join(cmd), "tmpdir": tmpdir, "suffix": suffix})
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=60)
+        except Exception as exc:
+            logger.error("LibreOffice spawn failed", extra={"error": str(exc)})
+            raise RuntimeError(f"LibreOffice conversion failed: {exc}") from exc
+        stderr_preview = result.stderr.decode("utf-8", errors="ignore")[:400] if result.stderr else ""
+        stdout_preview = result.stdout.decode("utf-8", errors="ignore")[:200] if result.stdout else ""
+        logger.info(
+            "LibreOffice convert finished",
+            extra={"rc": result.returncode, "stdout": stdout_preview, "stderr": stderr_preview, "out_exists": tmp_out.exists()},
+        )
+        if result.returncode != 0 or not tmp_out.exists():
+            raise RuntimeError(
+                f"LibreOffice conversion failed rc={result.returncode} stderr={stderr_preview}"
+            )
+        size = tmp_out.stat().st_size if tmp_out.exists() else 0
+        logger.info("LibreOffice convert success", extra={"output_pdf": str(tmp_out), "size": size})
+        return tmp_out.read_bytes()
+
+
 @router.post("/summary")
 async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
@@ -34,8 +72,16 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
     )
 
     logger.info("PDF summary download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
-    content, mime = download_file(payload.file_url, max_mb=20, require_pdf=True)
+    content, mime = download_file(payload.file_url, max_mb=20, require_pdf=False)
     logger.info("PDF summary download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
+    is_pdf = mime.lower().startswith("application/pdf") if mime else False
+    if not is_pdf:
+        suffix = ".bin"
+        if payload.file_name and "." in payload.file_name:
+            suffix = "." + payload.file_name.split(".")[-1]
+        content = _convert_to_pdf_via_libreoffice(content, suffix=suffix)
+        mime = "application/pdf"
+        logger.info("PDF summary converted to PDF", extra={"chatId": payload.chat_id, "size": len(content), "source_mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
     effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
