@@ -320,6 +320,24 @@ class AiDetectImageRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+
+class DocRequest(BaseModel):
+    prompt: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PptRequest(BaseModel):
+    prompt: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PdfGenRequest(BaseModel):
+    prompt: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
 class PptxRewriteRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
