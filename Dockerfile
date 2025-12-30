@@ -2,12 +2,13 @@ FROM python:3.11-slim
 
 # Install system deps (LibreOffice for docx/pptx -> PDF conversion)
 RUN apt-get update && \
-    echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections && \
     apt-get install -y \
       libreoffice-writer \
       libreoffice-impress \
       fonts-liberation \
-      ttf-mscorefonts-installer && \
+      fonts-dejavu-core \
+      fonts-crosextra-carlito \
+      fonts-crosextra-caladea && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
