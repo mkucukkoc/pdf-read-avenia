@@ -6,12 +6,14 @@ import uuid
 from typing import Any, Dict, List
 
 import httpx
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 from docx import Document
+from firebase_admin import storage
 
-from main import app, DocRequest, storage
+from schemas import DocRequest
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_doc")
+router = APIRouter()
 
 SYSTEM_INSTRUCTION = (
     "You are a professional document preparation agent. "
@@ -111,7 +113,7 @@ def _build_doc_from_json(doc_data: Dict[str, Any]) -> str:
     return filepath, filename
 
 
-@app.post("/generate-doc")
+@router.post("/generate-doc")
 async def generate_doc(data: DocRequest):
     logger.info("Generate doc request received", extra={"prompt_length": len(data.prompt or "")})
     try:

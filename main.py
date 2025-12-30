@@ -63,6 +63,9 @@ from endpoints.video_gemini.gemini_video import router as gemini_video_router
 from endpoints.generate_image.generateImageGeminiSearch import router as gemini_image_search_router
 from endpoints.generate_image.edit_image_gemini import router as gemini_image_edit_router
 from endpoints.generate_image.analyze_image_gemini import router as gemini_image_analyze_router
+from endpoints.generate_doffice.generate_doc import router as generate_doc_router
+from endpoints.generate_doffice.generate_ppt import router as generate_ppt_router
+from endpoints.generate_doffice.generate_pdf import router as generate_pdf_router
 from endpoints.files_word import (
     word_summary_router,
     word_analyze_router,
@@ -207,6 +210,10 @@ app.include_router(gemini_video_router)
 app.include_router(gemini_image_search_router)
 app.include_router(gemini_image_edit_router)
 app.include_router(gemini_image_analyze_router)
+# Office doc generation
+app.include_router(generate_doc_router)
+app.include_router(generate_ppt_router)
+app.include_router(generate_pdf_router)
 # Word/PPTX
 app.include_router(word_summary_router)
 app.include_router(word_analyze_router)
@@ -731,9 +738,7 @@ import endpoints.summarize.summarize_pdf
 import endpoints.ask_question_file.ask_pdf_question
 import endpoints.ask_question_file.ask_file_question
 import endpoints.summarize.summarize_pdf_url
-import endpoints.generate_doffice.generate_doc
 import endpoints.generate_doffice.generate_excel
-import endpoints.generate_doffice.generate_ppt
 from endpoints.stt_and_tts import stt_router, tts_router
 import endpoints.summarize.summarize_excel_url
 import endpoints.summarize.summarize_word_url

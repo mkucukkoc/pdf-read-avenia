@@ -7,14 +7,17 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 import httpx
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.util import Inches, Pt
+from firebase_admin import storage
 
-from main import app, storage, DocRequest, generate_random_style
+from schemas import PptRequest
+from main import generate_random_style
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_ppt")
+router = APIRouter()
 
 SYSTEM_INSTRUCTION = (
     "You are a professional presentation generator. "
@@ -154,8 +157,8 @@ def _build_ppt_from_json(ppt_data: Dict[str, Any], prompt: str) -> str:
     return filepath, filename
 
 
-@app.post("/generate-ppt")
-async def generate_ppt(data: DocRequest):
+@router.post("/generate-ppt")
+async def generate_ppt(data: PptRequest):
     logger.info("Generate PPT request received", extra={"prompt_length": len(data.prompt or "")})
     try:
         # 1) Gemini'den yapılandırılmış JSON al

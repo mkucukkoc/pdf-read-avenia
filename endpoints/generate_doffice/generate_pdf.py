@@ -6,12 +6,14 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 from fpdf import FPDF
+from firebase_admin import storage
 
-from main import app, DocRequest, storage
+from schemas import PdfGenRequest
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_pdf")
+router = APIRouter()
 
 SYSTEM_INSTRUCTION = (
     "You are a professional report generator. "
@@ -137,8 +139,8 @@ def _build_pdf_from_json(doc_data: Dict[str, Any]) -> str:
     return filepath, filename
 
 
-@app.post("/generate-pdf")
-async def generate_pdf(data: DocRequest):
+@router.post("/generate-pdf")
+async def generate_pdf(data: PdfGenRequest):
     logger.info("Generate PDF request received", extra={"prompt_length": len(data.prompt or "")})
     try:
         # 1) Gemini'den yapılandırılmış JSON al
