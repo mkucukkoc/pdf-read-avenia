@@ -1,13 +1,11 @@
 import logging
 import os
-import subprocess
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.word_to_pdf import convert_word_bytes_to_pdf_bytes
 from errors_response import get_pdf_error_message
 from schemas import DocSummaryRequest
 from endpoints.files_pdf.utils import (
@@ -32,44 +30,6 @@ _WORD_MIME_ALLOWED = {
     "application/vnd.ms-word",
     "application/vnd.ms-word.document.macroEnabled.12",
 }
-
-
-def _convert_to_pdf_via_libreoffice(content: bytes, suffix: str = ".docx") -> bytes:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_in = Path(tmpdir) / f"input{suffix}"
-        tmp_in.write_bytes(content)
-        cmd = [
-            "soffice",
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(tmpdir),
-            str(tmp_in),
-        ]
-        logger.info("LibreOffice convert start", extra={"cmd": " ".join(cmd), "tmpdir": tmpdir, "suffix": suffix})
-        try:
-            result = subprocess.run(cmd, capture_output=True, timeout=60)
-        except Exception as exc:
-            logger.error("LibreOffice spawn failed", extra={"error": str(exc)})
-            raise RuntimeError(f"LibreOffice conversion failed: {exc}") from exc
-        stderr_preview = result.stderr.decode("utf-8", errors="ignore")[:400] if result.stderr else ""
-        stdout_preview = result.stdout.decode("utf-8", errors="ignore")[:200] if result.stdout else ""
-        logger.info(
-            "LibreOffice convert finished",
-            extra={"rc": result.returncode, "stdout": stdout_preview, "stderr": stderr_preview},
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"LibreOffice conversion failed rc={result.returncode} stderr={stderr_preview}"
-            )
-        # LibreOffice often names output as input.pdf
-        pdf_path = next(iter(Path(tmpdir).glob("*.pdf")), None)
-        if not pdf_path or not pdf_path.exists():
-            raise RuntimeError("LibreOffice conversion failed: no PDF output produced")
-        size = pdf_path.stat().st_size
-        logger.info("LibreOffice convert success", extra={"output_pdf": str(pdf_path), "size": size})
-        return pdf_path.read_bytes()
 
 
 def _validate_word_mime(mime: str) -> str:
@@ -119,11 +79,12 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
         is_pdf = mime.lower().startswith("application/pdf")
         if is_pdf:
             pdf_bytes = content
+            pdf_filename = payload.file_name or "document.pdf"
         else:
             suffix = ".docx"
             if payload.file_name and "." in payload.file_name:
                 suffix = "." + payload.file_name.split(".")[-1]
-            pdf_bytes = _convert_to_pdf_via_libreoffice(content, suffix=suffix)
+            pdf_bytes, pdf_filename = convert_word_bytes_to_pdf_bytes(content, suffix=suffix)
         logger.info(
             "Word summary PDF ready",
             extra={"chatId": payload.chat_id, "size": len(pdf_bytes), "source_mime": mime},
@@ -151,7 +112,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
             candidate_models.append(m)
 
         logger.info("Word summary upload start", extra={"chatId": payload.chat_id})
-        file_uri = upload_to_gemini_files(pdf_bytes, "application/pdf", payload.file_name or "document.pdf", gemini_key)
+        file_uri = upload_to_gemini_files(pdf_bytes, "application/pdf", pdf_filename or "document.pdf", gemini_key)
         logger.info("Word summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
 
         streaming_enabled = False

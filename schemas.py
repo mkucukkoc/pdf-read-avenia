@@ -203,6 +203,18 @@ class PdfAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocAnalyzeRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfSummaryRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
@@ -241,6 +253,175 @@ class PptxSummaryRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+class PptxAnalyzeRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxQnaRequest(BaseModel):
+    file_id: Optional[str] = Field(default=None, alias="fileId")
+    file_url: Optional[str] = Field(default=None, alias="fileUrl")
+    question: str
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxCompareRequest(BaseModel):
+    file1: str = Field(..., alias="file1")
+    file2: str = Field(..., alias="file2")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SearchQueryRequest(BaseModel):
+    query: str = Field(..., alias="query")
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+    search_depth: Optional[str] = Field(default=None, alias="searchDepth")
+    urls: Optional[list[str]] = Field(default=None, alias="urls")
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AiDetectImageRequest(BaseModel):
+    image_url: str = Field(..., alias="imageUrl")
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxRewriteRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    style: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxClassifyRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    labels: Optional[list[str]] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxMultiAnalyzeRequest(BaseModel):
+    file_urls: list[str] = Field(..., alias="fileUrls")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxOcrExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxLayoutRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxDeepExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    fields: Optional[list[str]] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxGroundedSearchRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    question: str = Field(..., alias="question")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxTranslateRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    target_language: str = Field(..., alias="targetLanguage")
+    source_language: Optional[str] = Field(default=None, alias="sourceLanguage")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+class PptxStructureExportRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class PdfQnaRequest(BaseModel):
     file_id: Optional[str] = Field(default=None, alias="fileId")
@@ -255,6 +436,20 @@ class PdfQnaRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocQnaRequest(BaseModel):
+    file_id: Optional[str] = Field(default=None, alias="fileId")
+    file_url: Optional[str] = Field(default=None, alias="fileUrl")
+    question: str
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfExtractRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
@@ -262,6 +457,18 @@ class PdfExtractRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -278,6 +485,19 @@ class PdfCompareRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocCompareRequest(BaseModel):
+    file1: str = Field(..., alias="file1")
+    file2: str = Field(..., alias="file2")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfRewriteRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
@@ -286,6 +506,19 @@ class PdfRewriteRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocRewriteRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    style: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -302,12 +535,36 @@ class PdfClassifyRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocClassifyRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    labels: Optional[list[str]] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfMultiAnalyzeRequest(BaseModel):
     file_urls: list[str] = Field(..., alias="fileUrls")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
     prompt: Optional[str] = None
     stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocMultiAnalyzeRequest(BaseModel):
+    file_urls: list[str] = Field(..., alias="fileUrls")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -323,6 +580,18 @@ class PdfOcrExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocOcrExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfLayoutRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
@@ -330,6 +599,18 @@ class PdfLayoutRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocLayoutRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -346,6 +627,19 @@ class PdfDeepExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DocDeepExtractRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    fields: Optional[list[str]] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfGroundedSearchRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
@@ -354,6 +648,19 @@ class PdfGroundedSearchRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocGroundedSearchRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    question: str = Field(..., alias="question")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -377,6 +684,31 @@ class PdfStructureExportRequest(BaseModel):
     file_name: Optional[str] = Field(default=None, alias="fileName")
     prompt: Optional[str] = None
     stream: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocStructureExportRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DocTranslateRequest(BaseModel):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    target_language: str = Field(..., alias="targetLanguage")
+    source_language: Optional[str] = Field(default=None, alias="sourceLanguage")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -410,4 +742,32 @@ __all__ = [
     "PdfGroundedSearchRequest",
     "PdfTranslateRequest",
     "PdfStructureExportRequest",
+    "DocAnalyzeRequest",
+    "DocSummaryRequest",
+    "DocQnaRequest",
+    "DocExtractRequest",
+    "DocCompareRequest",
+    "DocRewriteRequest",
+    "DocClassifyRequest",
+    "DocMultiAnalyzeRequest",
+    "DocOcrExtractRequest",
+    "DocLayoutRequest",
+    "DocDeepExtractRequest",
+    "DocGroundedSearchRequest",
+    "DocTranslateRequest",
+    "DocStructureExportRequest",
+    "PptxAnalyzeRequest",
+    "PptxSummaryRequest",
+    "PptxQnaRequest",
+    "PptxExtractRequest",
+    "PptxCompareRequest",
+    "PptxRewriteRequest",
+    "PptxClassifyRequest",
+    "PptxMultiAnalyzeRequest",
+    "PptxOcrExtractRequest",
+    "PptxLayoutRequest",
+    "PptxDeepExtractRequest",
+    "PptxGroundedSearchRequest",
+    "PptxTranslateRequest",
+    "PptxStructureExportRequest",
 ]
