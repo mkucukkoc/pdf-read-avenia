@@ -21,7 +21,7 @@ async def _logged_search_query(payload: SearchQueryRequest, request):
 
 search_query_agent = handler_agent(
     name="search_query_agent",
-    description="Doğal dildeki kullanıcı sorusunu Google için optimize edilmiş arama terimlerine dönüştürür.",
+    description="Doğal dildeki soruyu Google aramasına uygun sorgulara dönüştürür; verilen URL'leri (pdf/doc olmayan web sayfaları) inceleyip özetleyebilir.",
     request_model=SearchQueryRequest,
     handler=_logged_search_query,
 )

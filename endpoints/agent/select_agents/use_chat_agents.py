@@ -32,6 +32,7 @@ def build_system_prompt(context: Optional[Dict[str, Any]]) -> str:
         "- CRITICAL FILE ROUTING: If a file is attached and the user asks to summarize/analyze/explain/extract content from the file, you MUST call summarize_file_flow.",
         "- create_pptx/create_docx/generate_excel are ONLY for creating new documents/presentations/spreadsheets, not summarizing uploaded files.",
         "- When calling summarize_file_flow with an attached file, pass the user prompt and selected file metadata. Include chatId when available.",
+        "- If the user shares an http/https URL (web sayfası, PDF olmayan link) and asks to summarize/explain contents, call search_query_agent with urls=[that URL]; do not route to pdf/word tools unless the link clearly points to a document file (.pdf/.doc/.docx/.ppt/.pptx).",
         "",
         "Available tools:",
         available_tools,

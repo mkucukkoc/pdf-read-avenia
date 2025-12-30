@@ -131,6 +131,7 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     logger.info("Firestore save result", extra={"saved_info": saved_info})
 
     return {
+        "success": True,
         "raw_response": result,
         "messages": messages,
         "summary": summary_tr,
@@ -213,7 +214,7 @@ async def analyze_image(
 
     try:
         result = await _run_analysis(image_bytes, user_id, chat_id, language, mock == "1")
-        return JSONResponse(status_code=200, content=result)
+        return JSONResponse(status_code=200, content={"success": True, **result})
     except HTTPException as he:
         _save_failure_message(
             user_id,
