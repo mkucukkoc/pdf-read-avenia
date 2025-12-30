@@ -14,7 +14,7 @@ from pptx.util import Inches, Pt
 from firebase_admin import storage
 
 from schemas import PptRequest
-from main import generate_random_style
+from endpoints.generate_doffice.ppt_style import generate_random_style
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_ppt")
 router = APIRouter()
