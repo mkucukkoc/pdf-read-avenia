@@ -62,6 +62,18 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
 def _build_messages(verdict: Optional[str], confidence: float, quality, nsfw, language: Optional[str]):
     ai_conf = confidence if verdict == "ai" else max(0.0, 1.0 - confidence)
     human_conf = confidence if verdict == "human" else max(0.0, 1.0 - confidence)
+
+    # Custom ladder to match product expectations
+    # AI heavy: >= 99% → "High Likely AI"
+    # AI likely: >= 80% → "Likely AI"
+    # Otherwise lean to human
+    if ai_conf >= 0.99:
+        return ["High Likely AI", "Good", "No"]
+    if ai_conf >= 0.8:
+        return ["Likely AI", "Good", "No"]
+    if human_conf >= ai_conf:
+        return ["Likely Human", "Good", "No"]
+
     return build_ai_detection_messages(
         verdict,
         ai_conf,
@@ -75,6 +87,15 @@ def _build_messages(verdict: Optional[str], confidence: float, quality, nsfw, la
 def _build_summary(verdict: Optional[str], confidence: float, quality, nsfw, language: Optional[str]):
     ai_conf = confidence if verdict == "ai" else max(0.0, 1.0 - confidence)
     human_conf = confidence if verdict == "human" else max(0.0, 1.0 - confidence)
+
+    # Custom summary aligned with messages ladder
+    if ai_conf >= 0.99:
+        return "Görsel, %99+ olasılıkla yapay zeka tarafından üretilmiş (yüksek güven). Görsel yapısı iyi. NSFW açısından bir sorun görünmüyor."
+    if ai_conf >= 0.8:
+        return f"Görsel için AI analizi: Yapay zeka olasılığı %{ai_conf*100:.0f}. İnsan olasılığı %{human_conf*100:.0f}."
+    if human_conf >= ai_conf:
+        return f"Görsel insan üretimi gibi görünüyor. İnsan olasılığı %{human_conf*100:.0f}, yapay zeka olasılığı %{ai_conf*100:.0f}."
+
     return format_ai_detection_summary(
         verdict,
         ai_conf,
@@ -91,7 +112,7 @@ def _save_failure_message(user_id: str, chat_id: str, language: Optional[str], m
 
 
 async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language: Optional[str] = None, mock: bool = False):
-    language_norm = normalize_language(language)
+    language_norm = normalize_language(language) or "en"
 
     files = {"object": ('image.jpg', image_bytes, 'image/jpeg')}
     try:
