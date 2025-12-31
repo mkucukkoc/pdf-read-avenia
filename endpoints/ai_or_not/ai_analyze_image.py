@@ -47,9 +47,9 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
         ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages").add({
             "role": "assistant",
             "content": content,
+            # Only keep minimal meta; avoid storing raw AI response in Firestore
             "meta": {
                 "language": normalize_language(language),
-                "ai_detect": {"raw": raw},
             },
         })
         message_id = ref[1].id if isinstance(ref, tuple) else ref.id
