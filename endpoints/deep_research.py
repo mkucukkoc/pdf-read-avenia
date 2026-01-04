@@ -226,8 +226,8 @@ def _extract_text(payload: Dict[str, Any]) -> Optional[str]:
 
 
 async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[str, Any]:
-    prompt = (payload.prompt or "").strip()
-    if not prompt:
+    user_prompt = (payload.prompt or "").strip()
+    if not user_prompt:
         raise HTTPException(
             status_code=400,
             detail={"success": False, "error": "prompt_required", "message": "prompt is required"},
@@ -236,6 +236,16 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
     api_key = os.getenv("GEMINI_API_KEY", "")
     agent = os.getenv("GEMINI_DEEP_RESEARCH_AGENT", DEFAULT_AGENT)
     language = normalize_language(payload.language) or "Turkish"
+    structured_prompt = f"""
+Derin araştırma yap.
+- En fazla 5 kaynak
+- Maddeler halinde
+- En fazla 300 kelime
+Yanıt dili: {language}
+
+Konu:
+{user_prompt}
+""".strip()
 
     logger.info(
         "Deep Research start userId=%s chatId=%s lang=%s",
@@ -244,7 +254,7 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
         language,
     )
 
-    start_result = await _start_interaction(prompt, api_key, agent, payload.urls)
+    start_result = await _start_interaction(structured_prompt, api_key, agent, payload.urls)
     interaction_id = start_result["interaction_id"]
     result_payload = await _poll_interaction(interaction_id, api_key)
     text = _extract_text(result_payload)
