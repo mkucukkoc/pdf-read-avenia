@@ -37,7 +37,14 @@ async def _call_gemini_web_search(prompt: str, api_key: str, model: str, urls: O
     }
 
     url = f"{API_BASE}/{model}:generateContent?key={api_key}"
-    logger.info("Web search call", extra={"model": model, "prompt_preview": prompt[:120], "url_count": len(urls or [])})
+    logger.info(
+        "Web search call",
+        extra={
+            "model": model,
+            "prompt_preview": prompt[:200],
+            "url_count": len(urls or []),
+        },
+    )
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(url, json=payload)
 
@@ -85,10 +92,16 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
     result = await _call_gemini_web_search(prompt, api_key, model, payload.urls)
     text = _extract_text(result)
     if not text:
+        logger.error(
+            "Web search returned empty text",
+            extra={"payload_preview": str(result)[:800]},
+        )
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "web_search_empty", "message": "No text returned from web search"},
         )
+
+    logger.info("Web search extracted text", extra={"text_len": len(text), "text_preview": text[:400]})
 
     message_id = f"web_search_{result.get('id') or ''}"
     if payload.chat_id:

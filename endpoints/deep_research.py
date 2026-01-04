@@ -33,9 +33,25 @@ async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Option
     if urls:
         payload["context"] = {"urls": urls}
 
-    logger.info("DeepResearch start call", extra={"agent": agent, "has_urls": bool(urls), "url_count": len(urls or [])})
+    logger.info(
+        "DeepResearch start call",
+        extra={
+            "agent": agent,
+            "has_urls": bool(urls),
+            "url_count": len(urls or []),
+            "prompt_preview": prompt[:200],
+        },
+    )
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(f"{API_BASE}/interactions?key={api_key}", json=payload)
+
+    logger.info(
+        "DeepResearch start response",
+        extra={
+            "status": resp.status_code,
+            "body_preview": (resp.text or "")[:800],
+        },
+    )
 
     if not resp.is_success:
         body_preview = (resp.text or "")[:800]
@@ -62,6 +78,13 @@ async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]
         for attempt in range(MAX_POLL_ATTEMPTS):
             logger.info("DeepResearch poll", extra={"interaction_id": interaction_id, "attempt": attempt + 1})
             resp = await client.get(url)
+            logger.info(
+                "DeepResearch poll response",
+                extra={
+                    "status": resp.status_code,
+                    "body_preview": (resp.text or "")[:800],
+                },
+            )
             if not resp.is_success:
                 body_preview = (resp.text or "")[:400]
                 logger.error("Deep Research poll failed id=%s status=%s body=%s", interaction_id, resp.status_code, body_preview)
@@ -126,10 +149,22 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
     text = _extract_text(result_payload)
 
     if not text:
+        logger.error(
+            "DeepResearch returned empty text",
+            extra={
+                "interaction_id": interaction_id,
+                "payload_preview": str(result_payload)[:800],
+            },
+        )
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "deep_research_empty", "message": "No output text from Deep Research"},
         )
+
+    logger.info(
+        "DeepResearch extracted text",
+        extra={"interaction_id": interaction_id, "text_len": len(text), "text_preview": text[:400]},
+    )
 
     message_id = f"deep_research_{interaction_id}"
     if payload.chat_id:
