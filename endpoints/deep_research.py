@@ -18,8 +18,8 @@ router = APIRouter(prefix="/api/v1/deep-research", tags=["DeepResearch"])
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_AGENT = os.getenv("GEMINI_DEEP_RESEARCH_AGENT", "deep-research-pro-preview-12-2025")
-POLL_DELAY_SEC = float(os.getenv("DEEP_RESEARCH_POLL_DELAY", "4.0"))
-MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "6"))
+POLL_DELAY_SEC = float(os.getenv("DEEP_RESEARCH_POLL_DELAY", "3.0"))
+MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "20"))
 
 
 async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Optional[list[str]] = None) -> Dict[str, Any]:
@@ -107,15 +107,16 @@ async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]
             payload = resp.json()
             last_payload = payload
             outputs = payload.get("outputs") or []
+            status = str(payload.get("status") or payload.get("state") or "").lower()
             logger.info(
                 "DeepResearch poll payload",
                 extra={
                     "keys": list(payload.keys()),
                     "outputs_len": len(outputs),
                     "first_output_preview": str(outputs[0])[:400] if outputs else None,
+                    "status": status,
                 },
             )
-            status = str(payload.get("status") or payload.get("state") or "").lower()
 
             if status in ("completed", "succeeded", "done"):
                 logger.info("DeepResearch completed", extra={"interaction_id": interaction_id})
@@ -128,20 +129,98 @@ async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]
 
             await asyncio.sleep(POLL_DELAY_SEC)
 
-    return last_payload
+    logger.error(
+        "DeepResearch poll timeout",
+        extra={
+            "interaction_id": interaction_id,
+            "last_status": str(last_payload.get("status") or last_payload.get("state")),
+            "outputs_len": len(last_payload.get("outputs") or []),
+            "payload_preview": str(last_payload)[:800],
+        },
+    )
+    raise HTTPException(
+        status_code=504,
+        detail={
+            "success": False,
+            "error": "deep_research_timeout",
+            "message": "Deep Research did not complete in time",
+            "status": str(last_payload.get("status") or last_payload.get("state")),
+        },
+    )
 
 
 def _extract_text(payload: Dict[str, Any]) -> Optional[str]:
+    """Try to extract assistant text from various Deep Research output shapes."""
     outputs = payload.get("outputs") or []
+
+    def from_parts(parts: Any) -> Optional[str]:
+        if isinstance(parts, list):
+            for part in parts:
+                if isinstance(part, dict) and isinstance(part.get("text"), str) and part["text"].strip():
+                    return part["text"]
+        return None
+
     for item in reversed(outputs):
         if not isinstance(item, dict):
             continue
-        if isinstance(item.get("part"), dict) and isinstance(item["part"].get("text"), str):
-            return item["part"]["text"]
-        if isinstance(item.get("output"), dict) and isinstance(item["output"].get("text"), str):
-            return item["output"]["text"]
-        if isinstance(item.get("text"), str):
+
+        part = item.get("part")
+        if isinstance(part, dict):
+            if isinstance(part.get("text"), str) and part["text"].strip():
+                return part["text"]
+            if part.get("content"):
+                text = from_parts(part.get("content"))
+                if text:
+                    return text
+
+        output = item.get("output")
+        if isinstance(output, dict):
+            if isinstance(output.get("text"), str) and output["text"].strip():
+                return output["text"]
+            content = output.get("content")
+            if isinstance(content, list):
+                for content_item in content:
+                    if isinstance(content_item, dict):
+                        text = from_parts(content_item.get("parts"))
+                        if text:
+                            return text
+        # Variant: content directly on item
+        content = item.get("content")
+        if isinstance(content, dict):
+            text = from_parts(content.get("parts"))
+            if text:
+                return text
+
+        if isinstance(item.get("text"), str) and item["text"].strip():
             return item["text"]
+
+    # Fallbacks: response.candidates[].content.parts[].text
+    resp = payload.get("response")
+    if isinstance(resp, dict):
+        t_direct = resp.get("output_text") or resp.get("text")
+        if isinstance(t_direct, str) and t_direct.strip():
+            return t_direct
+        candidates = resp.get("candidates")
+        if isinstance(candidates, list):
+            for cand in candidates:
+                if isinstance(cand, dict):
+                    content = cand.get("content")
+                    if isinstance(content, dict):
+                        text = from_parts(content.get("parts"))
+                        if text:
+                            return text
+
+    # Fallback: candidates at top level
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        for cand in candidates:
+            if isinstance(cand, dict):
+                content = cand.get("content")
+                if isinstance(content, dict):
+                    text = from_parts(content.get("parts"))
+                    if text:
+                        return text
+
     return None
 
 
@@ -170,17 +249,27 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
     text = _extract_text(result_payload)
 
     if not text:
-        logger.error(
-            "DeepResearch returned empty text",
+        logger.warning(
+            "DeepResearch returned empty text; responding with graceful fallback",
             extra={
                 "interaction_id": interaction_id,
-                "payload_preview": str(result_payload)[:800],
+                "payload_keys": list(result_payload.keys()),
+                "outputs_len": len(result_payload.get("outputs") or []),
+                "payload_preview": str(result_payload)[:1200],
             },
         )
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "deep_research_empty", "message": "No output text from Deep Research"},
+        fallback_text = (
+            "Derin araştırma tamamlandı fakat dönen yanıtta metin bulunamadı. "
+            "Lütfen soruyu yeniden deneyin veya Web Search ile aramayı seçin."
         )
+        message_id = f"deep_research_{interaction_id}"
+        return {
+            "success": True,
+            "data": {
+                "message": {"content": fallback_text, "id": message_id},
+                "streaming": False,
+            },
+        }
 
     logger.info(
         "DeepResearch extracted text",
