@@ -31,7 +31,19 @@ class FirstPromptRequest(BaseModel):
 @router.post("/first_prompt")
 async def save_first_prompt(payload: FirstPromptRequest, request: Request) -> Dict[str, Any]:
     user_id = get_request_user_id(request)
+    logger.info(
+        "first_prompt request received",
+        extra={
+            "chat_id": payload.chat_id,
+            "has_user_id": bool(user_id),
+            "content_len": len(payload.content or ""),
+            "has_file": bool(payload.file_url or payload.file_name),
+            "metadata_keys": list((payload.metadata or {}).keys()),
+            "language": payload.language,
+        },
+    )
     if not user_id:
+        logger.warning("first_prompt unauthorized - missing user id", extra={"chat_id": payload.chat_id})
         raise HTTPException(
             status_code=401,
             detail={"success": False, "error": "unauthorized", "message": "Auth gerekli"},

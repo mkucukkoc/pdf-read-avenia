@@ -3,11 +3,12 @@ from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from schemas import AgentDispatchRequest, ChatMessagePayload, ChatRequestPayload
+from schemas import AgentDispatchRequest, ChatMessagePayload, ChatRequestPayload, DeepResearchRequest, WebSearchRequest, GeminiImageRequest
 from endpoints.chat.chat_service import chat_service
 from core.useChatPersistence import chat_persistence
 from functools import partial
 import asyncio
+from endpoints.agent.utils import build_internal_request
 from .select_agents.use_function_calling import (
     FunctionCallingContext,
     FunctionCallingResult,
@@ -95,6 +96,67 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             user_message_persisted = True
     except Exception:
         logger.warning("Failed to persist user message in dispatcher", exc_info=True)
+
+    selected_action = str(merged_params.get("selectedAction") or merged_params.get("selected_action") or "").lower().replace("-", "_")
+    if selected_action == "deep_research":
+        from endpoints.deep_research import run_deep_research
+
+        dr_payload = DeepResearchRequest(
+            prompt=payload.prompt or (latest_user.content if latest_user else ""),
+            chat_id=payload.chat_id,
+            language=payload.language,
+            user_id=effective_user,
+            urls=merged_params.get("urls"),
+            parameters=merged_params,
+            stream=bool(merged_params.get("stream") or payload.stream),
+        )
+        logger.info("Dispatcher short-circuit to deep_research chatId=%s userId=%s", payload.chat_id, effective_user)
+        return await run_deep_research(dr_payload, effective_user)
+    if selected_action == "web_search":
+        from endpoints.web_search import run_web_search
+
+        ws_payload = WebSearchRequest(
+            prompt=payload.prompt or (latest_user.content if latest_user else ""),
+            chat_id=payload.chat_id,
+            language=payload.language,
+            user_id=effective_user,
+            urls=merged_params.get("urls"),
+            parameters=merged_params,
+            stream=bool(merged_params.get("stream") or payload.stream),
+        )
+        logger.info("Dispatcher short-circuit to web_search chatId=%s userId=%s", payload.chat_id, effective_user)
+        return await run_web_search(ws_payload, effective_user)
+    if selected_action == "web_link":
+        from endpoints.web_link import run_web_link
+
+        wl_payload = WebSearchRequest(
+            prompt=payload.prompt or (latest_user.content if latest_user else ""),
+            chat_id=payload.chat_id,
+            language=payload.language,
+            user_id=effective_user,
+            urls=merged_params.get("urls"),
+            parameters=merged_params,
+            stream=bool(merged_params.get("stream") or payload.stream),
+        )
+        logger.info("Dispatcher short-circuit to web_link chatId=%s userId=%s", payload.chat_id, effective_user)
+        return await run_web_link(wl_payload, effective_user)
+    if selected_action == "create_images":
+        from endpoints.generate_image.gemini_image import generate_gemini_image
+
+        image_payload = GeminiImageRequest(
+            prompt=payload.prompt or (latest_user.content if latest_user else ""),
+            chat_id=payload.chat_id,
+            language=payload.language,
+            file_name=None,
+            style=None,
+            use_google_search=bool(merged_params.get("useGoogleSearch")),
+            aspect_ratio=merged_params.get("aspectRatio"),
+            model=merged_params.get("model"),
+            stream=bool(merged_params.get("stream") or payload.stream),
+        )
+        logger.info("Dispatcher short-circuit to create_images (gemini_image) chatId=%s userId=%s", payload.chat_id, effective_user)
+        internal_request = build_internal_request(effective_user)
+        return await generate_gemini_image(image_payload, internal_request)
 
     context = FunctionCallingContext(
         prompt=payload.prompt or "",
