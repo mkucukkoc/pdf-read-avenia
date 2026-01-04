@@ -19,7 +19,8 @@ router = APIRouter(prefix="/api/v1/deep-research", tags=["DeepResearch"])
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_AGENT = os.getenv("GEMINI_DEEP_RESEARCH_AGENT", "deep-research-pro-preview-12-2025")
 POLL_DELAY_SEC = float(os.getenv("DEEP_RESEARCH_POLL_DELAY", "3.0"))
-MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "20"))
+# Default ~2 minutes; can be overridden via env.
+MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "40"))
 
 
 async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Optional[list[str]] = None) -> Dict[str, Any]:
