@@ -140,6 +140,36 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         )
         logger.info("Dispatcher short-circuit to web_link chatId=%s userId=%s", payload.chat_id, effective_user)
         return await run_web_link(wl_payload, effective_user)
+    if selected_action == "social_posts":
+        from endpoints.social_posts import run_social_posts
+        from schemas import SocialPostRequest
+
+        sp_payload = SocialPostRequest(
+            prompt=payload.prompt or (latest_user.content if latest_user else ""),
+            chat_id=payload.chat_id,
+            language=payload.language,
+            user_id=effective_user,
+            parameters=merged_params,
+            stream=bool(merged_params.get("stream") or payload.stream),
+        )
+        logger.info("Dispatcher short-circuit to social_posts chatId=%s userId=%s", payload.chat_id, effective_user)
+        return await run_social_posts(sp_payload, effective_user)
+    if selected_action == "ai_real_check":
+        from endpoints.ai_or_not.ai_analyze_image import analyze_image_from_url
+        image_url = merged_params.get("imageUrl") or merged_params.get("fileUrl") or merged_params.get("url")
+        if not image_url:
+            raise HTTPException(
+                status_code=400,
+                detail={"success": False, "error": "image_required", "message": "Image URL is required for AI check"},
+            )
+        logger.info("Dispatcher short-circuit to ai_or_not chatId=%s userId=%s imageUrl=%s", payload.chat_id, effective_user, image_url)
+        return await analyze_image_from_url(
+            image_url=image_url,
+            user_id=effective_user,
+            chat_id=payload.chat_id or "",
+            language=payload.language,
+            mock=False,
+        )
     if selected_action == "create_images":
         from endpoints.generate_image.gemini_image import generate_gemini_image
 

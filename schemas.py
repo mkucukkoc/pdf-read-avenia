@@ -215,6 +215,17 @@ class WebSearchRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class SocialPostRequest(BaseModel):
+    prompt: str
+    chat_id: Optional[str] = Field(default=None, alias="chatId")
+    language: Optional[str] = None
+    user_id: Optional[str] = Field(default=None, alias="userId")
+    stream: bool = False
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PdfAnalyzeRequest(BaseModel):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")

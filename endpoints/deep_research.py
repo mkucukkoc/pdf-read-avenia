@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import os
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, Optional, List
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -23,7 +25,9 @@ POLL_DELAY_SEC = float(os.getenv("DEEP_RESEARCH_POLL_DELAY", "3.0"))
 MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "40"))
 
 
-async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Optional[list[str]] = None) -> Dict[str, Any]:
+async def _start_interaction(
+    client: httpx.AsyncClient, prompt: str, api_key: str, agent: str, urls: Optional[list[str]] = None
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -44,8 +48,7 @@ async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Option
             "payload": payload,
         },
     )
-    async with httpx.AsyncClient(timeout=180) as client:
-        resp = await client.post(f"{API_BASE}/interactions?key={api_key}", json=payload)
+    resp = await client.post(f"{API_BASE}/interactions?key={api_key}", json=payload)
 
     logger.info(
         "DeepResearch start response",
@@ -82,53 +85,52 @@ async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Option
     return {"interaction_id": interaction_id, "raw": data}
 
 
-async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]:
+async def _poll_interaction(client: httpx.AsyncClient, interaction_id: str, api_key: str) -> Dict[str, Any]:
     url = f"{API_BASE}/interactions/{interaction_id}?key={api_key}"
-    async with httpx.AsyncClient(timeout=180) as client:
-        last_payload: Dict[str, Any] = {}
-        for attempt in range(MAX_POLL_ATTEMPTS):
-            logger.info("DeepResearch poll", extra={"interaction_id": interaction_id, "attempt": attempt + 1})
-            resp = await client.get(url)
-            logger.info(
-                "DeepResearch poll response",
-                extra={
-                    "status": resp.status_code,
-                    "body_preview": (resp.text or "")[:800],
-                    "headers": dict(resp.headers),
-                },
-            )
-            if not resp.is_success:
-                body_preview = (resp.text or "")[:400]
-                logger.error("Deep Research poll failed id=%s status=%s body=%s", interaction_id, resp.status_code, body_preview)
-                raise HTTPException(
-                    status_code=resp.status_code,
-                    detail={"success": False, "error": "deep_research_poll_failed", "message": body_preview},
-                )
-
-            payload = resp.json()
-            last_payload = payload
-            outputs = payload.get("outputs") or []
-            status = str(payload.get("status") or payload.get("state") or "").lower()
-            logger.info(
-                "DeepResearch poll payload",
-                extra={
-                    "keys": list(payload.keys()),
-                    "outputs_len": len(outputs),
-                    "first_output_preview": str(outputs[0])[:400] if outputs else None,
-                    "status": status,
-                },
+    last_payload: Dict[str, Any] = {}
+    for attempt in range(MAX_POLL_ATTEMPTS):
+        logger.info("DeepResearch poll", extra={"interaction_id": interaction_id, "attempt": attempt + 1})
+        resp = await client.get(url)
+        logger.info(
+            "DeepResearch poll response",
+            extra={
+                "status": resp.status_code,
+                "body_preview": (resp.text or "")[:800],
+                "headers": dict(resp.headers),
+            },
+        )
+        if not resp.is_success:
+            body_preview = (resp.text or "")[:400]
+            logger.error("Deep Research poll failed id=%s status=%s body=%s", interaction_id, resp.status_code, body_preview)
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail={"success": False, "error": "deep_research_poll_failed", "message": body_preview},
             )
 
-            if status in ("completed", "succeeded", "done"):
-                logger.info("DeepResearch completed", extra={"interaction_id": interaction_id})
-                return payload
-            if status in ("failed", "error"):
-                raise HTTPException(
-                    status_code=500,
-                    detail={"success": False, "error": "deep_research_failed", "message": payload},
-                )
+        payload = resp.json()
+        last_payload = payload
+        outputs = payload.get("outputs") or []
+        status = str(payload.get("status") or payload.get("state") or "").lower()
+        logger.info(
+            "DeepResearch poll payload",
+            extra={
+                "keys": list(payload.keys()),
+                "outputs_len": len(outputs),
+                "first_output_preview": str(outputs[0])[:400] if outputs else None,
+                "status": status,
+            },
+        )
 
-            await asyncio.sleep(POLL_DELAY_SEC)
+        if status in ("completed", "succeeded", "done"):
+            logger.info("DeepResearch completed", extra={"interaction_id": interaction_id})
+            return payload
+        if status in ("failed", "error"):
+            raise HTTPException(
+                status_code=500,
+                detail={"success": False, "error": "deep_research_failed", "message": payload},
+            )
+
+        await asyncio.sleep(POLL_DELAY_SEC)
 
     logger.error(
         "DeepResearch poll timeout",
@@ -139,15 +141,10 @@ async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]
             "payload_preview": str(last_payload)[:800],
         },
     )
-    raise HTTPException(
-        status_code=504,
-        detail={
-            "success": False,
-            "error": "deep_research_timeout",
-            "message": "Deep Research did not complete in time",
-            "status": str(last_payload.get("status") or last_payload.get("state")),
-        },
-    )
+    last_payload = last_payload or {}
+    last_payload["status"] = last_payload.get("status") or "timeout"
+    last_payload["timeout"] = True
+    return last_payload
 
 
 def _extract_text(payload: Dict[str, Any]) -> Optional[str]:
@@ -225,6 +222,49 @@ def _extract_text(payload: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _parse_citations(raw: str) -> Dict[str, Any]:
+    """
+    Parse Deep Research markdown-ish output into cleaned body text and a citations array.
+    Converts [cite: n] -> (n) and extracts Sources list into structured links.
+    """
+    body = raw.strip()
+    citations: List[Dict[str, Any]] = []
+
+    # Split out Sources block (markdown bold "Sources:")
+    parts = re.split(r"\n\s*\*\*Sources?:\*\*\s*\n", raw, maxsplit=1)
+    if len(parts) == 2:
+        body = parts[0].strip()
+        sources_block = parts[1]
+    else:
+        sources_block = ""
+
+    # Parse sources: lines like "1. [label](url)" or "1. url"
+    for m in re.finditer(r"(?m)^\s*(\d+)\.\s*(?:\[(.+?)\]\((.+?)\)|(.+))$", sources_block):
+        sid = int(m.group(1))
+        label = (m.group(2) or m.group(4) or "").strip()
+        url_raw = (m.group(3) or m.group(4) or "").strip()
+        url_match = re.search(r"https?://\S+", url_raw)
+        url = url_match.group(0) if url_match else url_raw
+        title = label or url
+        try:
+            domain = urlparse(url).netloc
+            if domain and "vertexaisearch.cloud.google.com" not in domain:
+                title = domain
+        except Exception:
+            pass
+        citations.append({"id": sid, "title": title, "url": url})
+
+    # Replace [cite: 1,2] with (1, 2)
+    def cite_repl(match: re.Match) -> str:
+        nums = match.group(1)
+        nums = re.sub(r"\s*,\s*", ", ", nums.strip())
+        return f"({nums})"
+
+    body = re.sub(r"\[cite:\s*([0-9,\s]+)\]", cite_repl, body)
+
+    return {"content": body, "citations": citations}
+
+
 async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[str, Any]:
     user_prompt = (payload.prompt or "").strip()
     if not user_prompt:
@@ -254,11 +294,13 @@ Konu:
         language,
     )
 
-    start_result = await _start_interaction(structured_prompt, api_key, agent, payload.urls)
-    interaction_id = start_result["interaction_id"]
-    result_payload = await _poll_interaction(interaction_id, api_key)
+    async with httpx.AsyncClient(timeout=180) as client:
+        start_result = await _start_interaction(client, structured_prompt, api_key, agent, payload.urls)
+        interaction_id = start_result["interaction_id"]
+        result_payload = await _poll_interaction(client, interaction_id, api_key)
     text = _extract_text(result_payload)
 
+    timed_out = bool(result_payload.get("timeout"))
     if not text:
         logger.warning(
             "DeepResearch returned empty text; responding with graceful fallback",
@@ -267,11 +309,12 @@ Konu:
                 "payload_keys": list(result_payload.keys()),
                 "outputs_len": len(result_payload.get("outputs") or []),
                 "payload_preview": str(result_payload)[:1200],
+                "timed_out": timed_out,
             },
         )
         fallback_text = (
-            "Derin araştırma tamamlandı fakat dönen yanıtta metin bulunamadı. "
-            "Lütfen soruyu yeniden deneyin veya Web Search ile aramayı seçin."
+            "Derin araştırma tamamlandı ancak metin gelmedi veya süre doldu. "
+            "Lütfen yeniden deneyin ya da Web Search ile devam edin."
         )
         message_id = f"deep_research_{interaction_id}"
         return {
@@ -282,46 +325,59 @@ Konu:
             },
         }
 
+    parsed = _parse_citations(text)
+    body = parsed["content"]
+    citations = parsed.get("citations") or []
+
     logger.info(
         "DeepResearch extracted text",
-        extra={"interaction_id": interaction_id, "text_len": len(text), "text_preview": text[:400]},
+        extra={
+            "interaction_id": interaction_id,
+            "text_len": len(body),
+            "text_preview": body[:400],
+            "citations_len": len(citations),
+        },
     )
 
     message_id = f"deep_research_{interaction_id}"
+    streaming_enabled = bool(payload.chat_id)
     if payload.chat_id:
         try:
             chat_persistence.save_assistant_message(
                 user_id=user_id,
                 chat_id=payload.chat_id,
-                content=text,
-                metadata={"source": "deep_research", "interactionId": interaction_id},
+                content=body,
+                metadata={"source": "deep_research", "interactionId": interaction_id, "citations": citations},
                 message_id=message_id,
             )
         except Exception:
             logger.warning("Failed to persist deep research message chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)
 
-        try:
-            await stream_manager.emit_chunk(
-                payload.chat_id,
-                {
-                    "chatId": payload.chat_id,
-                    "messageId": message_id,
-                    "tool": "deep_research",
-                    "content": text,
-                    "isFinal": True,
-                },
-            )
-        except Exception:
-            logger.warning("DeepResearch streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
+        if streaming_enabled:
+            try:
+                await stream_manager.emit_chunk(
+                    payload.chat_id,
+                    {
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "tool": "deep_research",
+                        "content": body,
+                        "citations": citations,
+                        "isFinal": True,
+                    },
+                )
+            except Exception:
+                logger.warning("DeepResearch streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
 
     return {
         "success": True,
         "data": {
             "message": {
-                "content": text,
+                "content": body,
                 "id": message_id,
+                "citations": citations,
             },
-            "streaming": True,
+            "streaming": streaming_enabled,
         },
     }
 

@@ -66,6 +66,7 @@ from endpoints.generate_image.analyze_image_gemini import router as gemini_image
 from endpoints.deep_research import router as deep_research_router
 from endpoints.web_search import router as web_search_router
 from endpoints.web_link import router as web_link_router
+from endpoints.social_posts import router as social_posts_router
 from endpoints.generate_doffice.generate_doc import router as generate_doc_router
 from endpoints.generate_doffice.generate_ppt import router as generate_ppt_router
 from endpoints.generate_doffice.generate_pdf import router as generate_pdf_router
@@ -210,6 +211,7 @@ app.include_router(chat_title_router)
 app.include_router(deep_research_router)
 app.include_router(web_search_router)
 app.include_router(web_link_router)
+app.include_router(social_posts_router)
 app.include_router(presentation_router)
 app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)

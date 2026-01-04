@@ -15,6 +15,7 @@ from .ai_or_not import ai_or_not_agents
 from .deep_research.deep_research_agent import deep_research_agents
 from .web_search.web_search_agent import web_search_agents
 from .web_link.web_link_agent import web_link_agents
+from .social_posts.social_posts_agent import social_posts_agent
 
 agentFunctions: List[BaseAgent] = [
     *image_gemini_agents,
@@ -29,6 +30,7 @@ agentFunctions: List[BaseAgent] = [
     *deep_research_agents,
     *web_search_agents,
     *web_link_agents,
+    social_posts_agent,
 ]
 
 AGENT_REGISTRY: Dict[str, BaseAgent] = {agent.name: agent for agent in agentFunctions}
