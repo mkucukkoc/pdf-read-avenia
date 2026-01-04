@@ -22,14 +22,14 @@ POLL_DELAY_SEC = float(os.getenv("DEEP_RESEARCH_POLL_DELAY", "4.0"))
 MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "6"))
 
 
-async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Optional[list[str]] = None) -> str:
+async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Optional[list[str]] = None) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_api_key_missing", "message": "GEMINI_API_KEY env is required"},
         )
 
-    payload: Dict[str, Any] = {"input": prompt, "agent": agent, "background": True}
+    payload: Dict[str, Any] = {"input": prompt, "agent": agent, "background": True, "store": True}
     if urls:
         payload["context"] = {"urls": urls}
 
@@ -40,6 +40,7 @@ async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Option
             "has_urls": bool(urls),
             "url_count": len(urls or []),
             "prompt_preview": prompt[:200],
+            "payload": payload,
         },
     )
     async with httpx.AsyncClient(timeout=180) as client:
@@ -50,6 +51,7 @@ async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Option
         extra={
             "status": resp.status_code,
             "body_preview": (resp.text or "")[:800],
+            "headers": dict(resp.headers),
         },
     )
 
@@ -63,12 +65,20 @@ async def _start_interaction(prompt: str, api_key: str, agent: str, urls: Option
 
     data = resp.json()
     interaction_id = data.get("id") or data.get("name")
+    logger.info(
+        "DeepResearch start parsed",
+        extra={
+            "interaction_id": interaction_id,
+            "raw_keys": list(data.keys()),
+            "data_preview": str(data)[:500],
+        },
+    )
     if not interaction_id:
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "missing_interaction_id", "message": "Deep Research interaction id missing"},
         )
-    return interaction_id
+    return {"interaction_id": interaction_id, "raw": data}
 
 
 async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]:
@@ -83,6 +93,7 @@ async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]
                 extra={
                     "status": resp.status_code,
                     "body_preview": (resp.text or "")[:800],
+                    "headers": dict(resp.headers),
                 },
             )
             if not resp.is_success:
@@ -144,7 +155,8 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
         language,
     )
 
-    interaction_id = await _start_interaction(prompt, api_key, agent, payload.urls)
+    start_result = await _start_interaction(prompt, api_key, agent, payload.urls)
+    interaction_id = start_result["interaction_id"]
     result_payload = await _poll_interaction(interaction_id, api_key)
     text = _extract_text(result_payload)
 
