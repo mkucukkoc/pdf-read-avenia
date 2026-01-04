@@ -106,6 +106,15 @@ async def _poll_interaction(interaction_id: str, api_key: str) -> Dict[str, Any]
 
             payload = resp.json()
             last_payload = payload
+            outputs = payload.get("outputs") or []
+            logger.info(
+                "DeepResearch poll payload",
+                extra={
+                    "keys": list(payload.keys()),
+                    "outputs_len": len(outputs),
+                    "first_output_preview": str(outputs[0])[:400] if outputs else None,
+                },
+            )
             status = str(payload.get("status") or payload.get("state") or "").lower()
 
             if status in ("completed", "succeeded", "done"):
