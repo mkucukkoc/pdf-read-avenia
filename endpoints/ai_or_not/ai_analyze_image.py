@@ -430,13 +430,24 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
         )
 
     logger.info("Parsing AI or Not API response")
-    body_text = ""
+    body_bytes = resp.content or b""
+    body_len = len(body_bytes)
     try:
-        body_text = resp.text
+        body_text = body_bytes.decode("utf-8", errors="replace")
     except Exception:
         body_text = "<decode_error>"
 
-    logger.info("AI or Not API full response text", extra={"body": body_text})
+    body_preview = body_text[:1200]
+
+    logger.info(
+        "AI or Not API full response text",
+        extra={"body_preview": body_preview, "body_length": body_len},
+    )
+    # İstenirse tamamını da logla (çok büyükse yine de göndersin)
+    logger.info(
+        "AI or Not API full response raw",
+        extra={"body_full": body_text, "body_length": body_len},
+    )
 
     result = resp.json()
     logger.debug("AI or Not API JSON response", extra={"response": json.dumps(result, indent=2)})
@@ -506,7 +517,7 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
                 "id": message_id
             },
             "streaming": bool(chat_id), # Gemini gibi davranması için True (chatId varsa)
-            "raw_response": result,
+        "raw_response": result,
         }
     }
 
