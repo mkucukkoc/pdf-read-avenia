@@ -159,16 +159,22 @@ def _build_summary(verdict: Optional[str], ai_conf: float, human_conf: float, qu
     # 1️⃣ Confidence seviyelerine göre anahtar seçimi (Geliştirilmiş Mantık)
     if verdict not in ("ai", "human"):
         key = "uncertain"
-    elif ai_pct >= 98:
-        key = "very_high_ai"
-    elif ai_pct >= 90:
-        key = "high_ai"
-    elif abs(ai_pct - human_pct) <= 10:
-        key = "uncertain"
-    elif human_pct >= 90:
-        key = "human"
-    else:
-        key = "likely_human"
+    elif verdict == "ai":
+        if ai_pct >= 98:
+            key = "very_high_ai"
+        elif ai_pct >= 80:
+            key = "high_ai"      # AI olasılığı %80+ ise AI vurgusu
+        elif abs(ai_pct - human_pct) <= 10:
+            key = "uncertain"
+        else:
+            key = "high_ai"      # AI verdict varsa kalan durumlarda da AI ağırlığı
+    else:  # verdict == "human"
+        if human_pct >= 90:
+            key = "human"
+        elif abs(ai_pct - human_pct) <= 10:
+            key = "uncertain"
+        else:
+            key = "likely_human"
 
     pool = _CUSTOM_SUMMARY_MAP.get(lang, _CUSTOM_SUMMARY_MAP["en"])
     messages = pool.get(key, _CUSTOM_SUMMARY_MAP["en"][key])
