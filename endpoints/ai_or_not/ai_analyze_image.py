@@ -143,28 +143,33 @@ _CUSTOM_SUMMARY_MAP = {
 }
 
 
-def _build_summary(verdict: Optional[str], confidence: float, quality, nsfw, language: Optional[str]):
+def _build_summary(verdict: Optional[str], ai_conf: float, human_conf: float, quality, nsfw, language: Optional[str]):
     lang = normalize_language(language)
-    ai_conf = confidence if verdict == "ai" else max(0.0, 1.0 - confidence)
-    human_conf = confidence if verdict == "human" else max(0.0, 1.0 - confidence)
-
+    
     ai_pct = round(ai_conf * 100)
     human_pct = round(human_conf * 100)
     
-    ai_pct_str = f"%{ai_pct}"
+    # %99+ iyileştirmesi
+    if ai_pct >= 99:
+        ai_pct_str = "%99+"
+    else:
+        ai_pct_str = f"%{ai_pct}"
+        
     human_pct_str = f"%{human_pct}"
 
-    # 1️⃣ Confidence’e göre key seç
-    if ai_pct >= 98:
-        key = 'very_high_ai'
+    # 1️⃣ Confidence seviyelerine göre anahtar seçimi (Geliştirilmiş Mantık)
+    if verdict not in ("ai", "human"):
+        key = "uncertain"
+    elif ai_pct >= 98:
+        key = "very_high_ai"
     elif ai_pct >= 90:
-        key = 'high_ai'
-    elif ai_pct >= 60:
-        key = 'uncertain'
+        key = "high_ai"
+    elif abs(ai_pct - human_pct) <= 10:
+        key = "uncertain"
     elif human_pct >= 90:
-        key = 'human'
+        key = "human"
     else:
-        key = 'likely_human'
+        key = "likely_human"
 
     pool = _CUSTOM_SUMMARY_MAP.get(lang, _CUSTOM_SUMMARY_MAP["en"])
     messages = pool.get(key, _CUSTOM_SUMMARY_MAP["en"][key])
@@ -173,7 +178,33 @@ def _build_summary(verdict: Optional[str], confidence: float, quality, nsfw, lan
     selected_text = random.choice(messages)
     
     # Placeholder'ları doldur
-    return selected_text.replace("%{ai_pct}", ai_pct_str).replace("%{human_pct}", human_pct_str)
+    filled_text = selected_text.replace("%{ai_pct}", ai_pct_str).replace("%{human_pct}", human_pct_str)
+
+    # 3️⃣ NSFW & Quality Bilgisini Suffix Olarak Ekle
+    suffix = ""
+    if lang == "tr":
+        if nsfw:
+            suffix += " ⚠️ Görsel hassas/NSFW içerik barındırabilir."
+        else:
+            suffix += " ✅ Hassas içerik riski tespit edilmedi."
+        
+        if quality is False:
+            suffix += " Görsel kalitesi düşük olabilir."
+        elif quality is None:
+            suffix += " Görsel kalite bilgisi sınırlı."
+    else:
+        # English fallback suffix
+        if nsfw:
+            suffix += " ⚠️ Image may contain sensitive/NSFW content."
+        else:
+            suffix += " ✅ No sensitive content risk detected."
+        
+        if quality is False:
+            suffix += " Image quality may be low."
+        elif quality is None:
+            suffix += " Image quality information is limited."
+
+    return filled_text + suffix
 
 
 def _save_failure_message(user_id: str, chat_id: str, language: Optional[str], message: str, raw: Optional[dict] = None):
@@ -398,14 +429,14 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     report = result.get("report") or {}
     ai_generated = report.get("ai_generated") or {}
     verdict = ai_generated.get("verdict")
-    # verdict'e göre güven değerini al (ai ise ai, human ise human)
-    v_key = "ai" if verdict == "ai" else "human"
-    conf = _safe_float((ai_generated.get(v_key) or {}).get("confidence")) or 0.0
+    
+    ai_conf = _safe_float((ai_generated.get("ai") or {}).get("confidence")) or 0.0
+    human_conf = _safe_float((ai_generated.get("human") or {}).get("confidence")) or 0.0
     
     nsfw = (report.get("nsfw") or {}).get("is_detected")
     quality = (report.get("quality") or {}).get("is_detected")
 
-    analysis_message = _build_summary(verdict, conf, quality, nsfw, language_norm)
+    analysis_message = _build_summary(verdict, ai_conf, human_conf, quality, nsfw, language_norm)
     
     logger.debug(
         "Generated analysis message (summary)",
