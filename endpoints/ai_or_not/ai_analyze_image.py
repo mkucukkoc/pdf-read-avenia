@@ -448,25 +448,59 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
 
     logger.debug("Extracting report fields")
     report = result.get("report") or {}
-    ai_generated = report.get("ai_generated") or {}
-    
+    ai_generated = report.get("ai_generated") or {}  # eski şema
+
+    # Yeni şema alanları
+    new_verdict = report.get("verdict")
+    new_ai = report.get("ai") or {}
+    new_human = report.get("human") or {}
+    facets = result.get("facets") or {}
+
     # Debug log for API structure
     logger.info("AI or Not API Report structure", extra={
         "report_keys": list(report.keys()),
         "ai_gen_keys": list(ai_generated.keys()),
-        "verdict": ai_generated.get("verdict")
+        "verdict": new_verdict or ai_generated.get("verdict"),
+        "facets_keys": list(facets.keys()),
     })
 
-    verdict = ai_generated.get("verdict")
-    
-    ai_conf = _safe_float((ai_generated.get("ai") or {}).get("confidence")) or 0.0
-    human_conf = _safe_float((ai_generated.get("human") or {}).get("confidence")) or 0.0
-    # Eğer iki değer de 0 geliyorsa, insan olasılığını %100 varsay
+    # Verdict önceliği: yeni şema > eski şema
+    verdict = new_verdict or ai_generated.get("verdict")
+
+    # Confidence önceliği: yeni şema > eski şema
+    ai_conf = _safe_float(new_ai.get("confidence"))
+    if ai_conf is None:
+        ai_conf = _safe_float((ai_generated.get("ai") or {}).get("confidence"))
+    human_conf = _safe_float(new_human.get("confidence"))
+    if human_conf is None:
+        human_conf = _safe_float((ai_generated.get("human") or {}).get("confidence"))
+
+    # Eğer hâlâ yoksa ve ai_conf var, human_conf'u 1 - ai_conf yap
+    if ai_conf is not None and human_conf is None:
+        human_conf = max(0.0, 1.0 - ai_conf)
+    if human_conf is not None and ai_conf is None:
+        ai_conf = max(0.0, 1.0 - human_conf)
+
+    # None'ları 0.0'a düşür
+    ai_conf = ai_conf or 0.0
+    human_conf = human_conf or 0.0
+
+    # İki değer de 0 ise insanı %100 varsay
     if ai_conf == 0 and human_conf == 0:
         human_conf = 1.0
-    
-    nsfw = (report.get("nsfw") or {}).get("is_detected")
-    quality = (report.get("quality") or {}).get("is_detected")
+
+    # nsfw / quality yeni şema (facets) öncelikli
+    nsfw = None
+    quality = None
+    if "nsfw" in facets:
+        nsfw = (facets.get("nsfw") or {}).get("is_detected")
+    if "quality" in facets:
+        quality = (facets.get("quality") or {}).get("is_detected")
+    # Eski şema fallback
+    if nsfw is None:
+        nsfw = (report.get("nsfw") or {}).get("is_detected")
+    if quality is None:
+        quality = (report.get("quality") or {}).get("is_detected")
 
     analysis_message = _build_summary(verdict, ai_conf, human_conf, quality, nsfw, language_norm)
     
