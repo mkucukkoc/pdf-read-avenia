@@ -428,6 +428,14 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     logger.debug("Extracting report fields")
     report = result.get("report") or {}
     ai_generated = report.get("ai_generated") or {}
+    
+    # Debug log for API structure
+    logger.info("AI or Not API Report structure", extra={
+        "report_keys": list(report.keys()),
+        "ai_gen_keys": list(ai_generated.keys()),
+        "verdict": ai_generated.get("verdict")
+    })
+
     verdict = ai_generated.get("verdict")
     
     ai_conf = _safe_float((ai_generated.get("ai") or {}).get("confidence")) or 0.0
@@ -451,13 +459,19 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     saved_info = _save_asst_message(user_id, chat_id, analysis_message, result, language_norm)
     logger.info("Firestore save result", extra={"saved_info": saved_info})
 
+    # Frontend beklentisine göre veriyi sarmala
+    message_id = saved_info.get("message_id") if saved_info else f"ai_check_{os.urandom(4).hex()}"
+
     return {
         "success": True,
+        "data": {
+            "message": {
+                "content": analysis_message,
+                "id": message_id
+            },
+            "streaming": False,
         "raw_response": result,
-        "summary": analysis_message,
-        "summary_tr": analysis_message,
-        "language": language_norm,
-        "saved": saved_info,
+        }
     }
 
 
