@@ -189,8 +189,8 @@ def _build_summary(verdict: Optional[str], ai_conf: float, human_conf: float, qu
         
         if quality is False:
             suffix += " Görsel kalitesi düşük olabilir."
-        elif quality is None:
-            suffix += " Görsel kalite bilgisi sınırlı."
+        else:
+            suffix += " Görsel kalitesi iyi görünüyor."
     else:
         # English fallback suffix
         if nsfw:
@@ -200,8 +200,8 @@ def _build_summary(verdict: Optional[str], ai_conf: float, human_conf: float, qu
         
         if quality is False:
             suffix += " Image quality may be low."
-        elif quality is None:
-            suffix += " Image quality information is limited."
+        else:
+            suffix += " Image quality looks good."
 
     return filled_text + suffix
 
@@ -423,6 +423,7 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     logger.info("Parsing AI or Not API response")
     result = resp.json()
     logger.debug("AI or Not API JSON response", extra={"response": json.dumps(result, indent=2)})
+    logger.info("AI or Not API full response", extra={"response": result})
 
     logger.debug("Extracting report fields")
     report = result.get("report") or {}
@@ -439,6 +440,9 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     
     ai_conf = _safe_float((ai_generated.get("ai") or {}).get("confidence")) or 0.0
     human_conf = _safe_float((ai_generated.get("human") or {}).get("confidence")) or 0.0
+    # Eğer iki değer de 0 geliyorsa, insan olasılığını %100 varsay
+    if ai_conf == 0 and human_conf == 0:
+        human_conf = 1.0
     
     nsfw = (report.get("nsfw") or {}).get("is_detected")
     quality = (report.get("quality") or {}).get("is_detected")
