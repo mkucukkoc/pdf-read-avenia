@@ -392,6 +392,15 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
     )
 
     files = {"object": ('image.jpg', image_bytes, 'image/jpeg')}
+    logger.info(
+        "AI or Not API request",
+        extra={
+            "url": IMAGE_ENDPOINT,
+            "file_field": "object",
+            "file_size": len(image_bytes),
+            "headers": {"Authorization": "Bearer ***"},
+        },
+    )
     try:
         logger.info("Calling AI or Not API")
         async with httpx.AsyncClient(timeout=30) as client:
@@ -421,6 +430,14 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
         )
 
     logger.info("Parsing AI or Not API response")
+    body_text = ""
+    try:
+        body_text = resp.text
+    except Exception:
+        body_text = "<decode_error>"
+
+    logger.info("AI or Not API full response text", extra={"body": body_text})
+
     result = resp.json()
     logger.debug("AI or Not API JSON response", extra={"response": json.dumps(result, indent=2)})
     logger.info("AI or Not API full response", extra={"response": result})

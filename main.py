@@ -278,6 +278,7 @@ JWT_AUDIENCE = os.getenv("JWT_AUD", "chatgbtmini-mobile")
 PUBLIC_PATHS = {"/healthz", "/health", "/docs", "/openapi.json", "/redoc"}
 
 auth_logger = logging.getLogger("pdfread.auth")
+http_logger = logging.getLogger("pdf_read_refresh.http")
 
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 
@@ -361,6 +362,53 @@ async def authenticate_request(request: Request, call_next):
         return JSONResponse(status_code=exc.status_code, content=detail)
 
     return await call_next(request)
+
+
+# Global request/response logger (tüm endpointler için)
+@app.middleware("http")
+async def log_request_response(request: Request, call_next):
+    try:
+        body_bytes = await request.body()
+    except Exception:
+        body_bytes = b""
+
+    body_preview = ""
+    if body_bytes:
+        try:
+            body_preview = body_bytes[:4000].decode("utf-8", errors="ignore")
+        except Exception:
+            body_preview = "<body_decode_error>"
+
+    http_logger.info(
+        "HTTP request",
+        extra={
+            "method": request.method,
+            "url": str(request.url),
+            "headers": dict(request.headers),
+            "body_preview": body_preview,
+        },
+    )
+
+    response = await call_next(request)
+
+    resp_preview = None
+    try:
+        resp_body = getattr(response, "body", None)
+        if isinstance(resp_body, (bytes, bytearray)):
+            resp_preview = resp_body[:4000].decode("utf-8", errors="ignore")
+    except Exception:
+        resp_preview = "<response_decode_error>"
+
+    http_logger.info(
+        "HTTP response",
+        extra={
+            "status_code": response.status_code,
+            "headers": dict(response.headers),
+            "body_preview": resp_preview,
+        },
+    )
+
+    return response
 
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
