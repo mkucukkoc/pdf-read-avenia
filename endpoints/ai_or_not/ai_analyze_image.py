@@ -439,19 +439,12 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
 
     body_preview = body_text[:1200]
 
-    logger.info(
-        "AI or Not API full response text",
-        extra={"body_preview": body_preview, "body_length": body_len},
-    )
-    # İstenirse tamamını da logla (çok büyükse yine de göndersin)
-    logger.info(
-        "AI or Not API full response raw",
-        extra={"body_full": body_text, "body_length": body_len},
-    )
+    logger.info("AI or Not API full response text: %s", body_preview)
+    logger.info("AI or Not API full response raw: %s", body_text)
 
     result = resp.json()
-    logger.debug("AI or Not API JSON response", extra={"response": json.dumps(result, indent=2)})
-    logger.info("AI or Not API full response", extra={"response": result})
+    logger.debug("AI or Not API JSON response: %s", json.dumps(result, indent=2, ensure_ascii=False))
+    logger.info("AI or Not API full response: %s", json.dumps(result, indent=2, ensure_ascii=False))
 
     logger.debug("Extracting report fields")
     report = result.get("report") or {}
