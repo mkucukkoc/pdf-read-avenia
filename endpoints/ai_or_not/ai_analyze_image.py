@@ -10,6 +10,7 @@ from fastapi import Body, Query, APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from core.useChatPersistence import chat_persistence
+from core.websocket_manager import stream_manager
 from core.language_support import (
     normalize_language,
     build_ai_detection_messages,
@@ -459,6 +460,22 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
 
     # Frontend beklentisine göre veriyi sarmala
     message_id = saved_info.get("message_id") if saved_info else f"ai_check_{os.urandom(4).hex()}"
+    
+    # Gemini / Deep Research gibi WebSocket üzerinden de emit ediyoruz (akış birliği için)
+    if chat_id:
+        try:
+            await stream_manager.emit_chunk(
+                chat_id,
+                {
+                    "chatId": chat_id,
+                    "messageId": message_id,
+                    "tool": "ai_or_not_analysis",
+                    "content": analysis_message,
+                    "isFinal": True,
+                },
+            )
+        except Exception:
+            logger.warning("AI Check streaming emit failed chatId=%s", chat_id, exc_info=True)
 
     return {
         "success": True,
@@ -467,8 +484,8 @@ async def _run_analysis(image_bytes: bytes, user_id: str, chat_id: str, language
                 "content": analysis_message,
                 "id": message_id
             },
-            "streaming": False,
-        "raw_response": result,
+            "streaming": bool(chat_id), # Gemini gibi davranması için True (chatId varsa)
+            "raw_response": result,
         }
     }
 
