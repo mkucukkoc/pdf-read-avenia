@@ -380,3 +380,48 @@ def format_ai_detection_summary(
     return " ".join([summary_intro] + verdict_msgs)
 
 
+_IMAGE_GEN_MESSAGES = {
+    "tr": {
+        "ready": "Görsel hazır!",
+        "failed": "Görsel oluşturulamadı.",
+        "edited": "Görsel düzenlendi!",
+        "edit_failed": "Görsel düzenlenemedi.",
+    },
+    "en": {
+        "ready": "Image is ready!",
+        "failed": "Failed to generate image.",
+        "edited": "Image edited!",
+        "edit_failed": "Failed to edit image.",
+    },
+    "es": {
+        "ready": "¡La imagen está lista!",
+        "failed": "Error al generar la imagen.",
+        "edited": "¡Imagen editada!",
+        "edit_failed": "Error al editar la imagen.",
+    },
+    "pt": {
+        "ready": "A imagem está pronta!",
+        "failed": "Falha ao gerar a imagem.",
+        "edited": "Imagem editada!",
+        "edit_failed": "Falha ao editar a imagem.",
+    },
+    "fr": {
+        "ready": "L'image est prête !",
+        "failed": "Échec de la génération de l'image.",
+        "edited": "Image éditée !",
+        "edit_failed": "Échec de l'édition de l'image.",
+    },
+    "ru": {
+        "ready": "Изображение готово!",
+        "failed": "Не удалось создать изображение.",
+        "edited": "Изображение отредактировано!",
+        "edit_failed": "Не удалось отредактировать изображение.",
+    },
+}
+
+
+def get_image_gen_message(language: Optional[str], key: str = "ready") -> str:
+    lang = normalize_language(language)
+    return _IMAGE_GEN_MESSAGES.get(lang, _IMAGE_GEN_MESSAGES[DEFAULT_LANGUAGE]).get(key, "Image is ready!")
+
+

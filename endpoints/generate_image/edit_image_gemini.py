@@ -13,7 +13,7 @@ from firebase_admin import firestore
 from fastapi import APIRouter, HTTPException, Request
 from PIL import Image
 
-from core.language_support import normalize_language
+from core.language_support import normalize_language, get_image_gen_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_image_edit_failed_message
@@ -385,15 +385,16 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 "model": effective_model,
             },
         )
+        edited_msg = get_image_gen_message(language, "edited")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
-            content="Görsel düzenlendi!",
+            content=edited_msg,
             image_url=final_image_link,
             metadata=metadata,
         )
         await emit_status(
-            "Görsel düzenlendi!",
+            edited_msg,
             final=True,
             metadata={
                 "imageUrl": final_image_link,
@@ -404,7 +405,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         result = attach_streaming_payload(
             result_payload,
             tool="image_edit_gemini",
-            content="Görsel düzenlendi!",
+            content=edited_msg,
             streaming=streaming_enabled,
             message_id=message_id if streaming_enabled else None,
             extra_data={
@@ -420,7 +421,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
     except Exception as exc:
         logger.error("Gemini image edit failed", exc_info=exc)
         message = get_image_edit_failed_message(payload.language)
-        await emit_status("Görsel düzenlenemedi.", final=True, error="image_edit_failed")
+        edit_failed_msg = get_image_gen_message(language, "edit_failed")
+        await emit_status(edit_failed_msg, final=True, error="image_edit_failed")
         if payload.chat_id:
             _save_message_to_firestore(
                 user_id=user_id,

@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 import requests
 from fastapi import APIRouter, HTTPException, Request
 
-from core.language_support import normalize_language
+from core.language_support import normalize_language, get_image_gen_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
@@ -301,15 +301,16 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
                 "model": model,
             },
         )
+        ready_msg = get_image_gen_message(language, "ready")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
-            content="Görsel hazır!",
+            content=ready_msg,
             image_url=final_image_link,
             metadata=metadata,
         )
         await emit_status(
-            "Görsel hazır!",
+            ready_msg,
             final=True,
             metadata={
                 "imageUrl": final_image_link,
@@ -320,7 +321,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
         result = attach_streaming_payload(
             result_payload,
             tool="generate_image_gemini_search",
-            content="Görsel hazır!",
+            content=ready_msg,
             streaming=streaming_enabled,
             message_id=message_id if streaming_enabled else None,
             extra_data={
@@ -336,7 +337,8 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
     except Exception as exc:
         logger.error("Gemini image search failed", exc_info=exc)
         message = get_no_image_generate_message(payload.language)
-        await emit_status("Görsel oluşturulamadı.", final=True, error="image_generation_failed")
+        failed_msg = get_image_gen_message(language, "failed")
+        await emit_status(failed_msg, final=True, error="image_generation_failed")
         if payload.chat_id:
             _save_message_to_firestore(
                 user_id=user_id,
