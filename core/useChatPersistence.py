@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -88,9 +89,10 @@ class ChatPersistenceService:
             return
 
         clean_title = self._derive_title(initial_content or "")
+        now = datetime.utcnow()
         payload: Dict[str, Any] = {
-            "createdAt": firestore.SERVER_TIMESTAMP,
-            "timestamp": firestore.SERVER_TIMESTAMP,
+            "createdAt": now,
+            "timestamp": now,
             "title": clean_title,
             "hasChatTitle": False,
         }
@@ -117,7 +119,8 @@ class ChatPersistenceService:
         if not content and not force_title and not extra:
             return
 
-        update_payload: Dict[str, Any] = {"timestamp": firestore.SERVER_TIMESTAMP}
+        now = datetime.utcnow()
+        update_payload: Dict[str, Any] = {"timestamp": now}
 
         if force_title:
             update_payload["title"] = _trim(force_title, 60)
@@ -140,10 +143,12 @@ class ChatPersistenceService:
         chat_id: str,
         message: MessagePayload,
     ) -> str:
+        now = datetime.utcnow()
         payload: Dict[str, Any] = {
             "role": message.role,
             "content": message.content,
-            "timestamp": firestore.SERVER_TIMESTAMP,
+            "timestamp": now,
+            "createdAt": now,
         }
         if message.file_name:
             payload["fileName"] = message.file_name

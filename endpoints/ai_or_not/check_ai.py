@@ -15,6 +15,7 @@ from core.language_support import (
     nsfw_flag_from_value,
     quality_flag_from_value,
 )
+from core.useChatPersistence import chat_persistence
 from main import app, IMAGE_ENDPOINT
 from firebase_admin import firestore
 
@@ -107,23 +108,24 @@ def format_summary_tr(data: Dict[str, Any], language: Optional[str] = None) -> s
 
 def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any, language: Optional[str] = None) -> Dict[str, Any]:
     logger.info("[_save_asst_message] user_id=%s chat_id=%s content_preview=%s", user_id, chat_id, (content or "")[:200])
-    db = firestore.client()
-    path = f"users/{user_id}/chats/{chat_id}/messages"
+    if not user_id or not chat_id:
+        return {"saved": False}
     try:
-        ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages").add({
-            "role": "assistant",
-            "content": content,
-            "meta": {
+        message_id = chat_persistence.save_assistant_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            content=content,
+            metadata={
                 "language": normalize_language(language),
-                "ai_detect": {"raw": raw}
-            },
-        })
-        message_id = ref[1].id if isinstance(ref, tuple) else ref.id
-        logger.info("[_save_asst_message] saved=True message_id=%s path=%s", message_id, path)
-        return {"saved": True, "message_id": message_id, "path": path}
-    except Exception as e:  # pylint: disable=broad-except
+                "ai_detect": {"raw": raw},
+                "tool": "ai_or_not_analysis"
+            }
+        )
+        logger.info("[_save_asst_message] saved=True message_id=%s", message_id)
+        return {"saved": True, "message_id": message_id}
+    except Exception as e:
         logger.error("Firestore save error: %s", e)
-        return {"saved": False, "message_id": None, "path": path, "error": str(e)}
+        return {"saved": False, "message_id": None, "error": str(e)}
 
 
 # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

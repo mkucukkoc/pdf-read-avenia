@@ -713,7 +713,8 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
                     "raw": raw
                 }
             },
-            "timestamp": firestore.SERVER_TIMESTAMP
+            "timestamp": datetime.utcnow(),
+            "createdAt": datetime.utcnow()
         })
         message_id = doc_ref[1].id if isinstance(doc_ref, tuple) else doc_ref.id
         print("[/analyze-image] Firestore kaydı:", message_id)

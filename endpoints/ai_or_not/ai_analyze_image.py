@@ -8,8 +8,8 @@ from typing import Optional, Dict, Any, Tuple
 import httpx
 from fastapi import Body, Query, APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from firebase_admin import firestore
 
+from core.useChatPersistence import chat_persistence
 from core.language_support import (
     normalize_language,
     build_ai_detection_messages,
@@ -43,19 +43,17 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
     if not user_id or not chat_id:
         return {"saved": False}
     try:
-        db = firestore.client()
-        path = f"users/{user_id}/chats/{chat_id}/messages"
-        ref = db.collection("users").document(user_id).collection("chats").document(chat_id).collection("messages").add({
-            "role": "assistant",
-            "content": content,
-            # Only keep minimal meta; avoid storing raw AI response in Firestore
-            "meta": {
+        message_id = chat_persistence.save_assistant_message(
+            user_id=user_id,
+            chat_id=chat_id,
+            content=content,
+            metadata={
                 "language": normalize_language(language),
-            },
-        })
-        message_id = ref[1].id if isinstance(ref, tuple) else ref.id
-        return {"saved": True, "message_id": message_id, "path": path}
-    except Exception as e:  # pragma: no cover
+                "tool": "ai_or_not_analysis"
+            }
+        )
+        return {"saved": True, "message_id": message_id}
+    except Exception as e:
         logger.warning("Failed to save message to Firestore", exc_info=e)
         return {"saved": False, "error": str(e)}
 
