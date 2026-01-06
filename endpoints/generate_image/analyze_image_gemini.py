@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import os
 import uuid
@@ -77,17 +78,11 @@ def _extract_text(response_json: Dict[str, Any]) -> str:
 @router.post("/gemini-analyze")
 async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Request) -> Dict[str, Any]:
     """Analyze an image via Google Gemini API and return a text summary."""
-    logger.info(
-        "Gemini analyze endpoint called",
-        extra={
-            "chat_id": payload.chat_id,
-            "language_raw": payload.language,
-            "image_url": (payload.image_url or "")[:200],
-            "prompt_len": len(payload.prompt or ""),
-            "prompt_preview": (payload.prompt or "")[:120],
-            "model_override": payload.model,
-        },
-    )
+    try:
+        req_payload = payload.model_dump(by_alias=True, exclude_none=True)
+    except Exception:
+        req_payload = {"error": "payload_serialization_failed"}
+    logger.info("Gemini analyze request JSON: %s", json.dumps(req_payload, ensure_ascii=False))
 
     user_id = _extract_user_id(request)
     language = normalize_language(payload.language)
@@ -295,10 +290,10 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
         extra_data={"analysis": analysis_text},
     )
 
-    logger.info(
-        "Gemini analyze response ready",
-        extra={"chatId": payload.chat_id, "streaming": streaming_enabled},
-    )
+    try:
+        logger.info("Gemini analyze response JSON: %s", json.dumps(result, ensure_ascii=False))
+    except Exception:
+        logger.warning("Gemini analyze response logging failed")
     return result
 
 

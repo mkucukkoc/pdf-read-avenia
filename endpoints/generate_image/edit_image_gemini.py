@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import os
 import tempfile
@@ -240,17 +241,11 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
         )
 
-    logger.info(
-        "Gemini edit endpoint called",
-        extra={
-          "chat_id": payload.chat_id,
-          "language_raw": payload.language,
-          "file_name": payload.file_name,
-          "prompt_len": len(payload.prompt or ""),
-          "prompt_preview": (payload.prompt or "")[:120],
-          "image_url": (payload.image_url or "")[:200],
-        },
-    )
+    try:
+        req_payload = payload.model_dump(by_alias=True, exclude_none=True)
+    except Exception:
+        req_payload = {"error": "payload_serialization_failed"}
+    logger.info("Gemini edit request JSON: %s", json.dumps(req_payload, ensure_ascii=False))
 
     user_id = _extract_user_id(request)
     language = normalize_language(payload.language)
@@ -414,7 +409,10 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 "mimeType": inline_data["mimeType"],
             },
         )
-        logger.info("Gemini edit response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
+        try:
+            logger.info("Gemini edit response JSON: %s", json.dumps(result, ensure_ascii=False))
+        except Exception:
+            logger.warning("Gemini edit response logging failed")
         return result
     except HTTPException:
         raise

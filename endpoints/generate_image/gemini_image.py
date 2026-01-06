@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import json
 import os
 import tempfile
 import time
@@ -293,16 +294,11 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
         )
 
-    logger.info(
-        "Gemini endpoint called",
-        extra={
-          "chat_id": payload.chat_id,
-          "language_raw": payload.language,
-          "file_name": payload.file_name,
-          "prompt_len": len(payload.prompt or ""),
-          "prompt_preview": (payload.prompt or "")[:120],
-        },
-    )
+    try:
+        req_payload = payload.model_dump(by_alias=True, exclude_none=True)
+    except Exception:
+        req_payload = {"error": "payload_serialization_failed"}
+    logger.info("Gemini image request JSON: %s", json.dumps(req_payload, ensure_ascii=False))
 
     user_id = _extract_user_id(request)
     language = normalize_language(payload.language)
@@ -437,7 +433,10 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 "mimeType": inline_data["mimeType"],
             },
         )
-        logger.info("Gemini image response ready", extra={"imageUrl": final_url, "hasDataUrl": bool(data_url), "chatId": payload.chat_id})
+        try:
+            logger.info("Gemini image response JSON: %s", json.dumps(result, ensure_ascii=False))
+        except Exception:
+            logger.warning("Gemini image response logging failed")
         return result
     except HTTPException:
         raise
