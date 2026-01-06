@@ -21,6 +21,7 @@ def log_request(logger: logging.Logger, name: str, payload_obj: Any) -> None:
     """
     Log an incoming request payload as pretty JSON.
     Tries pydantic model_dump when available.
+    Includes endpoint label if method/path keys exist.
     """
     try:
         if isinstance(payload_obj, dict):
@@ -33,13 +34,27 @@ def log_request(logger: logging.Logger, name: str, payload_obj: Any) -> None:
                 payload_dict = payload_obj
     except Exception:
         payload_dict = payload_obj
-    logger.info("%s request JSON:\n%s", name, json_pretty(payload_dict))
+
+    method = None
+    path = None
+    if isinstance(payload_dict, dict):
+        method = payload_dict.get("method")
+        path = payload_dict.get("path")
+    endpoint_label = f"{method} {path}" if method and path else name
+
+    logger.info("%s request JSON (%s):\n%s", name, endpoint_label, json_pretty(payload_dict))
 
 
 def log_response(logger: logging.Logger, name: str, response_obj: Any) -> None:
     """
     Log an outgoing response payload as pretty JSON.
+    If response_obj is a dict containing an 'endpoint', use it in the label.
     """
-    logger.info("%s response JSON:\n%s", name, json_pretty(response_obj))
+    endpoint_label = None
+    if isinstance(response_obj, dict):
+        endpoint_label = response_obj.get("endpoint")
+
+    label = endpoint_label or name
+    logger.info("%s response JSON (%s):\n%s", name, label, json_pretty(response_obj))
 
 
