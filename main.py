@@ -57,7 +57,6 @@ from endpoints.chat.first_prompt import router as chat_first_prompt_router
 from endpoints.chat.manage import router as chat_manage_router
 from endpoints.agent import router as agent_router
 from endpoints.chat_title import router as chat_title_router
-from endpoints.presentation import router as presentation_router
 from endpoints.generate_image.gemini_image import router as gemini_image_router
 from endpoints.video_gemini.gemini_video import router as gemini_video_router
 from endpoints.generate_image.generateImageGeminiSearch import router as gemini_image_search_router
@@ -212,7 +211,6 @@ app.include_router(deep_research_router)
 app.include_router(web_search_router)
 app.include_router(web_link_router)
 app.include_router(social_posts_router)
-app.include_router(presentation_router)
 app.include_router(gemini_image_router)
 app.include_router(gemini_video_router)
 app.include_router(gemini_image_search_router)
