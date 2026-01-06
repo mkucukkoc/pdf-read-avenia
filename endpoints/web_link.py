@@ -10,6 +10,7 @@ from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
 from schemas import WebSearchRequest
+from endpoints.logging.utils_logging import log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.web_link")
 
@@ -69,6 +70,7 @@ def _extract_text(result: Dict[str, Any]) -> str:
 
 
 async def run_web_link(payload: WebSearchRequest, user_id: str) -> Dict[str, Any]:
+    log_request(logger, "web_link", payload)
     prompt = (payload.prompt or "").strip()
     if not prompt:
         raise HTTPException(
@@ -129,7 +131,7 @@ async def run_web_link(payload: WebSearchRequest, user_id: str) -> Dict[str, Any
         except Exception:
             logger.warning("WebLink streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
 
-    return {
+    response_payload = {
         "success": True,
         "data": {
             "message": {
@@ -139,6 +141,11 @@ async def run_web_link(payload: WebSearchRequest, user_id: str) -> Dict[str, Any
             "streaming": True,
         },
     }
+    try:
+        log_response(logger, "web_link", response_payload)
+    except Exception:
+        logger.warning("WebLink response logging failed")
+    return response_payload
 
 
 @router.post("")

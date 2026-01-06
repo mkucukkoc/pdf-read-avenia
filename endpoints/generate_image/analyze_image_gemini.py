@@ -12,6 +12,7 @@ from core.language_support import normalize_language
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from schemas import GeminiImageAnalyzeRequest
+from endpoints.logging.utils_logging import log_request, log_response
 from endpoints.files_pdf.utils import attach_streaming_payload
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_analyze")
@@ -78,11 +79,7 @@ def _extract_text(response_json: Dict[str, Any]) -> str:
 @router.post("/gemini-analyze")
 async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Request) -> Dict[str, Any]:
     """Analyze an image via Google Gemini API and return a text summary."""
-    try:
-        req_payload = payload.model_dump(by_alias=True, exclude_none=True)
-    except Exception:
-        req_payload = {"error": "payload_serialization_failed"}
-    logger.info("Gemini analyze request JSON: %s", json.dumps(req_payload, ensure_ascii=False))
+    log_request(logger, "analyze_image_gemini", payload)
 
     user_id = _extract_user_id(request)
     language = normalize_language(payload.language)
@@ -291,7 +288,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     )
 
     try:
-        logger.info("Gemini analyze response JSON: %s", json.dumps(result, ensure_ascii=False))
+        log_response(logger, "analyze_image_gemini", result)
     except Exception:
         logger.warning("Gemini analyze response logging failed")
     return result

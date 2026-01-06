@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from core.auth import get_request_user_id  # type: ignore[attr-defined]
 from core.useChatPersistence import chat_persistence
+from endpoints.logging.utils_logging import log_request, log_response
 
 
 logger = logging.getLogger("pdf_read_refresh.chat.first_prompt")
@@ -31,6 +32,7 @@ class FirstPromptRequest(BaseModel):
 @router.post("/first_prompt")
 async def save_first_prompt(payload: FirstPromptRequest, request: Request) -> Dict[str, Any]:
     user_id = get_request_user_id(request)
+    log_request(logger, "chat_first_prompt", payload)
     logger.info(
         "first_prompt request received",
         extra={
@@ -74,7 +76,9 @@ async def save_first_prompt(payload: FirstPromptRequest, request: Request) -> Di
             payload.chat_id,
             message_id,
         )
-        return {"success": True, "data": {"messageId": message_id}}
+        resp = {"success": True, "data": {"messageId": message_id}}
+        log_response(logger, "chat_first_prompt", resp)
+        return resp
     except Exception as exc:  # pragma: no cover
         logger.exception("Failed to save first prompt chatId=%s", payload.chat_id)
         raise HTTPException(

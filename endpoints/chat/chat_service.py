@@ -18,6 +18,7 @@ from core.useChatPersistence import chat_persistence
 from schemas import ChatMessagePayload, ChatRequestPayload
 from core.websocket_manager import stream_manager
 from endpoints.chat_title.service import generate_chat_title
+from endpoints.logging.utils_logging import log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
 
@@ -47,6 +48,7 @@ class ChatService:
         return cls._instance
 
     async def send_message(self, payload: ChatRequestPayload, user_id: str) -> Dict[str, Any]:
+        log_request(logger, "chat_send", payload)
         request_id = uuid.uuid4().hex[:8]
         start_time = datetime.now(timezone.utc)
 
@@ -110,7 +112,7 @@ class ChatService:
                     request_id=request_id,
                 )
             )
-            return {
+            streaming_resp = {
                 "success": True,
                 "data": {
                     "streaming": True,
@@ -118,6 +120,8 @@ class ChatService:
                 },
                 "message": "Streaming response started",
             }
+            log_response(logger, "chat_send_streaming", streaming_resp)
+            return streaming_resp
 
         logger.debug(
             "Chat send building system instruction requestId=%s chatId=%s language=%s",
@@ -229,24 +233,25 @@ class ChatService:
         if chat_title:
             data["chatTitle"] = chat_title
 
-        return {
+        final_resp = {
             "success": True,
             "data": data,
             "message": "Chat message processed successfully",
         }
+        log_response(logger, "chat_send", final_resp)
+        return final_resp
 
     async def text_to_speech(self, messages: List[ChatMessagePayload]) -> Dict[str, Any]:
-        logger.info(
-            "Received text-to-speech request messageCount=%s",
-            len(messages),
-        )
+        log_request(logger, "text_to_speech", {"messageCount": len(messages)})
         # Placeholder implementation that mirrors the previous TypeScript behavior.
         audio_url = "https://example.com/audio.mp3"
-        return {
+        resp = {
             "success": True,
             "data": {"audioUrl": audio_url},
             "message": "Text converted to speech",
         }
+        log_response(logger, "text_to_speech", resp)
+        return resp
 
     async def get_chat_messages(self, user_id: str, chat_id: str) -> Dict[str, Any]:
         if not user_id:
@@ -258,11 +263,13 @@ class ChatService:
 
         if not self._db:
             logger.warning("Firestore client unavailable; returning empty message list")
-            return {
+            resp = {
                 "success": True,
                 "data": {"messages": messages},
                 "message": "Messages retrieved successfully",
             }
+            log_response(logger, "get_chat_messages", resp)
+            return resp
 
         collection = (
             self._db.collection("users")
@@ -286,11 +293,13 @@ class ChatService:
             len(messages),
         )
 
-        return {
+        resp = {
             "success": True,
             "data": {"messages": messages},
             "message": "Messages retrieved successfully",
         }
+        log_response(logger, "get_chat_messages", resp)
+        return resp
 
     async def create_chat(self, user_id: str, title: Optional[str]) -> Dict[str, Any]:
         if not user_id:

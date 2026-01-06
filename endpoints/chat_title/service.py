@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 
 from core.openai_client import get_client
+from endpoints.logging.utils_logging import log_request, log_response
 
 
 logger = logging.getLogger("pdf_read_refresh.chat_title.service")
@@ -18,6 +19,7 @@ async def generate_chat_title(text: str, language: Optional[str]) -> Optional[st
     Generate a short chat title using an inexpensive OpenAI model.
     Returns None if generation fails.
     """
+    log_request(logger, "chat_title_generate", {"textPreview": (text or "")[:200], "language": language})
     content = (text or "").strip()
     if len(content) < 12:
         return None
@@ -49,6 +51,7 @@ async def generate_chat_title(text: str, language: Optional[str]) -> Optional[st
           return None
         title = title.split("\n")[0].strip()
         logger.info("Chat title generated via OpenAI model=%s title=%s", DEFAULT_TITLE_MODEL, title)
+        log_response(logger, "chat_title_generate", {"title": title})
         return title
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.exception("Chat title generation failed: %s", exc)

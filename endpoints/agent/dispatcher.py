@@ -15,12 +15,20 @@ from .select_agents.use_function_calling import (
     FunctionCallingService,
 )
 from core.usage_limits import increment_usage
+from endpoints.logging.utils_logging import log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.agent.dispatcher")
 function_calling_service = FunctionCallingService()
 
 
 async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -> Dict[str, Any]:
+    log_request(logger, "dispatcher", payload)
+    def _log_resp(label: str, resp: Dict[str, Any]) -> None:
+        try:
+            log_response(logger, label, resp)
+        except Exception:
+            logger.warning("Dispatcher response logging failed label=%s", label)
+
     effective_user = user_id or payload.user_id or ""
     logger.info(
         "Agent dispatch payload received userId=%s chatId=%s language=%s hasFile=%s",
@@ -111,7 +119,9 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             stream=bool(merged_params.get("stream") or payload.stream),
         )
         logger.info("Dispatcher short-circuit to deep_research chatId=%s userId=%s", payload.chat_id, effective_user)
-        return await run_deep_research(dr_payload, effective_user)
+        resp = await run_deep_research(dr_payload, effective_user)
+        _log_resp("dispatcher_deep_research", resp)
+        return resp
     if selected_action == "web_search":
         from endpoints.web_search import run_web_search
 
@@ -125,7 +135,9 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             stream=bool(merged_params.get("stream") or payload.stream),
         )
         logger.info("Dispatcher short-circuit to web_search chatId=%s userId=%s", payload.chat_id, effective_user)
-        return await run_web_search(ws_payload, effective_user)
+        resp = await run_web_search(ws_payload, effective_user)
+        _log_resp("dispatcher_web_search", resp)
+        return resp
     if selected_action == "web_link":
         from endpoints.web_link import run_web_link
 
@@ -139,7 +151,9 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             stream=bool(merged_params.get("stream") or payload.stream),
         )
         logger.info("Dispatcher short-circuit to web_link chatId=%s userId=%s", payload.chat_id, effective_user)
-        return await run_web_link(wl_payload, effective_user)
+        resp = await run_web_link(wl_payload, effective_user)
+        _log_resp("dispatcher_web_link", resp)
+        return resp
     if selected_action == "social_posts":
         from endpoints.social_posts import run_social_posts
         from schemas import SocialPostRequest
@@ -153,7 +167,9 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             stream=bool(merged_params.get("stream") or payload.stream),
         )
         logger.info("Dispatcher short-circuit to social_posts chatId=%s userId=%s", payload.chat_id, effective_user)
-        return await run_social_posts(sp_payload, effective_user)
+        resp = await run_social_posts(sp_payload, effective_user)
+        _log_resp("dispatcher_social_posts", resp)
+        return resp
     if selected_action == "ai_real_check":
         from endpoints.ai_or_not.ai_analyze_image import analyze_image_from_url
         image_url = merged_params.get("imageUrl") or merged_params.get("fileUrl") or merged_params.get("url")
@@ -163,13 +179,15 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
                 detail={"success": False, "error": "image_required", "message": "Image URL is required for AI check"},
             )
         logger.info("Dispatcher short-circuit to ai_or_not chatId=%s userId=%s imageUrl=%s", payload.chat_id, effective_user, image_url)
-        return await analyze_image_from_url(
+        resp = await analyze_image_from_url(
             image_url=image_url,
             user_id=effective_user,
             chat_id=payload.chat_id or "",
             language=payload.language,
             mock=False,
         )
+        _log_resp("dispatcher_ai_real_check", resp)
+        return resp
     if selected_action == "create_images":
         from endpoints.generate_image.gemini_image import generate_gemini_image
 
@@ -186,7 +204,9 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         )
         logger.info("Dispatcher short-circuit to create_images (gemini_image) chatId=%s userId=%s", payload.chat_id, effective_user)
         internal_request = build_internal_request(effective_user)
-        return await generate_gemini_image(image_payload, internal_request)
+        resp = await generate_gemini_image(image_payload, internal_request)
+        _log_resp("dispatcher_create_images", resp)
+        return resp
 
     context = FunctionCallingContext(
         prompt=payload.prompt or "",
@@ -207,11 +227,13 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             payload.chat_id,
             len(result.leftover_prompt or ""),
         )
-        return await _forward_to_default_chat(
+        resp = await _forward_to_default_chat(
             payload,
             effective_user,
             skip_user_persist=user_message_persisted,
         )
+        _log_resp("dispatcher_forward_default", resp)
+        return resp
 
     # Agent handled successfully, assistant response already generated
     logger.info(
@@ -235,6 +257,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             },
         )
 
+    _log_resp("dispatcher_agent_handled", result.agent_response)
     return result.agent_response
 
 
@@ -337,5 +360,10 @@ async def _forward_to_default_chat(
         chat_payload.has_image,
         chat_payload.image_file_url,
     )
-    return await chat_service.send_message(chat_payload, user_id)
+    resp = await chat_service.send_message(chat_payload, user_id)
+    try:
+        log_response(logger, "dispatcher_forward_chat", resp)
+    except Exception:
+        logger.warning("Dispatcher forward response logging failed")
+    return resp
 

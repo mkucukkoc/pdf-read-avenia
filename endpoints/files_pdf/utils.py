@@ -1,7 +1,7 @@
 import asyncio
 import base64
-import json
 import logging
+import json
 import os
 import uuid
 from typing import Any, AsyncGenerator, Dict, Generator, Optional, Tuple
@@ -15,16 +15,13 @@ from core.language_support import normalize_language
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response import get_pdf_error_message
+from endpoints.logging.utils_logging import json_pretty, log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
 
 
 def log_full_payload(logger_obj: logging.Logger, name: str, payload_obj: Any) -> None:
-    try:
-        payload_dict = getattr(payload_obj, "model_dump", lambda **kwargs: {})(by_alias=True, exclude_none=False)
-    except Exception:
-        payload_dict = str(payload_obj)
-    logger_obj.info("PDF endpoint payload dump", extra={"endpoint": name, "payload": payload_dict})
+    log_request(logger_obj, name, payload_obj)
 
 
 def extract_user_id(request: Request) -> str:
@@ -438,6 +435,10 @@ def attach_streaming_payload(
     result["streaming"] = streaming
     if message_id:
         result["messageId"] = message_id
+    try:
+        log_response(logger, f"files_pdf/{tool}", result)
+    except Exception:
+        logger.warning("files_pdf response logging failed tool=%s", tool)
     return result
 
 

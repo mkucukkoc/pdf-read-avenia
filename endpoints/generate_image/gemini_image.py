@@ -17,6 +17,7 @@ from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
 from schemas import GeminiImageEditRequest, GeminiImageRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
+from endpoints.logging.utils_logging import log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image")
 
@@ -294,11 +295,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             detail={"success": False, "error": "invalid_prompt", "message": "prompt is required"},
         )
 
-    try:
-        req_payload = payload.model_dump(by_alias=True, exclude_none=True)
-    except Exception:
-        req_payload = {"error": "payload_serialization_failed"}
-    logger.info("Gemini image request JSON: %s", json.dumps(req_payload, ensure_ascii=False))
+    log_request(logger, "generate_image_gemini", payload)
 
     user_id = _extract_user_id(request)
     language = normalize_language(payload.language)
@@ -434,7 +431,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             },
         )
         try:
-            logger.info("Gemini image response JSON: %s", json.dumps(result, ensure_ascii=False))
+            log_response(logger, "generate_image_gemini", result)
         except Exception:
             logger.warning("Gemini image response logging failed")
         return result

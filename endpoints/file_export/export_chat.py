@@ -6,6 +6,7 @@ import logging
 import requests
 from fastapi import APIRouter, Body, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
+from endpoints.logging.utils_logging import log_request, log_response
 from firebase_admin import firestore
 from fpdf import FPDF
 
@@ -15,7 +16,7 @@ router = APIRouter()
 
 @router.post("/export-chat")
 async def export_chat(payload: dict = Body(...)):
-    logger.info("Export chat request received", extra={"payload": payload})
+    log_request(logger, "export_chat", payload)
     try:
         user_id = payload.get("user_id")
         chat_id = payload.get("chat_id")
@@ -85,7 +86,12 @@ async def export_chat(payload: dict = Body(...)):
         pdf_io = io.BytesIO(pdf_bytes)
         headers = {"Content-Disposition": f"attachment; filename=chat_{chat_id}.pdf"}
         logger.info("PDF generated", extra={"chat_id": chat_id})
-        return StreamingResponse(pdf_io, media_type="application/pdf", headers=headers)
+        resp = StreamingResponse(pdf_io, media_type="application/pdf", headers=headers)
+        try:
+            log_response(logger, "export_chat", {"chat_id": chat_id, "user_id": user_id, "message": "pdf_stream"})
+        except Exception:
+            logger.warning("Export chat response logging failed")
+        return resp
 
     except Exception as e:
         logger.exception("Export chat failed")

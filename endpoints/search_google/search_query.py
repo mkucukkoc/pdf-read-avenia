@@ -14,6 +14,7 @@ from endpoints.files_pdf.utils import (
     log_full_payload,
     save_message_to_firestore,
 )
+from endpoints.logging.utils_logging import log_request, log_response
 from schemas import SearchQueryRequest
 
 logger = logging.getLogger("pdf_read_refresh.search_google.search_query")
@@ -95,6 +96,7 @@ async def generate_search_queries(payload: SearchQueryRequest, request: Request)
     language = normalize_language(payload.language) or "Turkish"
 
     log_full_payload(logger, "search_query", payload)
+    log_request(logger, "search_query", payload)
 
     raw_query = (payload.query or "").strip()
     if not raw_query:
@@ -219,6 +221,7 @@ async def generate_search_queries(payload: SearchQueryRequest, request: Request)
             "source_count": len(sources or []),
         },
     )
+    log_response(logger, "search_query", result)
 
     return result
 

@@ -13,6 +13,7 @@ from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
 from schemas import DeepResearchRequest
+from endpoints.logging.utils_logging import log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.deep_research")
 
@@ -266,6 +267,7 @@ def _parse_citations(raw: str) -> Dict[str, Any]:
 
 
 async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[str, Any]:
+    log_request(logger, "deep_research", payload)
     user_prompt = (payload.prompt or "").strip()
     if not user_prompt:
         raise HTTPException(
@@ -369,7 +371,7 @@ Konu:
             except Exception:
                 logger.warning("DeepResearch streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
 
-    return {
+    response_payload = {
         "success": True,
         "data": {
             "message": {
@@ -380,6 +382,11 @@ Konu:
             "streaming": streaming_enabled,
         },
     }
+    try:
+        log_response(logger, "deep_research", response_payload)
+    except Exception:
+        logger.warning("DeepResearch response logging failed")
+    return response_payload
 
 
 @router.post("")

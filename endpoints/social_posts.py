@@ -10,6 +10,7 @@ from core.useChatPersistence import chat_persistence
 from core.websocket_manager import stream_manager
 from endpoints.agent.utils import get_request_user_id
 from schemas import SocialPostRequest
+from endpoints.logging.utils_logging import log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.social_posts")
 
@@ -67,6 +68,7 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
 
 
 async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str, Any]:
+    log_request(logger, "social_posts", payload)
     prompt = (payload.prompt or "").strip()
     if not prompt:
         raise HTTPException(
@@ -117,7 +119,7 @@ Topic:
         except Exception:
             logger.warning("SocialPosts streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
 
-    return {
+    response_payload = {
         "success": True,
         "data": {
             "message": {
@@ -127,6 +129,11 @@ Topic:
             "streaming": True,
         },
     }
+    try:
+        log_response(logger, "social_posts", response_payload)
+    except Exception:
+        logger.warning("SocialPosts response logging failed")
+    return response_payload
 
 
 @router.post("")

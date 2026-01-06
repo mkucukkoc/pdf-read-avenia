@@ -725,20 +725,8 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
 
 import endpoints.generate_doffice.generate_video
 import endpoints.generate_doffice.generate_video_prompt
-import endpoints.summarize.summarize_pdf
-import endpoints.ask_question_file.ask_pdf_question
-import endpoints.ask_question_file.ask_file_question
-import endpoints.summarize.summarize_pdf_url
 import endpoints.generate_doffice.generate_excel
 from endpoints.stt_and_tts import stt_router, tts_router
-import endpoints.summarize.summarize_excel_url
-import endpoints.summarize.summarize_word_url
-import endpoints.summarize.summarize_ppt_url
-import endpoints.summarize.summarize_html_url
-import endpoints.summarize.summarize_json_url
-import endpoints.summarize.summarize_csv_url
-import endpoints.summarize.summarize_txt_url
-import endpoints.ask_question_file.ask_with_embeddings
 import endpoints.search_docs
 import endpoints.healthz
 import endpoints.ai_or_not.ai_analyze_image
