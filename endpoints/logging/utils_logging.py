@@ -23,7 +23,14 @@ def log_request(logger: logging.Logger, name: str, payload_obj: Any) -> None:
     Tries pydantic model_dump when available.
     """
     try:
-        payload_dict = getattr(payload_obj, "model_dump", lambda **kwargs: {})(by_alias=True, exclude_none=True)
+        if isinstance(payload_obj, dict):
+            payload_dict = payload_obj
+        else:
+            payload_dict = getattr(payload_obj, "model_dump", None)
+            if callable(payload_dict):
+                payload_dict = payload_dict(by_alias=True, exclude_none=True)
+            else:
+                payload_dict = payload_obj
     except Exception:
         payload_dict = payload_obj
     logger.info("%s request JSON:\n%s", name, json_pretty(payload_dict))
