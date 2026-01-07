@@ -2,7 +2,7 @@ import os
 from typing import Any, Dict, Optional
 
 from errors_response.api_errors import get_api_error_message
-from endpoints.files_pdf.utils import save_message_to_firestore
+from core.useChatPersistence import chat_persistence
 
 
 def build_success_error_response(
@@ -35,21 +35,23 @@ def build_success_error_response(
     msg = get_api_error_message(key, language or "tr")
     message_id = f"{tool}_error_{os.urandom(4).hex()}"
 
-    try:
-        save_message_to_firestore(
-            user_id=user_id or "",
-            chat_id=chat_id or "",
-            content=msg,
-            metadata={
-                "tool": tool,
-                "error": key,
-                "detail": detail,
-                "status": status_code,
-            },
-        )
-    except Exception:
-        # Fail silently; logging is handled at call sites if needed
-        pass
+    if chat_id and user_id:
+        try:
+            chat_persistence.save_assistant_message(
+                user_id=user_id,
+                chat_id=chat_id,
+                content=msg,
+                metadata={
+                    "tool": tool,
+                    "error": key,
+                    "detail": str(detail)[:1000],
+                    "status": status_code,
+                },
+                message_id=message_id,
+            )
+        except Exception:
+            # Fail silently; logging is handled at call sites if needed
+            pass
 
     return {
         "success": True,
@@ -64,4 +66,3 @@ def build_success_error_response(
 
 
 __all__ = ["build_success_error_response"]
-
