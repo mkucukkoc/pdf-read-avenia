@@ -411,6 +411,9 @@ class ChatService:
         )
         producer_error: Optional[Exception] = None
 
+        producer_error: Optional[Exception] = None
+        fallback_used = False
+
         try:
             system_instruction = self._build_system_instruction(payload.language)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
@@ -481,6 +484,7 @@ class ChatService:
             if not final_content.strip():
                 # Build graceful success-shaped error response for empty/failed stream
                 error_detail = producer_error or RuntimeError("No content received from Gemini stream")
+                fallback_used = True
                 resp = build_success_error_response(
                     tool="chat_send_streaming",
                     language=payload.language,
@@ -517,7 +521,7 @@ class ChatService:
                 len(final_content),
             )
 
-            if payload.chat_id:
+            if payload.chat_id and not fallback_used:
                 await asyncio.to_thread(
                     partial(
                         chat_persistence.save_assistant_message,
