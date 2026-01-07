@@ -11,6 +11,7 @@ from functools import partial
 
 import requests
 import json
+from endpoints.helper_fail_response import build_success_error_response
 from google.cloud import firestore as firestore_client
 
 from core.firebase import db
@@ -408,6 +409,8 @@ class ChatService:
             payload.chat_id,
             message_id,
         )
+        producer_error: Optional[Exception] = None
+
         try:
             system_instruction = self._build_system_instruction(payload.language)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
@@ -434,6 +437,8 @@ class ChatService:
                     ):
                         asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
                 except Exception as exc:
+                    nonlocal producer_error
+                    producer_error = exc
                     logger.exception(
                         "Gemini streaming producer error requestId=%s chatId=%s",
                         request_id,
@@ -472,6 +477,32 @@ class ChatService:
 
             # ensure producer thread is finished
             await producer_task
+
+            if not final_content.strip():
+                # Build graceful success-shaped error response for empty/failed stream
+                error_detail = producer_error or RuntimeError("No content received from Gemini stream")
+                resp = build_success_error_response(
+                    tool="chat_send_streaming",
+                    language=payload.language,
+                    chat_id=payload.chat_id,
+                    user_id=user_id,
+                    status_code=500,
+                    detail=str(error_detail),
+                )
+                final_content = resp["data"]["message"]["content"]
+
+                # Emit final chunk so client sees the message
+                await stream_manager.emit_chunk(
+                    payload.chat_id,
+                    {
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "content": final_content,
+                        "delta": final_content,
+                        "isFinal": True,
+                        "error": "stream_failed",
+                    },
+                )
 
             assistant_message = ChatMessagePayload(
                 role="assistant",
