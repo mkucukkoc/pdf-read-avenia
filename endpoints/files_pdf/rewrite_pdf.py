@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PdfRewriteRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -29,25 +30,38 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
     log_full_payload(logger, "pdf_rewrite", payload)
     logger.info(
         "PDF rewrite request",
-        extra={
-            "chatId": payload.chat_id,
-            "userId": user_id,
-            "language": language,
-            "fileName": payload.file_name,
-            "style": payload.style,
-        },
+        extra={"chatId": payload.chat_id, "userId": user_id, "language": language, "fileName": payload.file_name},
     )
 
     logger.info("PDF rewrite download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
-    content, mime = download_file(payload.file_url, max_mb=30, require_pdf=True)
+    try:
+        content, mime = download_file(payload.file_url, max_mb=40, require_pdf=True)
+    except HTTPException as he:
+        return build_success_error_response(
+            tool="pdf_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=he.status_code,
+            detail=he.detail,
+        )
+    except Exception as exc:
+        return build_success_error_response(
+            tool="pdf_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=500,
+            detail=str(exc),
+        )
     logger.info("PDF rewrite download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
     effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
-    tone = (payload.style or "professional and clear").strip()
-    base_prompt = (
-        payload.prompt or f"Rewrite and improve this PDF in {language}. Keep meaning, improve clarity, "
-        f"and use a {tone} tone. Preserve tables, lists, headings, and references. Respond in {language}."
+    style_prompt = f" using a {payload.style} style" if payload.style else ""
+    prompt = (
+        payload.prompt
+        or f"Rewrite the content of this PDF in {language}{style_prompt}. Maintain the key facts but improve clarity and flow."
     ).strip()
 
     try:
@@ -58,17 +72,14 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
                 {"text": f"Language: {language}"},
-                {"text": base_prompt},
+                {"text": prompt},
             ],
             api_key=gemini_key,
             stream=bool(payload.stream),
             chat_id=payload.chat_id,
             tool="pdf_rewrite",
             model=effective_model,
-            chunk_metadata={
-                "language": language,
-                "style": tone,
-            },
+            chunk_metadata={"language": language},
         )
         if not rewritten:
             raise RuntimeError("Empty response from Gemini")
@@ -77,7 +88,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
         extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
-            "rewrite": rewritten,
+            "rewrittenText": rewritten,
             "language": language,
             "model": effective_model,
         }
@@ -88,7 +99,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             streaming=bool(stream_message_id),
             message_id=stream_message_id,
             extra_data={
-                "rewrite": rewritten,
+                "rewrittenText": rewritten,
                 "language": language,
                 "model": effective_model,
             },
@@ -102,7 +113,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
                 "tool": "pdf_rewrite",
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
-                "style": tone,
+                "style": payload.style,
             },
         )
         if firestore_ok:
@@ -111,29 +122,22 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             logger.error("PDF rewrite Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pdf_rewrite", "error": hexc.detail},
-            )
         logger.error("PDF rewrite HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pdf_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PDF rewrite failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_rewrite_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pdf_rewrite", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pdf_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pdf_rewrite_failed", "message": msg},
-        ) from exc
-
-
+            detail=str(exc),
+        )

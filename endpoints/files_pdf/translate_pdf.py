@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PdfTranslateRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -25,30 +26,49 @@ router = APIRouter(prefix="/api/v1/files/pdf", tags=["FilesPDF"])
 @router.post("/translate")
 async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[str, Any]:
     user_id = extract_user_id(request)
-    target_language = normalize_language(payload.target_language) or "English"
-    source_language = normalize_language(payload.source_language) or "auto"
+    language = normalize_language(payload.language) or "English"
     log_full_payload(logger, "pdf_translate", payload)
     logger.info(
         "PDF translate request",
         extra={
             "chatId": payload.chat_id,
             "userId": user_id,
-            "targetLanguage": target_language,
-            "sourceLanguage": source_language,
+            "language": language,
+            "target": payload.targetLanguage,
             "fileName": payload.file_name,
         },
     )
 
     logger.info("PDF translate download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
-    content, mime = download_file(payload.file_url, max_mb=35, require_pdf=True)
+    try:
+        content, mime = download_file(payload.file_url, max_mb=40, require_pdf=True)
+    except HTTPException as he:
+        return build_success_error_response(
+            tool="pdf_translate",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=he.status_code,
+            detail=he.detail,
+        )
+    except Exception as exc:
+        return build_success_error_response(
+            tool="pdf_translate",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=500,
+            detail=str(exc),
+        )
     logger.info("PDF translate download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
     gemini_key = os.getenv("GEMINI_API_KEY")
     effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
+    target_lang = payload.targetLanguage or language
+    source_info = f" from {payload.sourceLanguage}" if payload.sourceLanguage else ""
     prompt = (
         payload.prompt
-        or f"Translate the PDF from {source_language} to {target_language}. Keep structure, headings, lists, and tables. "
-        "Return clear translated text; use markdown where helpful."
+        or f"Translate the content of this PDF{source_info} to {target_lang}. Preserve the tone and intent of the original document."
     ).strip()
 
     try:
@@ -58,7 +78,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
         translation, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
-                {"text": f"Target language: {target_language}"},
+                {"text": f"Language: {target_lang}"},
                 {"text": prompt},
             ],
             api_key=gemini_key,
@@ -66,10 +86,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             chat_id=payload.chat_id,
             tool="pdf_translate",
             model=effective_model,
-            chunk_metadata={
-                "targetLanguage": target_language,
-                "sourceLanguage": source_language,
-            },
+            chunk_metadata={"language": target_lang},
         )
         if not translation:
             raise RuntimeError("Empty response from Gemini")
@@ -79,7 +96,8 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             "success": True,
             "chatId": payload.chat_id,
             "translation": translation,
-            "targetLanguage": target_language,
+            "language": language,
+            "targetLanguage": target_lang,
             "model": effective_model,
         }
         result = attach_streaming_payload(
@@ -90,8 +108,8 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             message_id=stream_message_id,
             extra_data={
                 "translation": translation,
-                "targetLanguage": target_language,
-                "sourceLanguage": source_language,
+                "language": language,
+                "targetLanguage": target_lang,
                 "model": effective_model,
             },
         )
@@ -104,8 +122,8 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
                 "tool": "pdf_translate",
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
-                "targetLanguage": target_language,
-                "sourceLanguage": source_language,
+                "targetLanguage": target_lang,
+                "sourceLanguage": payload.sourceLanguage,
             },
         )
         if firestore_ok:
@@ -114,29 +132,22 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             logger.error("PDF translate Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pdf_translate", "error": hexc.detail},
-            )
         logger.error("PDF translate HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pdf_translate",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PDF translate failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_translate_failed", target_language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pdf_translate", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pdf_translate",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pdf_translate_failed", "message": msg},
-        ) from exc
-
-
+            detail=str(exc),
+        )

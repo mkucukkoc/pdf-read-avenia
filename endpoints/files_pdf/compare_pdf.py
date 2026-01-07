@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.language_support import normalize_language
 from schemas import PdfCompareRequest
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from endpoints.files_pdf.utils import (
     extract_user_id,
     download_file,
@@ -46,16 +47,40 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
     effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
 
     try:
-        logger.info("PDF compare resolve file1", extra={"chatId": payload.chat_id, "file1": payload.file1})
-        file1_uri, size1 = _resolve_file(payload.file1, gemini_key, "file1", max_mb=30)
-        logger.info("PDF compare resolve file1 ok", extra={"chatId": payload.chat_id, "file1Uri": file1_uri, "size1": size1})
-        logger.info("PDF compare resolve file2", extra={"chatId": payload.chat_id, "file2": payload.file2})
-        file2_uri, size2 = _resolve_file(payload.file2, gemini_key, "file2", max_mb=30)
-        logger.info("PDF compare resolve file2 ok", extra={"chatId": payload.chat_id, "file2Uri": file2_uri, "size2": size2})
+        try:
+            logger.info("PDF compare resolve file1", extra={"chatId": payload.chat_id, "file1": payload.file1})
+            file1_uri, size1 = _resolve_file(payload.file1, gemini_key, "file1", max_mb=30)
+            logger.info("PDF compare resolve file1 ok", extra={"chatId": payload.chat_id, "file1Uri": file1_uri, "size1": size1})
+            logger.info("PDF compare resolve file2", extra={"chatId": payload.chat_id, "file2": payload.file2})
+            file2_uri, size2 = _resolve_file(payload.file2, gemini_key, "file2", max_mb=30)
+            logger.info("PDF compare resolve file2 ok", extra={"chatId": payload.chat_id, "file2Uri": file2_uri, "size2": size2})
+        except HTTPException as he:
+            return build_success_error_response(
+                tool="pdf_compare",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=he.status_code,
+                detail=he.detail,
+            )
+        except Exception as exc:
+            return build_success_error_response(
+                tool="pdf_compare",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=500,
+                detail=str(exc),
+            )
+
         if size1 + size2 > 50 * 1024 * 1024:
-            raise HTTPException(
+            return build_success_error_response(
+                tool="pdf_compare",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
                 status_code=400,
-                detail={"success": False, "error": "file_too_large", "message": get_pdf_error_message("file_too_large", language)},
+                detail={"error": "file_too_large"},
             )
 
         prompt = (payload.prompt or "").strip() or f"Compare these PDFs in {language} and highlight the key differences."
@@ -129,28 +154,22 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
             logger.error("PDF compare Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pdf_compare", "error": hexc.detail},
-            )
         logger.error("PDF compare HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pdf_compare",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PDF compare failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_compare_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pdf_compare", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pdf_compare",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pdf_compare_failed", "message": msg},
-        ) from exc
-
+            detail=str(exc),
+        )
