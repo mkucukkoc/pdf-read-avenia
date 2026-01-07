@@ -12,6 +12,7 @@ from core.language_support import normalize_language
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from schemas import GeminiImageAnalyzeRequest
+from errors_response.api_errors import get_api_error_message
 from endpoints.logging.utils_logging import log_request, log_response
 from endpoints.files_pdf.utils import attach_streaming_payload
 
@@ -203,29 +204,56 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
             )
             continue
 
-    if response_json is None or selected_model is None:
-        await emit_status("Analiz başarısız.", final=True, error="gemini_analyze_failed")
-        if last_error:
-            raise last_error
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "success": False,
-                "error": "gemini_analyze_failed",
-                "message": "All model attempts failed",
-                "attemptedModels": candidate_models,
-            },
-        )
-
-    try:
-        analysis_text = _extract_text(response_json)
+    except HTTPException as he:
+        logger.error("Gemini image analyze HTTPException", exc_info=he)
+        key = "upstream_500"
+        if he.status_code == 404: key = "upstream_404"
+        elif he.status_code == 429: key = "upstream_429"
+        elif he.status_code in (401, 403): key = "upstream_401"
+        
+        msg = get_api_error_message(key, language)
+        await emit_status("Analiz başarısız.", final=True, error=key)
+        
+        if payload.chat_id:
+            chat_persistence.save_assistant_message(
+                user_id=user_id,
+                chat_id=payload.chat_id,
+                content=msg,
+                file_url=None,
+                metadata={"tool": "analyze_image_gemini", "error": key},
+            )
+        return {
+            "success": True,
+            "data": {
+                "message": {
+                    "content": msg,
+                    "id": f"image_analyze_error_{os.urandom(4).hex()}"
+                },
+                "streaming": False,
+            }
+        }
     except Exception as exc:
-        logger.error("Failed to extract text from Gemini response", exc_info=exc)
-        await emit_status("Analiz cevabında metin bulunamadı.", final=True, error="gemini_analyze_no_text")
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "gemini_analyze_no_text", "message": str(exc)},
-        ) from exc
+        logger.error("Gemini image analyze failed", exc_info=exc)
+        message = get_api_error_message("upstream_500", language)
+        await emit_status("Analiz cevabında bir sorun oluştu.", final=True, error="upstream_500")
+        if payload.chat_id:
+            chat_persistence.save_assistant_message(
+                user_id=user_id,
+                chat_id=payload.chat_id,
+                content=message,
+                file_url=None,
+                metadata={"tool": "analyze_image_gemini", "error": "upstream_500"},
+            )
+        return {
+            "success": True,
+            "data": {
+                "message": {
+                    "content": message,
+                    "id": f"image_analyze_error_{os.urandom(4).hex()}"
+                },
+                "streaming": False,
+            }
+        }
 
     logger.info(
         "Gemini analyze completed",

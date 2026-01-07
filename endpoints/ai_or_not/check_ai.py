@@ -18,6 +18,7 @@ from core.language_support import (
 from core.useChatPersistence import chat_persistence
 from main import app, IMAGE_ENDPOINT
 from firebase_admin import firestore
+from errors_response.api_errors import get_api_error_message
 
 from core.doc_text import (
     detect_file_type,
@@ -188,29 +189,67 @@ async def check_ai(
 
     language_norm = normalize_language(language)
 
+    def _map_error_key(status_code: int) -> str:
+        if status_code == 404:
+            return "upstream_404"
+        if status_code == 429:
+            return "upstream_429"
+        if status_code in (401, 403):
+            return "upstream_401"
+        if status_code == 408:
+            return "upstream_timeout"
+        if status_code >= 500:
+            return "upstream_500"
+        return "unknown_error"
+
+    def _error_response(status_code: int, detail: Any) -> JSONResponse:
+        key = _map_error_key(status_code)
+        msg = get_api_error_message(key, language_norm)
+        message_id = f"check_ai_error_{os.urandom(4).hex()}"
+        try:
+            _save_asst_message(user_id, chat_id, msg, {"error": key, "detail": detail}, language_norm)
+        except Exception:
+            logger.warning("Check-ai error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
+
+        payload = {
+            "document_type": "unknown",
+            "ai_generated": False,
+            "confidence": 0.0,
+            "total_words": 0,
+            "total_characters": 0,
+            "chunks": [],
+            "image_results": [],
+            "summary": msg,
+            "messages": [],
+            "language": language_norm,
+            "firebase": {"saved": True, "message_id": message_id},
+            "provider_raw": {"error": key, "detail": detail},
+        }
+        return JSONResponse(status_code=200, content=payload)
+
     await rate_limit_check()
 
     raw_bytes = await file.read()
     logger.info("[/check-ai] file_read bytes=%s", len(raw_bytes))
     if len(raw_bytes) > MAX_UPLOAD_MB * 1024 * 1024:
         logger.warning("[/check-ai] file too large len=%s limit_MB=%s", len(raw_bytes), MAX_UPLOAD_MB)
-        raise HTTPException(status_code=413, detail="Dosya boyutu çok büyük")
+        return _error_response(413, "file_too_large")
 
     file_type = detect_file_type(file.filename, file.content_type)
     logger.info("[/check-ai] detected file_type=%s", file_type)
     if file_type == "unknown":
         logger.warning("[/check-ai] unsupported file type")
-        raise HTTPException(status_code=415, detail="Desteklenmeyen dosya tipi")
+        return _error_response(415, "unsupported_file_type")
     if file_type == "ppt" and not office_legacy_convert:
         logger.warning("[/check-ai] legacy ppt without convert flag")
-        raise HTTPException(status_code=415, detail="Legacy PPT dosyaları desteklenmiyor")
+        return _error_response(415, "legacy_ppt_not_supported")
 
     strategy_defaults = {"pdf": "size", "docx": "sections", "pptx": "slides"}
     chunk_strategy = chunk_strategy or strategy_defaults.get(file_type, "size")
     logger.info("[/check-ai] resolved chunk_strategy=%s", chunk_strategy)
     if chunk_strategy not in {"none", "pages", "size", "slides", "sections"}:
         logger.warning("[/check-ai] invalid chunk_strategy=%s", chunk_strategy)
-        raise HTTPException(status_code=400, detail="Geçersiz chunk_strategy")
+        return _error_response(400, "invalid_chunk_strategy")
 
     max_chars_per_chunk = min(max_chars_per_chunk, 500_000)
     logger.info("[/check-ai] max_chars_per_chunk_capped=%s", max_chars_per_chunk)
@@ -299,7 +338,7 @@ async def check_ai(
         logger.info("[/check-ai] pptx_chunks_count=%s", len(chunks))
     else:
         logger.warning("[/check-ai] unsupported file type (post-detect guard) type=%s", file_type)
-        raise HTTPException(status_code=415, detail="Desteklenmeyen dosya tipi")
+        return _error_response(415, "unsupported_file_type_guard")
 
     # size veya none stratejileri
     if chunk_strategy == "size":
@@ -445,7 +484,7 @@ async def check_ai(
                         body_preview = (await resp.aread())[:300].decode(errors="ignore")
                         logger.warning("[/check-ai] client error status=%s body_preview=%s",
                                        resp.status_code, body_preview)
-                        raise HTTPException(status_code=resp.status_code, detail=body_preview)
+                        return _error_response(resp.status_code, body_preview)
 
                 except httpx.TimeoutException:
                     logger.warning("[/check-ai] timeout attempt=%s idx=%s", attempt + 1, idx)
@@ -506,7 +545,7 @@ async def check_ai(
                         if 400 <= resp.status_code < 500:
                             body_preview = (await resp.aread())[:300].decode(errors="ignore")
                             logger.warning("[/check-ai] image client error status=%s body_preview=%s", resp.status_code, body_preview)
-                            raise HTTPException(status_code=resp.status_code, detail=body_preview)
+                            return _error_response(resp.status_code, body_preview)
 
                     except httpx.TimeoutException:
                         logger.warning("[/check-ai] image timeout attempt=%s idx=%s", attempt + 1, iidx)

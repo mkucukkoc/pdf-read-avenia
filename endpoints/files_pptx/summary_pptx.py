@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxSummaryRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -95,8 +96,27 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
     )
 
     logger.info("PPTX summary download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
-    content, mime = download_file(payload.file_url, max_mb=30, require_pdf=False)
-    mime = _validate_pptx_mime(mime)
+    try:
+        content, mime = download_file(payload.file_url, max_mb=30, require_pdf=False)
+        mime = _validate_pptx_mime(mime)
+    except HTTPException as he:
+        return build_success_error_response(
+            tool="pptx_summary",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=he.status_code,
+            detail=he.detail,
+        )
+    except Exception as exc:
+        return build_success_error_response(
+            tool="pptx_summary",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=500,
+            detail=str(exc),
+        )
     logger.info(
         "PPTX summary download ok",
         extra={"chatId": payload.chat_id, "size": len(content), "mime": mime},
@@ -240,29 +260,24 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
             logger.error("PPTX summary Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_summary", "error": hexc.detail},
-            )
         logger.error("PPTX summary HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pptx_summary",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PPTX summary failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_summary_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_summary", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pptx_summary",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pptx_summary_failed", "message": msg},
-        ) from exc
+            detail=str(exc),
+        )
 
 

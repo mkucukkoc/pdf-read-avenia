@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.language_support import normalize_language
 from core.word_to_pdf import convert_word_bytes_to_pdf_bytes
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxMultiAnalyzeRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -79,7 +80,26 @@ async def multi_analyze_pptx(payload: PptxMultiAnalyzeRequest, request: Request)
 
     try:
         logger.info("PPTX multi_analyze converting/uploading files", extra={"chatId": payload.chat_id})
-        file_uris = _convert_urls_to_file_uris(payload.file_urls, payload.file_name, max_mb=50, api_key=gemini_key)
+        try:
+            file_uris = _convert_urls_to_file_uris(payload.file_urls, payload.file_name, max_mb=50, api_key=gemini_key)
+        except HTTPException as he:
+            return build_success_error_response(
+                tool="pptx_multi_analyze",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=he.status_code,
+                detail=he.detail,
+            )
+        except Exception as exc:
+            return build_success_error_response(
+                tool="pptx_multi_analyze",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=500,
+                detail=str(exc),
+            )
         logger.info("PPTX multi_analyze file URIs ready", extra={"chatId": payload.chat_id, "count": len(file_uris)})
 
         prompt = (payload.prompt or "").strip() or f"Analyze these presentations together in {language} and summarize key insights."
@@ -138,28 +158,23 @@ async def multi_analyze_pptx(payload: PptxMultiAnalyzeRequest, request: Request)
             logger.error("PPTX multi_analyze Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_multi_analyze", "error": hexc.detail},
-            )
         logger.error("PPTX multi_analyze HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pptx_multi_analyze",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PPTX multi_analyze failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_multianalyze_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_multi_analyze", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pptx_multi_analyze",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pptx_multi_analyze_failed", "message": msg},
-        ) from exc
+            detail=str(exc),
+        )
 

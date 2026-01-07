@@ -16,12 +16,53 @@ from .select_agents.use_function_calling import (
 )
 from core.usage_limits import increment_usage
 from endpoints.logging.utils_logging import log_request, log_response
+from errors_response.api_errors import get_api_error_message
+from endpoints.helper_fail_response import build_success_error_response
 
 logger = logging.getLogger("pdf_read_refresh.agent.dispatcher")
 function_calling_service = FunctionCallingService()
 
 
 async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -> Dict[str, Any]:
+    def _map_error_key(status_code: int) -> str:
+        if status_code == 404:
+            return "upstream_404"
+        if status_code == 429:
+            return "upstream_429"
+        if status_code in (401, 403):
+            return "upstream_401"
+        if status_code == 408:
+            return "upstream_timeout"
+        if status_code >= 500:
+            return "upstream_500"
+        return "unknown_error"
+
+    def _error_response(status_code: int, detail: Any) -> Dict[str, Any]:
+        key = _map_error_key(status_code)
+        msg = get_api_error_message(key, payload.language or "tr")
+        message_id = f"dispatcher_error_{hash(str(detail))}"
+        try:
+            chat_persistence.save_assistant_message(
+                user_id=effective_user,
+                chat_id=payload.chat_id or "",
+                content=msg,
+                metadata={"source": "dispatcher", "error": key, "detail": detail},
+                message_id=message_id,
+            )
+        except Exception:
+            logger.warning("Dispatcher error persist failed chatId=%s userId=%s", payload.chat_id, effective_user, exc_info=True)
+
+        return {
+            "success": True,
+            "data": {
+                "message": {
+                    "content": msg,
+                    "id": message_id,
+                },
+                "streaming": False,
+            },
+        }
+
     log_request(logger, "dispatcher", payload)
     def _log_resp(label: str, resp: Dict[str, Any]) -> None:
         try:
@@ -174,10 +215,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         from endpoints.ai_or_not.ai_analyze_image import analyze_image_from_url
         image_url = merged_params.get("imageUrl") or merged_params.get("fileUrl") or merged_params.get("url")
         if not image_url:
-            raise HTTPException(
-                status_code=400,
-                detail={"success": False, "error": "image_required", "message": "Image URL is required for AI check"},
-            )
+            return _error_response(400, "image_required")
         logger.info("Dispatcher short-circuit to ai_or_not chatId=%s userId=%s imageUrl=%s", payload.chat_id, effective_user, image_url)
         resp = await analyze_image_from_url(
             image_url=image_url,
@@ -248,14 +286,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             result.agent_name,
             payload.chat_id,
         )
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "success": False,
-                "error": "agent_empty_response",
-                "message": "Agent geçerli bir yanıt döndürmedi.",
-            },
-        )
+        return _error_response(500, "agent_empty_response")
 
     _log_resp("dispatcher_agent_handled", result.agent_response)
     return result.agent_response
@@ -268,6 +299,7 @@ async def _forward_to_default_chat(
     skip_user_persist: bool = False,
 ) -> Dict[str, Any]:
     if not payload.chat_id:
+        # Bu hata çok temel, o yüzden HTTPException kalsın (veya helper ile 200 dönelim ama chat_id yoksa kayıt olmaz)
         raise HTTPException(
             status_code=400,
             detail={
@@ -322,14 +354,16 @@ async def _forward_to_default_chat(
             )
 
     if not fallback_messages:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "success": False,
-                "error": "empty_conversation",
-                "message": "Gönderilecek mesaj bulunamadı.",
+        return {
+            "success": True,
+            "data": {
+                "message": {
+                    "content": get_api_error_message("invalid_request", payload.language or "tr"),
+                    "id": f"dispatcher_error_{os.urandom(4).hex()}",
+                },
+                "streaming": False,
             },
-        )
+        }
 
     parameters = payload.parameters or {}
     has_image = bool(

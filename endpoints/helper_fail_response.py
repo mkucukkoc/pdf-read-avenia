@@ -1,0 +1,67 @@
+import os
+from typing import Any, Dict, Optional
+
+from errors_response.api_errors import get_api_error_message
+from endpoints.files_pdf.utils import save_message_to_firestore
+
+
+def build_success_error_response(
+    *,
+    tool: str,
+    language: Optional[str],
+    chat_id: Optional[str],
+    user_id: Optional[str],
+    status_code: int,
+    detail: Any,
+) -> Dict[str, Any]:
+    """
+    Returns a success-shaped payload carrying a friendly error message,
+    and persists it to Firestore if chat_id is present.
+    """
+    def _map_error_key(code: int) -> str:
+        if code == 404:
+            return "upstream_404"
+        if code == 429:
+            return "upstream_429"
+        if code in (401, 403):
+            return "upstream_401"
+        if code == 408:
+            return "upstream_timeout"
+        if code >= 500:
+            return "upstream_500"
+        return "unknown_error"
+
+    key = _map_error_key(status_code)
+    msg = get_api_error_message(key, language or "tr")
+    message_id = f"{tool}_error_{os.urandom(4).hex()}"
+
+    try:
+        save_message_to_firestore(
+            user_id=user_id or "",
+            chat_id=chat_id or "",
+            content=msg,
+            metadata={
+                "tool": tool,
+                "error": key,
+                "detail": detail,
+                "status": status_code,
+            },
+        )
+    except Exception:
+        # Fail silently; logging is handled at call sites if needed
+        pass
+
+    return {
+        "success": True,
+        "data": {
+            "message": {
+                "content": msg,
+                "id": message_id,
+            },
+            "streaming": False,
+        },
+    }
+
+
+__all__ = ["build_success_error_response"]
+

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.language_support import normalize_language
 from core.word_to_pdf import convert_word_bytes_to_pdf_bytes
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxCompareRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -70,9 +71,28 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
 
     try:
         logger.info("PPTX compare download start file1", extra={"chatId": payload.chat_id, "fileUrl": payload.file1})
-        pdf1_bytes, pdf1_name = _download_and_convert(payload.file1, payload.file_name, max_mb=30)
-        logger.info("PPTX compare download start file2", extra={"chatId": payload.chat_id, "fileUrl": payload.file2})
-        pdf2_bytes, pdf2_name = _download_and_convert(payload.file2, payload.file_name, max_mb=30)
+        try:
+            pdf1_bytes, pdf1_name = _download_and_convert(payload.file1, payload.file_name, max_mb=30)
+            logger.info("PPTX compare download start file2", extra={"chatId": payload.chat_id, "fileUrl": payload.file2})
+            pdf2_bytes, pdf2_name = _download_and_convert(payload.file2, payload.file_name, max_mb=30)
+        except HTTPException as he:
+            return build_success_error_response(
+                tool="pptx_compare",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=he.status_code,
+                detail=he.detail,
+            )
+        except Exception as exc:
+            return build_success_error_response(
+                tool="pptx_compare",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=500,
+                detail=str(exc),
+            )
 
         gemini_key = os.getenv("GEMINI_API_KEY")
         effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
@@ -143,20 +163,24 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
         else:
             logger.error("PPTX compare Firestore save failed | chatId=%s", payload.chat_id)
         return result
-    except HTTPException:
-        raise
+    except HTTPException as hexc:
+        logger.error("PPTX compare HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
+        return build_success_error_response(
+            tool="pptx_compare",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PPTX compare failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_compare_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_compare", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pptx_compare",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pptx_compare_failed", "message": msg},
-        ) from exc
+            detail=str(exc),
+        )
 

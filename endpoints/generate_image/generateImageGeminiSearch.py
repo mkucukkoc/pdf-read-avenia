@@ -15,6 +15,7 @@ from core.language_support import normalize_language, get_image_gen_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
+from errors_response.api_errors import get_api_error_message
 from schemas import GeminiImageRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
 from endpoints.logging.utils_logging import log_request, log_response
@@ -327,11 +328,38 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
         except Exception:
             logger.warning("Gemini search response logging failed")
         return result
-    except HTTPException:
-        raise
+    except HTTPException as he:
+        logger.error("Gemini image search HTTPException", exc_info=he)
+        key = "upstream_500"
+        if he.status_code == 404: key = "upstream_404"
+        elif he.status_code == 429: key = "upstream_429"
+        elif he.status_code in (401, 403): key = "upstream_401"
+        
+        msg = get_api_error_message(key, language)
+        failed_msg = get_image_gen_message(language, "failed")
+        await emit_status(failed_msg, final=True, error=key)
+        
+        if payload.chat_id:
+            _save_message_to_firestore(
+                user_id=user_id,
+                chat_id=payload.chat_id or "",
+                content=msg,
+                image_url=None,
+                metadata={"tool": "generate_image_gemini_search", "error": key},
+            )
+        return {
+            "success": True,
+            "data": {
+                "message": {
+                    "content": msg,
+                    "id": f"image_search_error_{os.urandom(4).hex()}"
+                },
+                "streaming": False,
+            }
+        }
     except Exception as exc:
         logger.error("Gemini image search failed", exc_info=exc)
-        message = get_no_image_generate_message(payload.language)
+        message = get_api_error_message("upstream_500", language)
         failed_msg = get_image_gen_message(language, "failed")
         await emit_status(failed_msg, final=True, error="image_generation_failed")
         if payload.chat_id:
@@ -340,12 +368,18 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
                 chat_id=payload.chat_id or "",
                 content=message,
                 image_url=None,
-                metadata={"tool": "generate_image_gemini_search", "error": "no_image_generate"},
+                metadata={"tool": "generate_image_gemini_search", "error": "upstream_500"},
             )
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "no_image_generate", "message": message},
-        ) from exc
+        return {
+            "success": True,
+            "data": {
+                "message": {
+                    "content": message,
+                    "id": f"image_search_error_{os.urandom(4).hex()}"
+                },
+                "streaming": False,
+            }
+        }
     finally:
         if tmp_file_path:
             try:

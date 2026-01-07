@@ -19,6 +19,7 @@ from schemas import ChatMessagePayload, ChatRequestPayload
 from core.websocket_manager import stream_manager
 from endpoints.chat_title.service import generate_chat_title
 from endpoints.logging.utils_logging import log_request, log_response
+from errors_response.api_errors import get_api_error_message
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
 
@@ -48,6 +49,51 @@ class ChatService:
         return cls._instance
 
     async def send_message(self, payload: ChatRequestPayload, user_id: str) -> Dict[str, Any]:
+        def _map_error_key(status_code: int) -> str:
+            if status_code == 404:
+                return "upstream_404"
+            if status_code == 429:
+                return "upstream_429"
+            if status_code in (401, 403):
+                return "upstream_401"
+            if status_code == 408:
+                return "upstream_timeout"
+            if status_code >= 500:
+                return "upstream_500"
+            return "unknown_error"
+
+        def _error_response(exc: Exception, status_code: int = 500) -> Dict[str, Any]:
+            lang = (payload.language or "tr").lower()
+            msg = get_api_error_message(_map_error_key(status_code), lang)
+            message_id = self._generate_message_id()
+            try:
+                chat_persistence.save_assistant_message(
+                    user_id=user_id,
+                    chat_id=payload.chat_id or "",
+                    content=msg,
+                    metadata={
+                        "tool": "chat_gemini",
+                        "error": getattr(exc, "args", [None])[0],
+                        "status": status_code,
+                    },
+                    message_id=message_id,
+                )
+            except Exception:
+                logger.warning("Chat error persist failed chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)
+
+            resp = {
+                "success": True,
+                "data": {
+                    "message": {
+                        "content": msg,
+                        "id": message_id,
+                    },
+                },
+                "message": msg,
+            }
+            log_response(logger, "chat_send_error", resp)
+            return resp
+
         log_request(logger, "chat_send", payload)
         request_id = uuid.uuid4().hex[:8]
         start_time = datetime.now(timezone.utc)
@@ -93,7 +139,11 @@ class ChatService:
                 extra={"chatId": payload.chat_id, "userId": user_id},
             )
         else:
-            await self._persist_latest_user_message(user_id=user_id, payload=payload)
+            try:
+                await self._persist_latest_user_message(user_id=user_id, payload=payload)
+            except Exception as exc:
+                logger.warning("User message persist failed requestId=%s chatId=%s", request_id, payload.chat_id, exc_info=True)
+                return _error_response(exc, 500)
 
         if payload.stream:
             stream_message_id = self._generate_message_id()
@@ -123,123 +173,127 @@ class ChatService:
             log_response(logger, "chat_send_streaming", streaming_resp)
             return streaming_resp
 
-        logger.debug(
-            "Chat send building system instruction requestId=%s chatId=%s language=%s",
-            request_id,
-            payload.chat_id,
-            payload.language,
-        )
-        system_instruction = self._build_system_instruction(payload.language)
-        prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
-        logger.debug(
-            "Chat prompt prepared requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
-            request_id,
-            user_id,
-            payload.chat_id,
-            payload.language or "unknown",
-            prompt_text[:1000],
-        )
-        logger.info(
-            "Calling Gemini text generation requestId=%s chatId=%s model=%s",
-            request_id,
-            payload.chat_id,
-            self._select_model(payload),
-        )
+        try:
+            logger.debug(
+                "Chat send building system instruction requestId=%s chatId=%s language=%s",
+                request_id,
+                payload.chat_id,
+                payload.language,
+            )
+            system_instruction = self._build_system_instruction(payload.language)
+            prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
+            logger.debug(
+                "Chat prompt prepared requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
+                request_id,
+                user_id,
+                payload.chat_id,
+                payload.language or "unknown",
+                prompt_text[:1000],
+            )
+            logger.info(
+                "Calling Gemini text generation requestId=%s chatId=%s model=%s",
+                request_id,
+                payload.chat_id,
+                self._select_model(payload),
+            )
 
-        assistant_content = await asyncio.to_thread(
-            self._call_gemini_generate_content,
-            prompt_text,
-            self._select_model(payload),
-            system_instruction,
-        )
-        logger.info(
-            "Gemini text generation completed requestId=%s chatId=%s assistantPreview=%s",
-            request_id,
-            payload.chat_id,
-            assistant_content[:200],
-        )
-        assistant_message = ChatMessagePayload(
-            role="assistant",
-            content=assistant_content,
-            timestamp=datetime.now(timezone.utc).isoformat(),
-        )
+            assistant_content = await asyncio.to_thread(
+                self._call_gemini_generate_content,
+                prompt_text,
+                self._select_model(payload),
+                system_instruction,
+            )
+            logger.info(
+                "Gemini text generation completed requestId=%s chatId=%s assistantPreview=%s",
+                request_id,
+                payload.chat_id,
+                assistant_content[:200],
+            )
+            assistant_message = ChatMessagePayload(
+                role="assistant",
+                content=assistant_content,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
 
-        if payload.chat_id:
-            await asyncio.to_thread(
-                partial(
-                    chat_persistence.save_assistant_message,
-                    user_id=user_id,
-                    chat_id=payload.chat_id,
-                    content=assistant_message.content,
-                    metadata={
-                        "tool": "chat_gemini",
-                        "requestId": request_id,
-                    },
+            if payload.chat_id:
+                await asyncio.to_thread(
+                    partial(
+                        chat_persistence.save_assistant_message,
+                        user_id=user_id,
+                        chat_id=payload.chat_id,
+                        content=assistant_message.content,
+                        metadata={
+                            "tool": "chat_gemini",
+                            "requestId": request_id,
+                        },
+                    )
                 )
-            )
-        else:
-            logger.warning(
-                "Skipping assistant persistence due to missing chatId",
-                extra={"requestId": request_id, "userId": user_id},
-            )
-        logger.debug(
-            "Assistant message persisted requestId=%s chatId=%s messageLen=%s",
-            request_id,
-            payload.chat_id,
-            len(assistant_message.content or ""),
-        )
-
-        chat_title = await self._maybe_generate_chat_title(
-            user_id,
-            payload.chat_id,
-            assistant_content,
-            payload.language,
-        )
-
-        if chat_title and payload.chat_id:
-            await asyncio.to_thread(
-                partial(
-                    chat_persistence.update_chat_metadata,
-                    user_id=user_id,
-                    chat_id=payload.chat_id,
-                    content=None,
-                    force_title=chat_title,
+            else:
+                logger.warning(
+                    "Skipping assistant persistence due to missing chatId",
+                    extra={"requestId": request_id, "userId": user_id},
                 )
+            logger.debug(
+                "Assistant message persisted requestId=%s chatId=%s messageLen=%s",
+                request_id,
+                payload.chat_id,
+                len(assistant_message.content or ""),
             )
-        elif chat_title:
-            logger.warning(
-                "Cannot persist chat title; chatId missing",
-                extra={"requestId": request_id, "userId": user_id},
+
+            chat_title = await self._maybe_generate_chat_title(
+                user_id,
+                payload.chat_id,
+                assistant_content,
+                payload.language,
             )
-        logger.debug(
-            "Chat metadata updated requestId=%s chatId=%s chatTitle=%s",
-            request_id,
-            payload.chat_id,
-            chat_title,
-        )
 
-        processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
-        logger.info(
-            "Chat response generated requestId=%s userId=%s chatId=%s processingTimeMs=%s",
-            request_id,
-            user_id,
-            payload.chat_id,
-            processing_time,
-        )
+            if chat_title and payload.chat_id:
+                await asyncio.to_thread(
+                    partial(
+                        chat_persistence.update_chat_metadata,
+                        user_id=user_id,
+                        chat_id=payload.chat_id,
+                        content=None,
+                        force_title=chat_title,
+                    )
+                )
+            elif chat_title:
+                logger.warning(
+                    "Cannot persist chat title; chatId missing",
+                    extra={"requestId": request_id, "userId": user_id},
+                )
+            logger.debug(
+                "Chat metadata updated requestId=%s chatId=%s chatTitle=%s",
+                request_id,
+                payload.chat_id,
+                chat_title,
+            )
 
-        data: Dict[str, Any] = {
-            "message": assistant_message.model_dump(by_alias=True),
-        }
-        if chat_title:
-            data["chatTitle"] = chat_title
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+            logger.info(
+                "Chat response generated requestId=%s userId=%s chatId=%s processingTimeMs=%s",
+                request_id,
+                user_id,
+                payload.chat_id,
+                processing_time,
+            )
 
-        final_resp = {
-            "success": True,
-            "data": data,
-            "message": "Chat message processed successfully",
-        }
-        log_response(logger, "chat_send", final_resp)
-        return final_resp
+            data: Dict[str, Any] = {
+                "message": assistant_message.model_dump(by_alias=True),
+            }
+            if chat_title:
+                data["chatTitle"] = chat_title
+
+            final_resp = {
+                "success": True,
+                "data": data,
+                "message": "Chat message processed successfully",
+            }
+            log_response(logger, "chat_send", final_resp)
+            return final_resp
+        except Exception as exc:
+            logger.exception("Chat send unexpected error requestId=%s chatId=%s", request_id, payload.chat_id)
+            return _error_response(exc, 500)
 
     async def text_to_speech(self, messages: List[ChatMessagePayload]) -> Dict[str, Any]:
         log_request(logger, "text_to_speech", {"messageCount": len(messages)})

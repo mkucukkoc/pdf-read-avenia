@@ -7,6 +7,7 @@ import hashlib  # LOG+ md5 için
 
 
 from core.language_support import normalize_language
+from errors_response.api_errors import get_api_error_message
 from main import (
     app,
     decode_base64_maybe_data_url,
@@ -66,6 +67,39 @@ def analyze_video(
         "chat_id": "cid"
     }
     """
+    def _map_error_key(status_code: int) -> str:
+        if status_code == 404:
+            return "upstream_404"
+        if status_code == 429:
+            return "upstream_429"
+        if status_code in (401, 403):
+            return "upstream_401"
+        if status_code == 408:
+            return "upstream_timeout"
+        if status_code >= 500:
+            return "upstream_500"
+        return "unknown_error"
+
+    def _error_response(language: str, chat_id: str, user_id: str, status_code: int, detail: Any) -> JSONResponse:
+        key = _map_error_key(status_code)
+        msg = get_api_error_message(key, language)
+        message_id = f"ai_detect_video_error_{hashlib.md5(str(os.urandom(4)).encode()).hexdigest()[:8]}"
+        try:
+            _save_asst_message(user_id, chat_id, msg, {"error": key, "detail": detail}, language)
+        except Exception:
+            logger.warning("Analyze video error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
+
+        payload = {
+            "success": True,
+            "raw_response": {},
+            "messages": [],
+            "summary": msg,
+            "summary_tr": msg,
+            "language": language,
+            "saved": {"saved": True, "message_id": message_id},
+        }
+        return JSONResponse(status_code=200, content=payload)
+
     logger.info("Analyze video request received", extra={"payload": payload})
 
     language = normalize_language(payload.get("language"))
@@ -83,10 +117,10 @@ def analyze_video(
 
     if not video_b64:
         logger.warning("video_base64 missing")
-        return JSONResponse(status_code=400, content={"error": "No base64 video data provided"})
+        return _error_response(language, chat_id or "", user_id or "", 400, "video_base64_missing")
     if not user_id or not chat_id:
         logger.warning("user_id or chat_id missing")
-        return JSONResponse(status_code=400, content={"error": "user_id and chat_id are required"})
+        return _error_response(language, chat_id or "", user_id or "", 400, "user_or_chat_missing")
 
     if MOCK_MODE or mock == "1":
         logger.info("Mock analyze video flow active")
@@ -136,7 +170,7 @@ def analyze_video(
         logger.info("Video MD5 computed", extra={"md5": video_md5})
     except Exception as e:
         logger.error("Base64 decode failed", exc_info=e)
-        return JSONResponse(status_code=400, content={"error": "Invalid base64 data", "details": str(e)})
+        return _error_response(language, chat_id, user_id, 400, {"error": str(e)})
 
     # --- DEĞİŞTİ: alan adı 'video' olmalı ---
     files = {"video": ("video.mp4", video_bytes, "video/mp4")}
@@ -149,17 +183,12 @@ def analyze_video(
             timeout=120,  # --- DEĞİŞTİ: önerilen timeout ---
         )
         logger.info("Video API response", extra={"status_code": resp.status_code})
+        if resp.status_code != 200:
+            logger.error("Video AI response error", extra={"status": resp.status_code, "body": resp.text})
+            return _error_response(language, chat_id, user_id, resp.status_code, resp.text)
     except requests.RequestException as e:
         logger.error("Video API request failed", exc_info=e)
-        return JSONResponse(status_code=502, content={"error": "AI analysis failed", "details": str(e)})
-
-    if resp.status_code != 200:
-        logger.error("Video AI response error", extra={"status": resp.status_code, "body": resp.text})
-        return JSONResponse(status_code=500, content={
-            "error": "AI analysis failed",
-            "details": resp.text,
-            "status": resp.status_code,
-        })
+        return _error_response(language, chat_id, user_id, 502, {"error": str(e)})
 
     logger.info("Parsing video API response")
     result = resp.json()  # orijinal AI or Not yanıtı (video şeması)
@@ -182,24 +211,28 @@ def analyze_video(
         }
     }
 
-    logger.info("Calling interpret_messages_legacy")
-    messages = interpret_messages_legacy(legacy_like, language)
-    logger.debug("Interpret messages result", extra={"messages": messages})
+    try:
+        logger.info("Calling interpret_messages_legacy")
+        messages = interpret_messages_legacy(legacy_like, language)
+        logger.debug("Interpret messages result", extra={"messages": messages})
 
-    logger.info("Calling format_summary_tr")
-    summary_tr = format_summary_tr(legacy_like, language, subject="video")
-    logger.debug("Format summary output", extra={"summary_tr": summary_tr})
+        logger.info("Calling format_summary_tr")
+        summary_tr = format_summary_tr(legacy_like, language, subject="video")
+        logger.debug("Format summary output", extra={"summary_tr": summary_tr})
 
-    logger.info("Saving assistant message to Firestore")
-    # Kayda ORİJİNAL sonucu geçiyoruz (eski davranış korunur)
-    saved_info = _save_asst_message(user_id, chat_id, summary_tr, result, language)
-    logger.info("Firestore save result", extra={"saved_info": saved_info})
-    logger.info("Analyze video complete")
-    return JSONResponse(status_code=200, content={
-        "raw_response": result,   # orijinal video şeması
-        "messages": messages,
-        "summary": summary_tr,
-        "summary_tr": summary_tr,
-        "language": language,
-        "saved": saved_info,
-    })
+        logger.info("Saving assistant message to Firestore")
+        # Kayda ORİJİNAL sonucu geçiyoruz (eski davranış korunur)
+        saved_info = _save_asst_message(user_id, chat_id, summary_tr, result, language)
+        logger.info("Firestore save result", extra={"saved_info": saved_info})
+        logger.info("Analyze video complete")
+        return JSONResponse(status_code=200, content={
+            "raw_response": result,   # orijinal video şeması
+            "messages": messages,
+            "summary": summary_tr,
+            "summary_tr": summary_tr,
+            "language": language,
+            "saved": saved_info,
+        })
+    except Exception as exc:
+        logger.exception("Analyze video processing error")
+        return _error_response(language, chat_id, user_id, 500, str(exc))

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.language_support import normalize_language
 from core.word_to_pdf import convert_word_bytes_to_pdf_bytes
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxQnaRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -86,7 +87,26 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
     effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
     try:
         logger.info("PPTX QnA ensure file", extra={"chatId": payload.chat_id, "fileId": payload.file_id, "fileUrl": payload.file_url})
-        file_uri = _ensure_file_uri(payload, gemini_key)
+        try:
+            file_uri = _ensure_file_uri(payload, gemini_key)
+        except HTTPException as he:
+            return build_success_error_response(
+                tool="pptx_qna",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=he.status_code,
+                detail=he.detail,
+            )
+        except Exception as exc:
+            return build_success_error_response(
+                tool="pptx_qna",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=500,
+                detail=str(exc),
+            )
         logger.info("PPTX QnA file ready", extra={"chatId": payload.chat_id, "fileUri": file_uri})
         user_prompt = (payload.prompt or "").strip()
         instructions = user_prompt or f"Answer in {language}. Maintain citations if available."
@@ -154,28 +174,23 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
             logger.error("PPTX QnA Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_qna", "error": hexc.detail},
-            )
         logger.error("PPTX QnA HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pptx_qna",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PPTX QnA failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_qna_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_qna", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pptx_qna",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pptx_qna_failed", "message": msg},
-        ) from exc
+            detail=str(exc),
+        )
 

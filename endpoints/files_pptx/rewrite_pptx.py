@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.language_support import normalize_language
 from core.word_to_pdf import convert_word_bytes_to_pdf_bytes
 from errors_response import get_pdf_error_message
+from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxRewriteRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
@@ -56,8 +57,27 @@ async def rewrite_pptx(payload: PptxRewriteRequest, request: Request) -> Dict[st
     )
 
     logger.info("PPTX rewrite download start", extra={"chatId": payload.chat_id, "fileUrl": payload.file_url})
-    content, mime = download_file(payload.file_url, max_mb=30, require_pdf=False)
-    mime = _validate_pptx_mime(mime)
+    try:
+        content, mime = download_file(payload.file_url, max_mb=30, require_pdf=False)
+        mime = _validate_pptx_mime(mime)
+    except HTTPException as he:
+        return build_success_error_response(
+            tool="pptx_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=he.status_code,
+            detail=he.detail,
+        )
+    except Exception as exc:
+        return build_success_error_response(
+            tool="pptx_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=500,
+            detail=str(exc),
+        )
     logger.info("PPTX rewrite download ok", extra={"chatId": payload.chat_id, "size": len(content), "mime": mime})
 
     is_pdf = mime.lower().startswith("application/pdf")
@@ -68,7 +88,17 @@ async def rewrite_pptx(payload: PptxRewriteRequest, request: Request) -> Dict[st
         suffix = ".pptx"
         if payload.file_name and "." in payload.file_name:
             suffix = "." + payload.file_name.split(".")[-1]
-        pdf_bytes, pdf_filename = convert_word_bytes_to_pdf_bytes(content, suffix=suffix)
+        try:
+            pdf_bytes, pdf_filename = convert_word_bytes_to_pdf_bytes(content, suffix=suffix)
+        except Exception as exc:
+            return build_success_error_response(
+                tool="pptx_rewrite",
+                language=language,
+                chat_id=payload.chat_id,
+                user_id=user_id,
+                status_code=500,
+                detail=str(exc),
+            )
 
     gemini_key = os.getenv("GEMINI_API_KEY")
     effective_model = payload.model or os.getenv("GEMINI_PDF_MODEL") or "gemini-2.5-flash"
@@ -147,28 +177,23 @@ async def rewrite_pptx(payload: PptxRewriteRequest, request: Request) -> Dict[st
             logger.error("PPTX rewrite Firestore save failed | chatId=%s", payload.chat_id)
         return result
     except HTTPException as hexc:
-        msg = hexc.detail.get("message") if isinstance(hexc.detail, dict) else str(hexc.detail)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_rewrite", "error": hexc.detail},
-            )
         logger.error("PPTX rewrite HTTPException", exc_info=hexc, extra={"chatId": payload.chat_id})
-        raise
+        return build_success_error_response(
+            tool="pptx_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
+            status_code=hexc.status_code,
+            detail=hexc.detail,
+        )
     except Exception as exc:
         logger.error("PPTX rewrite failed", exc_info=exc)
-        msg = get_pdf_error_message("pdf_rewrite_failed", language)
-        if payload.chat_id:
-            save_message_to_firestore(
-                user_id=user_id,
-                chat_id=payload.chat_id,
-                content=msg,
-                metadata={"tool": "pptx_rewrite", "error": str(exc)},
-            )
-        raise HTTPException(
+        return build_success_error_response(
+            tool="pptx_rewrite",
+            language=language,
+            chat_id=payload.chat_id,
+            user_id=user_id,
             status_code=500,
-            detail={"success": False, "error": "pptx_rewrite_failed", "message": msg},
-        ) from exc
+            detail=str(exc),
+        )
 

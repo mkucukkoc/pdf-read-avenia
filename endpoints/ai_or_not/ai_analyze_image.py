@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, Tuple
 import httpx
 from fastapi import Body, Query, APIRouter, HTTPException
 from fastapi.responses import JSONResponse
+from errors_response.api_errors import get_api_error_message
 
 from core.useChatPersistence import chat_persistence
 from core.websocket_manager import stream_manager
@@ -24,6 +25,42 @@ FAIL_MSG = "Görsel şu anda analiz edilemiyor, lütfen tekrar deneyin."
 IMAGE_ENDPOINT = os.getenv("IMAGE_ENDPOINT", "https://api.aiornot.com/v1/reports/image")
 API_KEY = os.getenv("AIORNOT_API_KEY", "")
 router = APIRouter()
+
+
+def _map_error_key(status_code: int) -> str:
+    if status_code == 404:
+        return "upstream_404"
+    if status_code == 429:
+        return "upstream_429"
+    if status_code in (401, 403):
+        return "upstream_401"
+    if status_code == 408:
+        return "upstream_timeout"
+    if status_code >= 500:
+        return "upstream_500"
+    return "unknown_error"
+
+
+def _error_response(language: Optional[str], chat_id: str, user_id: str, status_code: int, detail: Any) -> JSONResponse:
+    key = _map_error_key(status_code)
+    msg = get_api_error_message(key, language or "tr")
+    message_id = f"ai_analyze_image_error_{os.urandom(4).hex()}"
+    try:
+        _save_asst_message(user_id, chat_id, msg, {"error": key, "detail": detail}, language)
+    except Exception:
+        logger.warning("Analyze image error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
+
+    payload = {
+        "success": True,
+        "data": {
+            "message": {
+                "content": msg,
+                "id": message_id,
+            },
+            "streaming": False,
+        },
+    }
+    return JSONResponse(status_code=200, content=payload)
 
 
 def decode_base64_maybe_data_url(data: str) -> bytes:
@@ -566,22 +603,22 @@ async def analyze_image_from_url(image_url: str, user_id: str, chat_id: str, lan
     except Exception as e:
         logger.error("Image download failed", exc_info=e)
         _save_failure_message(user_id, chat_id, language, FAIL_MSG, {"error": str(e)})
-        raise HTTPException(status_code=400, detail=FAIL_MSG)
+        raise HTTPException(status_code=400, detail={"error": "file_download_failed", "message": FAIL_MSG})
 
     content = resp.content or b""
     b64 = base64.b64encode(content).decode("utf-8")
     if len(b64) < 1000:
         logger.error("Downloaded content too small or not image")
         _save_failure_message(user_id, chat_id, language, FAIL_MSG, {"error": "invalid_image"})
-        raise HTTPException(status_code=400, detail=FAIL_MSG)
+        raise HTTPException(status_code=400, detail={"error": "invalid_image", "message": FAIL_MSG})
     try:
         return await _run_analysis(content, user_id, chat_id, language, mock)
     except HTTPException as he:
         _save_failure_message(user_id, chat_id, language, FAIL_MSG, he.detail if isinstance(he.detail, dict) else {"error": str(he.detail)})
-        raise HTTPException(status_code=he.status_code, detail=FAIL_MSG)
+        raise HTTPException(status_code=he.status_code, detail=he.detail)
     except Exception as e:
         _save_failure_message(user_id, chat_id, language, FAIL_MSG, {"error": str(e)})
-        raise HTTPException(status_code=500, detail=FAIL_MSG)
+        raise HTTPException(status_code=500, detail={"error": "upstream_500", "message": FAIL_MSG})
 
 
 @router.post("/analyze-image")
@@ -613,9 +650,9 @@ async def analyze_image(
     )
 
     if not image_b64:
-        return JSONResponse(status_code=400, content={"message": FAIL_MSG})
+        return _error_response(language, chat_id or "", user_id or "", 400, "image_base64_missing")
     if not user_id or not chat_id:
-        return JSONResponse(status_code=400, content={"message": FAIL_MSG})
+        return _error_response(language, chat_id or "", user_id or "", 400, "user_or_chat_missing")
 
     try:
         logger.info("Decoding base64 image")
@@ -623,24 +660,14 @@ async def analyze_image(
         logger.info("Base64 decoded", extra={"byte_length": len(image_bytes)})
     except Exception as e:
         logger.error("Base64 decode failed", exc_info=e)
-        _save_failure_message(user_id, chat_id, language, FAIL_MSG, {"error": str(e)})
-        return JSONResponse(status_code=400, content={"message": FAIL_MSG})
+        return _error_response(language, chat_id or "", user_id or "", 400, {"error": str(e)})
 
     try:
         result = await _run_analysis(image_bytes, user_id, chat_id, language, mock == "1")
         return JSONResponse(status_code=200, content={"success": True, **result})
     except HTTPException as he:
-        _save_failure_message(
-            user_id,
-            chat_id,
-            language,
-            FAIL_MSG,
-            he.detail if isinstance(he.detail, dict) else {"error": str(he.detail)},
-        )
-        raise HTTPException(status_code=he.status_code, detail=FAIL_MSG)
+        logger.error("Analyze image HTTPException", exc_info=he)
+        return _error_response(language, chat_id, user_id, he.status_code, he.detail)
     except Exception as e:
         logger.exception("Analyze image failed")
-        raise HTTPException(
-            status_code=500,
-            detail=FAIL_MSG,
-        )
+        return _error_response(language, chat_id, user_id, 500, {"error": str(e)})
