@@ -86,8 +86,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     language = normalize_language(payload.language)
     prompt = (payload.prompt or "Lütfen görseli detaylı analiz et.").strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
-    # Model sırası: payload > env > önerilen fallback listesi
-    # Öncelikli model: gemini-2.5-flash (isteğe göre), sonra env/payload ve fallback'ler
+    
     model_candidates = [
         "gemini-2.5-flash",
         payload.model,
@@ -96,18 +95,14 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
         "gemini-1.5-flash-8b-001",
         "gemini-1.5-pro-001",
     ]
-    # None ve tekrarları temizle, sıralı tut
     seen = set()
     candidate_models: list[str] = []
     for m in model_candidates:
-        if not m:
-            continue
-        if m in seen:
+        if not m or m in seen:
             continue
         seen.add(m)
         candidate_models.append(m)
 
-    # UI'de geçici mesajları göstermek istemiyoruz; streaming'i kapat.
     streaming_enabled = False
     message_id = None
     status_lines: list[str] = []
@@ -151,58 +146,66 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     last_error: Optional[HTTPException] = None
     selected_model: Optional[str] = None
 
-    for idx, model in enumerate(candidate_models):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
-        request_body = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inlineData": {
-                                "data": inline["data"],
-                                "mimeType": inline["mimeType"],
-                            }
-                        },
-                    ],
-                }
-            ]
-        }
+    try:
+        for idx, model in enumerate(candidate_models):
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+            request_body = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": prompt},
+                            {
+                                "inlineData": {
+                                    "data": inline["data"],
+                                    "mimeType": inline["mimeType"],
+                                }
+                            },
+                        ],
+                    }
+                ]
+            }
 
-        logger.info(
-            "Calling Gemini analyze API",
-            extra={
-                "attempt": idx + 1,
-                "prompt_len": len(prompt),
-                "prompt_preview": prompt[:120],
-                "mime_type": inline["mimeType"],
-                "model": model,
-            },
-        )
-        resp = requests.post(url, json=request_body, timeout=120)
-        logger.info(
-            "Gemini analyze API response",
-            extra={"attempt": idx + 1, "status": resp.status_code, "body_preview": (resp.text or "")[:800]},
-        )
-        if not resp.ok:
-            last_error = HTTPException(
-                status_code=resp.status_code,
-                detail={"success": False, "error": "gemini_analyze_failed", "message": resp.text[:500]},
+            logger.info(
+                "Calling Gemini analyze API",
+                extra={
+                    "attempt": idx + 1,
+                    "prompt_len": len(prompt),
+                    "prompt_preview": prompt[:120],
+                    "mime_type": inline["mimeType"],
+                    "model": model,
+                },
             )
-            continue
+            resp = requests.post(url, json=request_body, timeout=120)
+            logger.info(
+                "Gemini analyze API response",
+                extra={"attempt": idx + 1, "status": resp.status_code, "body_preview": (resp.text or "")[:800]},
+            )
+            if not resp.ok:
+                last_error = HTTPException(
+                    status_code=resp.status_code,
+                    detail={"success": False, "error": "gemini_analyze_failed", "message": resp.text[:500]},
+                )
+                continue
 
-        try:
-            response_json = resp.json()
-            selected_model = model
-            break
-        except Exception as exc:
-            logger.error("Failed to parse Gemini analyze response", exc_info=exc, extra={"attempt": idx + 1, "model": model})
-            last_error = HTTPException(
-                status_code=500,
-                detail={"success": False, "error": "gemini_analyze_parse_failed", "message": str(exc)},
-            )
-            continue
+            try:
+                response_json = resp.json()
+                selected_model = model
+                break
+            except Exception as exc:
+                logger.error("Failed to parse Gemini analyze response", exc_info=exc, extra={"attempt": idx + 1, "model": model})
+                last_error = HTTPException(
+                    status_code=500,
+                    detail={"success": False, "error": "gemini_analyze_parse_failed", "message": str(exc)},
+                )
+                continue
+
+        if response_json is None or selected_model is None:
+            if last_error:
+                raise last_error
+            raise HTTPException(status_code=500, detail="All model attempts failed")
+
+        analysis_text = _extract_text(response_json)
 
     except HTTPException as he:
         logger.error("Gemini image analyze HTTPException", exc_info=he)
@@ -260,7 +263,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
         extra={
             "chat_id": payload.chat_id,
             "user_id": user_id,
-            "model": model,
+            "model": selected_model,
             "analysis_preview": analysis_text[:200],
         },
     )
@@ -283,7 +286,6 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
 
     if payload.chat_id:
         try:
-            # Kullanıcı mesajı zaten görsel URL'sini içeriyor; asistanda tekrar görsel ekleme.
             chat_persistence.save_assistant_message(
                 user_id=user_id,
                 chat_id=payload.chat_id,
@@ -323,4 +325,3 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
 
 
 __all__ = ["router", "analyze_gemini_image"]
-

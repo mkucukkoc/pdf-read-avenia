@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from fastapi import Body, Query
 from fastapi.responses import JSONResponse
 import requests
