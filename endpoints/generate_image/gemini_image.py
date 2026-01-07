@@ -25,6 +25,19 @@ logger = logging.getLogger("pdf_read_refresh.gemini_image")
 router = APIRouter(prefix="/api/v1/image", tags=["Image"])
 
 
+def _resp_preview(obj: Any, max_len: int = 2000) -> str:
+    try:
+        text = json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        try:
+            text = str(obj)
+        except Exception:
+            text = "<unserializable>"
+    if len(text) > max_len:
+        return text[:max_len] + "... [truncated]"
+    return text
+
+
 def _get_storage():
     from main import storage  # Local import prevents circular dependency
 
@@ -227,6 +240,13 @@ def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:
                 "mimeType": inline.get("mimeType") or "image/png",
             }
 
+    logger.error(
+        "No inlineData found in Gemini response",
+        extra={
+            "candidate_count": len(candidates),
+            "response_preview": _resp_preview(resp_json),
+        },
+    )
     raise ValueError("No inlineData found in Gemini response")
 
 
