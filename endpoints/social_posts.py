@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 import httpx
@@ -66,6 +67,12 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
         status_code=500,
         detail={"success": False, "error": "social_posts_empty", "message": "No text generated for social post"},
     )
+
+
+def _strip_markdown_stars(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\*", "", text)
 
 
 async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str, Any]:
@@ -136,7 +143,7 @@ Topic:
 """
 
         logger.info("SocialPosts start", extra={"userId": user_id, "chatId": payload.chat_id, "lang": language})
-        text = await _call_gemini(styled_prompt, api_key, model)
+        text = _strip_markdown_stars(await _call_gemini(styled_prompt, api_key, model))
 
         message_id = client_message_id or f"social_posts_{hash(prompt)}"
         if payload.chat_id:

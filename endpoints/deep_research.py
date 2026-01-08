@@ -267,6 +267,12 @@ def _parse_citations(raw: str) -> Dict[str, Any]:
     return {"content": body, "citations": citations}
 
 
+def _strip_markdown_stars(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\*", "", text)
+
+
 async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
@@ -373,7 +379,7 @@ Konu:
             }
 
         parsed = _parse_citations(text)
-        body = parsed["content"]
+        body = _strip_markdown_stars(parsed["content"])
         citations = parsed.get("citations") or []
 
         logger.info(

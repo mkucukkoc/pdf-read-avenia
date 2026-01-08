@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import logging
+import re
 import json
 import os
 import uuid
@@ -52,6 +53,12 @@ def download_file(url: str, max_mb: int, require_pdf: bool = True) -> Tuple[byte
     if require_pdf and "pdf" not in mime:
         mime = "application/pdf"
     return content, mime
+
+
+def _strip_markdown_stars(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\*", "", text)
 
 
 def inline_base64(content: bytes) -> str:
@@ -273,6 +280,8 @@ def save_message_to_firestore(
     metadata: Optional[Dict[str, Any]] = None,
     client_message_id: Optional[str] = None,
 ) -> bool:
+    # Normalize markdown artifacts before persisting
+    content = _strip_markdown_stars(content)
     if not chat_id:
         logger.warning(
             "Firestore save skipped (missing chatId)",
@@ -367,19 +376,21 @@ async def generate_text_with_optional_stream(
             raise RuntimeError(
                 f"Gemini response empty. Feedback: {feedback.get('blockReason', 'Unknown')}"
             )
-        return extract_text_response(response_json), None
+        clean_text = _strip_markdown_stars(extract_text_response(response_json))
+        return clean_text, None
 
     # Use dedicated uuid4 import to avoid accidental shadowing
     message_id = f"{tool}_{_uuid4().hex}"
     accumulated: list[str] = []
     try:
         async for chunk in stream_gemini_text(parts, api_key, effective_model):
-            accumulated.append(chunk)
+            clean_chunk = _strip_markdown_stars(chunk)
+            accumulated.append(clean_chunk)
             payload: Dict[str, Any] = {
                 "chatId": chat_id,
                 "messageId": message_id,
                 "tool": tool,
-                "delta": chunk,
+                "delta": clean_chunk,
                 "content": "".join(accumulated),
                 "isFinal": False,
             }

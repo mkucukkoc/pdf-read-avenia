@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 import httpx
@@ -71,6 +72,12 @@ def _extract_text(result: Dict[str, Any]) -> str:
     return ""
 
 
+def _strip_markdown_stars(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\*", "", text)
+
+
 async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
@@ -137,7 +144,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
         )
 
         result = await _call_gemini_web_search(prompt, api_key, model, payload.urls)
-        text = _extract_text(result)
+        text = _strip_markdown_stars(_extract_text(result))
         if not text:
             logger.error(
                 "Web search returned empty text",
