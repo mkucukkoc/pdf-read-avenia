@@ -413,15 +413,6 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             metadata=metadata,
             client_message_id=getattr(payload, "client_message_id", None),
         )
-        await emit_status(
-            ready_msg,
-            final=True,
-            metadata={
-                "imageUrl": final_image_link,
-                "tool": "generate_image_gemini",
-                "mimeType": inline_data["mimeType"],
-            },
-        )
         result = attach_streaming_payload(
             result_payload,
             tool="generate_image_gemini",

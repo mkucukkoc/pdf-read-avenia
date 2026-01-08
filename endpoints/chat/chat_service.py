@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import os
 import uuid
 from datetime import datetime, timezone
@@ -26,6 +27,13 @@ logger = logging.getLogger("pdf_read_refresh.chat_service")
 
 
 class ChatService:
+    @staticmethod
+    def _strip_markdown_stars(text: Optional[str]) -> str:
+        if not text:
+            return ""
+        return re.sub(r"\*", "", text)
+
+
     """Service that handles AI chat interactions and persistence."""
 
     _instance: Optional["ChatService"] = None
@@ -213,6 +221,8 @@ class ChatService:
                 payload.chat_id,
                 assistant_content[:200],
             )
+            assistant_content = self._strip_markdown_stars(assistant_content)
+
             assistant_message_id = self._generate_message_id()
             assistant_message = ChatMessagePayload(
                 role="assistant",
@@ -466,14 +476,15 @@ class ChatService:
                 delta = await queue.get()
                 if delta is None:
                     break
-                final_content += delta
+                sanitized_delta = self._strip_markdown_stars(delta)
+                final_content += sanitized_delta
                 logger.debug(
                     "Streaming delta accumulated chatId=%s messageId=%s deltaLen=%s totalLen=%s deltaPreview=%s",
                     payload.chat_id,
                     message_id,
-                    len(delta),
+                    len(sanitized_delta),
                     len(final_content),
-                    delta[:120],
+                    sanitized_delta[:120],
                 )
                 await stream_manager.emit_chunk(
                     payload.chat_id,
@@ -481,13 +492,15 @@ class ChatService:
                         "chatId": payload.chat_id,
                         "messageId": message_id,
                         "content": final_content,
-                        "delta": delta,
+                        "delta": sanitized_delta,
                         "isFinal": False,
                     },
                 )
 
             # ensure producer thread is finished
             await producer_task
+
+            final_content = self._strip_markdown_stars(final_content)
 
             if not final_content.strip():
                 # Build graceful success-shaped error response for empty/failed stream
@@ -515,6 +528,8 @@ class ChatService:
                         "error": "stream_failed",
                     },
                 )
+
+            final_content = self._strip_markdown_stars(final_content)
 
             assistant_message = ChatMessagePayload(
                 role="assistant",
@@ -766,10 +781,11 @@ class ChatService:
 
     def _build_system_instruction(self, language_code: Optional[str]) -> str:
         base = self._system_instruction or ""
+        followup = " Always end your response with a concise, relevant follow-up question to the user, in the same language."
         if language_code:
             lang_part = f" Respond ONLY in {language_code}."
-            return (base + lang_part).strip()
-        return base
+            return (base + lang_part + followup).strip()
+        return (base + followup).strip()
 
     async def _maybe_generate_chat_title(
         self,
