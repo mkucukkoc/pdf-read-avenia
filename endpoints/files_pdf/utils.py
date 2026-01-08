@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import uuid
+from uuid import uuid4 as _uuid4
 from typing import Any, AsyncGenerator, Dict, Generator, Optional, Tuple
 
 import requests
@@ -278,7 +279,8 @@ def save_message_to_firestore(
             extra={"userId": user_id},
         )
         return False
-    resolved_client_id = client_message_id or f"msg_{uuid.uuid4().hex()}"
+    # Use a direct uuid4 import to avoid any accidental shadowing of the uuid module
+    resolved_client_id = client_message_id or f"msg_{_uuid4().hex}"
     try:
         chat_persistence.save_assistant_message(
             user_id=user_id,
@@ -367,7 +369,8 @@ async def generate_text_with_optional_stream(
             )
         return extract_text_response(response_json), None
 
-    message_id = f"{tool}_{uuid.uuid4().hex}"
+    # Use dedicated uuid4 import to avoid accidental shadowing
+    message_id = f"{tool}_{_uuid4().hex}"
     accumulated: list[str] = []
     try:
         async for chunk in stream_gemini_text(parts, api_key, effective_model):
