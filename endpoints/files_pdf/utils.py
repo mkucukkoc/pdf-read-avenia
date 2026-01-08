@@ -270,6 +270,7 @@ def save_message_to_firestore(
     chat_id: str,
     content: str,
     metadata: Optional[Dict[str, Any]] = None,
+    client_message_id: Optional[str] = None,
 ) -> bool:
     if not chat_id:
         logger.warning(
@@ -283,6 +284,7 @@ def save_message_to_firestore(
             chat_id=chat_id,
             content=content,
             metadata=metadata or {},
+            client_message_id=client_message_id,
         )
         return True
     except RuntimeError:

@@ -107,7 +107,14 @@ def format_summary_tr(data: Dict[str, Any], language: Optional[str] = None) -> s
     return summary
 
 
-def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any, language: Optional[str] = None) -> Dict[str, Any]:
+def _save_asst_message(
+    user_id: str,
+    chat_id: str,
+    content: str,
+    raw: Any,
+    language: Optional[str] = None,
+    client_message_id: Optional[str] = None,
+) -> Dict[str, Any]:
     logger.info("[_save_asst_message] user_id=%s chat_id=%s content_preview=%s", user_id, chat_id, (content or "")[:200])
     if not user_id or not chat_id:
         return {"saved": False}
@@ -120,7 +127,9 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: Any, langu
                 "language": normalize_language(language),
                 "ai_detect": {"raw": raw},
                 "tool": "ai_or_not_analysis"
-            }
+            },
+            message_id=client_message_id,
+            client_message_id=client_message_id or None,
         )
         logger.info("[_save_asst_message] saved=True message_id=%s", message_id)
         return {"saved": True, "message_id": message_id}
@@ -183,6 +192,7 @@ async def check_ai(
     ocr_for_office_images: bool = Form(False),
     office_legacy_convert: bool = Form(False),
     language: str | None = Form(None),
+    client_message_id: Optional[str] = Form(None),
 ):
     logger.info("[/check-ai] START filename=%s content_type=%s user_id=%s chat_id=%s external_id=%s chunk_strategy=%s max_chars_per_chunk=%s min_chars_required=%s ocr_for_pdf=%s ocr_for_office_images=%s office_legacy_convert=%s api_key_present=%s",
                 getattr(file, "filename", None), getattr(file, "content_type", None), user_id, chat_id, external_id, chunk_strategy, max_chars_per_chunk, min_chars_required, ocr_for_pdf, ocr_for_office_images, office_legacy_convert, bool(AIORNOT_API_KEY))
@@ -207,7 +217,14 @@ async def check_ai(
         msg = get_api_error_message(key, language_norm)
         message_id = f"check_ai_error_{os.urandom(4).hex()}"
         try:
-            _save_asst_message(user_id, chat_id, msg, {"error": key, "detail": detail}, language_norm)
+            _save_asst_message(
+                user_id,
+                chat_id,
+                msg,
+                {"error": key, "detail": detail},
+                language_norm,
+                client_message_id=client_message_id,
+            )
         except Exception:
             logger.warning("Check-ai error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
 
@@ -616,7 +633,14 @@ async def check_ai(
     messages = interpret_messages_legacy({"ai_generated": ai_generated, "confidence": confidence, "quality": q_out, "nsfw": n_out}, language=language_norm)
     content = summary + "\nMessages: " + ", ".join(messages)
     logger.info("[/check-ai] summary_len=%s messages_count=%s", len(summary), len(messages))
-    firebase_info = _save_asst_message(user_id, chat_id, content, merged_raw, language_norm)
+    firebase_info = _save_asst_message(
+        user_id,
+        chat_id,
+        content,
+        merged_raw,
+        language_norm,
+        client_message_id=client_message_id,
+    )
     logger.info("[/check-ai] firebase_info=%s", firebase_info)
 
     response = {

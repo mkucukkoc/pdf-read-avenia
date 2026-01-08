@@ -63,10 +63,12 @@ class ChatService:
                 return "upstream_500"
             return "unknown_error"
 
+        client_message_id = getattr(payload, "client_message_id", None)
+
         def _error_response(exc: Exception, status_code: int = 500) -> Dict[str, Any]:
             lang = (payload.language or "tr").lower()
             msg = get_api_error_message(_map_error_key(status_code), lang)
-            message_id = self._generate_message_id()
+            message_id = client_message_id or self._generate_message_id()
             try:
                 chat_persistence.save_assistant_message(
                     user_id=user_id,
@@ -78,6 +80,7 @@ class ChatService:
                         "status": status_code,
                     },
                     message_id=message_id,
+                    client_message_id=client_message_id or message_id,
                 )
             except Exception:
                 logger.warning("Chat error persist failed chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)
@@ -840,6 +843,7 @@ class ChatService:
                     file_name=message.file_name,
                     file_url=message.file_url or payload.image_file_url,
                     metadata=merged_metadata,
+                    client_message_id=getattr(message, "client_message_id", None),
                 )
             )
             break

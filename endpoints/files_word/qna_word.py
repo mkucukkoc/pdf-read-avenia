@@ -168,6 +168,7 @@ async def qna_word(payload: DocQnaRequest, request: Request) -> Dict[str, Any]:
                 "fileUri": file_uri,
                 "fileName": payload.file_name,
             },
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         if firestore_ok:
             logger.info("Word QnA Firestore save success | chatId=%s", payload.chat_id)

@@ -150,6 +150,7 @@ def _save_message_to_firestore(
     content: str,
     image_url: Optional[str],
     metadata: Optional[Dict[str, Any]] = None,
+    client_message_id: Optional[str] = None,
 ) -> None:
     if not chat_id:
         logger.debug("Skipping Firestore save; chat_id missing")
@@ -162,6 +163,7 @@ def _save_message_to_firestore(
             content=content,
             file_url=image_url,
             metadata=metadata or {},
+            client_message_id=client_message_id,
         )
     except RuntimeError:
         logger.debug("Skipping Firestore save; firebase app not initialized")
@@ -301,6 +303,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
             content=ready_msg,
             image_url=final_image_link,
             metadata=metadata,
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         await emit_status(
             ready_msg,
@@ -346,6 +349,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
                 content=msg,
                 image_url=None,
                 metadata={"tool": "generate_image_gemini_search", "error": key},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,
@@ -369,6 +373,7 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
                 content=message,
                 image_url=None,
                 metadata={"tool": "generate_image_gemini_search", "error": "upstream_500"},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,

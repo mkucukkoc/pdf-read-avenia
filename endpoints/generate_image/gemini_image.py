@@ -25,19 +25,6 @@ logger = logging.getLogger("pdf_read_refresh.gemini_image")
 router = APIRouter(prefix="/api/v1/image", tags=["Image"])
 
 
-def _resp_preview(obj: Any, max_len: int = 2000) -> str:
-    try:
-        text = json.dumps(obj, ensure_ascii=False)
-    except Exception:
-        try:
-            text = str(obj)
-        except Exception:
-            text = "<unserializable>"
-    if len(text) > max_len:
-        return text[:max_len] + "... [truncated]"
-    return text
-
-
 def _get_storage():
     from main import storage  # Local import prevents circular dependency
 
@@ -55,6 +42,7 @@ def _save_message_to_firestore(
     content: str,
     image_url: Optional[str],
     metadata: Optional[Dict[str, Any]] = None,
+    client_message_id: Optional[str] = None,
 ) -> None:
     if not chat_id:
         logger.debug("Skipping Firestore save; chat_id missing")
@@ -67,6 +55,7 @@ def _save_message_to_firestore(
             content=content,
             file_url=image_url,
             metadata=metadata or {},
+            client_message_id=client_message_id,
         )
     except RuntimeError:
         logger.debug("Skipping Firestore save; firebase app not initialized")
@@ -240,13 +229,6 @@ def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:
                 "mimeType": inline.get("mimeType") or "image/png",
             }
 
-    logger.error(
-        "No inlineData found in Gemini response",
-        extra={
-            "candidate_count": len(candidates),
-            "response_preview": _resp_preview(resp_json),
-        },
-    )
     raise ValueError("No inlineData found in Gemini response")
 
 
@@ -429,6 +411,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             content=ready_msg,
             image_url=final_image_link,
             metadata=metadata,
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         await emit_status(
             ready_msg,
@@ -474,6 +457,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 content=msg,
                 image_url=None,
                 metadata={"tool": "generate_image_gemini", "error": key},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,
@@ -497,6 +481,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 content=message,
                 image_url=None,
                 metadata={"tool": "generate_image_gemini", "error": "upstream_500"},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,

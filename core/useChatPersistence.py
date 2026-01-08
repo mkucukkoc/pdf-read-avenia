@@ -36,6 +36,7 @@ class MessagePayload:
     metadata: Optional[Dict[str, Any]] = None
     is_temporary: bool = False
     message_id: Optional[str] = None
+    client_message_id: Optional[str] = None
 
 
 class ChatPersistenceService:
@@ -159,6 +160,8 @@ class ChatPersistenceService:
         if message.is_temporary:
             payload.setdefault("metadata", {})
             payload["metadata"]["isTemporary"] = True
+        if message.client_message_id:
+            payload["clientMessageId"] = message.client_message_id
 
         messages_ref = self._messages_ref(user_id, chat_id)
         if not message.message_id:
@@ -190,6 +193,7 @@ class ChatPersistenceService:
         file_url: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         is_temporary: bool = False,
+        client_message_id: Optional[str] = None,
     ) -> str:
         self.ensure_chat_document(
             user_id=user_id,
@@ -207,6 +211,7 @@ class ChatPersistenceService:
                 file_url=file_url,
                 metadata=metadata,
                 is_temporary=is_temporary,
+                client_message_id=client_message_id,
             ),
         )
 
@@ -220,6 +225,7 @@ class ChatPersistenceService:
         file_url: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         message_id: Optional[str] = None,
+        client_message_id: Optional[str] = None,
     ) -> str:
         self.ensure_chat_document(
             user_id=user_id,
@@ -237,6 +243,7 @@ class ChatPersistenceService:
                 file_url=file_url,
                 metadata=metadata,
                 message_id=message_id,
+                client_message_id=client_message_id,
             ),
         )
 

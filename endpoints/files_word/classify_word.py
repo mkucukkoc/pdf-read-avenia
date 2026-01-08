@@ -175,6 +175,7 @@ async def classify_word(payload: DocClassifyRequest, request: Request) -> Dict[s
                 "fileName": payload.file_name,
                 "labels": payload.labels,
             },
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         if firestore_ok:
             logger.info("Word classify Firestore save success | chatId=%s", payload.chat_id)

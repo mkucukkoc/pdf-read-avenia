@@ -48,6 +48,7 @@ def build_success_error_response(
                     "status": status_code,
                 },
                 message_id=message_id,
+                client_message_id=message_id,
             )
         except Exception:
             # Fail silently; logging is handled at call sites if needed

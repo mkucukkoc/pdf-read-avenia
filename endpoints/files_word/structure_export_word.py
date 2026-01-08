@@ -172,6 +172,7 @@ async def structure_export_word(payload: DocStructureExportRequest, request: Req
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         if firestore_ok:
             logger.info("Word structure_export Firestore save success | chatId=%s", payload.chat_id)

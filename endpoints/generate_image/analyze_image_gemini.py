@@ -224,6 +224,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 content=msg,
                 file_url=None,
                 metadata={"tool": "analyze_image_gemini", "error": key},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,
@@ -246,6 +247,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 content=message,
                 file_url=None,
                 metadata={"tool": "analyze_image_gemini", "error": "upstream_500"},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,
@@ -292,6 +294,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 content=analysis_text,
                 file_url=None,
                 metadata=metadata,
+                client_message_id=getattr(payload, "client_message_id", None),
             )
             logger.info(
                 "Analysis message saved to Firestore",

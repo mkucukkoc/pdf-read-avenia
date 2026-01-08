@@ -217,6 +217,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
                 "summaryLevel": payload.summary_level or "basic",
                 "provider": "gemini",
             },
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         if firestore_ok:
             logger.info("Word summary Firestore save success | chatId=%s", payload.chat_id)

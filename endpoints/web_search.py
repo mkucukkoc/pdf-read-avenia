@@ -72,6 +72,7 @@ def _extract_text(result: Dict[str, Any]) -> str:
 
 
 async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, Any]:
+    client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
         if status_code == 404:
             return "upstream_404"
@@ -88,7 +89,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
     def _error_response(language: str, chat_id: Optional[str], user_id: str, status_code: int, detail: Any) -> Dict[str, Any]:
         key = _map_error_key(status_code)
         msg = get_api_error_message(key, language)
-        message_id = f"web_search_error_{os.urandom(4).hex()}"
+        message_id = client_message_id or f"web_search_error_{os.urandom(4).hex()}"
         try:
             chat_persistence.save_assistant_message(
                 user_id=user_id,
@@ -96,6 +97,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
                 content=msg,
                 metadata={"source": "web_search", "error": key, "detail": detail},
                 message_id=message_id,
+                client_message_id=client_message_id or message_id,
             )
         except Exception:
             logger.warning("WebSearch error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
@@ -145,7 +147,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
 
         logger.info("Web search extracted text", extra={"text_len": len(text), "text_preview": text[:400]})
 
-        message_id = f"web_search_{result.get('id') or ''}"
+        message_id = client_message_id or f"web_search_{result.get('id') or ''}"
         if payload.chat_id:
             try:
                 chat_persistence.save_assistant_message(
@@ -154,6 +156,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
                     content=text,
                     metadata={"source": "web_search", "model": model},
                     message_id=message_id,
+                    client_message_id=client_message_id or message_id,
                 )
             except Exception:
                 logger.warning("Failed to persist web search message chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)

@@ -69,6 +69,8 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
 
 
 async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str, Any]:
+    client_message_id = getattr(payload, "client_message_id", None)
+
     def _map_error_key(status_code: int) -> str:
         if status_code == 404:
             return "upstream_404"
@@ -85,7 +87,7 @@ async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str
     def _error_response(language: str, chat_id: Optional[str], user_id: str, status_code: int, detail: Any) -> Dict[str, Any]:
         key = _map_error_key(status_code)
         msg = get_api_error_message(key, language)
-        message_id = f"social_posts_error_{os.urandom(4).hex()}"
+        message_id = client_message_id or f"social_posts_error_{os.urandom(4).hex()}"
         try:
             chat_persistence.save_assistant_message(
                 user_id=user_id,
@@ -93,6 +95,7 @@ async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str
                 content=msg,
                 metadata={"source": "social_posts", "error": key, "detail": detail},
                 message_id=message_id,
+                client_message_id=client_message_id or message_id,
             )
         except Exception:
             logger.warning("SocialPosts error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
@@ -135,7 +138,7 @@ Topic:
         logger.info("SocialPosts start", extra={"userId": user_id, "chatId": payload.chat_id, "lang": language})
         text = await _call_gemini(styled_prompt, api_key, model)
 
-        message_id = f"social_posts_{hash(prompt)}"
+        message_id = client_message_id or f"social_posts_{hash(prompt)}"
         if payload.chat_id:
             try:
                 chat_persistence.save_assistant_message(
@@ -144,6 +147,7 @@ Topic:
                     content=text,
                     metadata={"source": "social_posts"},
                     message_id=message_id,
+                    client_message_id=client_message_id or message_id,
                 )
             except Exception:
                 logger.warning("SocialPosts persist failed chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)

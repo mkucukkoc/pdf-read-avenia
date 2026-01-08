@@ -268,6 +268,7 @@ def _parse_citations(raw: str) -> Dict[str, Any]:
 
 
 async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[str, Any]:
+    client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
         if status_code == 404:
             return "upstream_404"
@@ -284,7 +285,7 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
     def _error_response(language: str, chat_id: Optional[str], user_id: str, status_code: int, detail: Any) -> Dict[str, Any]:
         key = _map_error_key(status_code)
         msg = get_api_error_message(key, language)
-        message_id = f"deep_research_error_{os.urandom(4).hex()}"
+        message_id = client_message_id or f"deep_research_error_{os.urandom(4).hex()}"
         try:
             chat_persistence.save_assistant_message(
                 user_id=user_id,
@@ -292,6 +293,7 @@ async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[
                 content=msg,
                 metadata={"source": "deep_research", "error": key, "detail": detail},
                 message_id=message_id,
+                client_message_id=client_message_id or message_id,
             )
         except Exception:
             logger.warning("DeepResearch error persist failed chatId=%s userId=%s", chat_id, user_id, exc_info=True)
@@ -361,7 +363,7 @@ Konu:
                 "Derin araştırma tamamlandı ancak metin gelmedi veya süre doldu. "
                 "Lütfen yeniden deneyin ya da Web Search ile devam edin."
             )
-            message_id = f"deep_research_{interaction_id}"
+            message_id = client_message_id or f"deep_research_{interaction_id}"
             return {
                 "success": True,
                 "data": {
@@ -384,7 +386,7 @@ Konu:
             },
         )
 
-        message_id = f"deep_research_{interaction_id}"
+        message_id = client_message_id or f"deep_research_{interaction_id}"
         streaming_enabled = bool(payload.chat_id)
         if payload.chat_id:
             try:
@@ -394,6 +396,7 @@ Konu:
                     content=body,
                     metadata={"source": "deep_research", "interactionId": interaction_id, "citations": citations},
                     message_id=message_id,
+                    client_message_id=client_message_id or message_id,
                 )
             except Exception:
                 logger.warning("Failed to persist deep research message chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)

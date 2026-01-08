@@ -176,6 +176,7 @@ async def deep_extract_word(payload: DocDeepExtractRequest, request: Request) ->
                 "fileName": payload.file_name,
                 "fields": payload.fields,
             },
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         if firestore_ok:
             logger.info("Word deep_extract Firestore save success | chatId=%s", payload.chat_id)

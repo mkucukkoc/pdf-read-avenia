@@ -64,6 +64,7 @@ def _save_message_to_firestore(
     content: str,
     image_url: Optional[str],
     metadata: Optional[Dict[str, Any]] = None,
+    client_message_id: Optional[str] = None,
 ) -> None:
     if not chat_id:
         logger.debug("Skipping Firestore save; chat_id missing")
@@ -76,6 +77,7 @@ def _save_message_to_firestore(
             content=content,
             file_url=image_url,
             metadata=metadata or {},
+            client_message_id=client_message_id,
         )
     except RuntimeError:
         logger.debug("Skipping Firestore save; firebase app not initialized")
@@ -293,7 +295,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                     chat_id=payload.chat_id,
                     content="Bu sohbet içinde düzenlenebilecek bir görsel bulunamadı.",
                     image_url=None,
-                    metadata={"tool": "image_edit_gemini", "error": "no_image_found"},
+                metadata={"tool": "image_edit_gemini", "error": "no_image_found"},
+                client_message_id=getattr(payload, "client_message_id", None),
                 )
             raise HTTPException(
                 status_code=400,
@@ -385,6 +388,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             content=edited_msg,
             image_url=final_image_link,
             metadata=metadata,
+            client_message_id=getattr(payload, "client_message_id", None),
         )
         await emit_status(
             edited_msg,
@@ -453,6 +457,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 content=message,
                 image_url=None,
                 metadata={"tool": "image_edit_gemini", "error": "upstream_500"},
+                client_message_id=getattr(payload, "client_message_id", None),
             )
         return {
             "success": True,

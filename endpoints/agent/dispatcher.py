@@ -38,10 +38,12 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             return "upstream_500"
         return "unknown_error"
 
+    client_message_id = getattr(payload, "client_message_id", None)
+
     def _error_response(status_code: int, detail: Any) -> Dict[str, Any]:
         key = _map_error_key(status_code)
         msg = get_api_error_message(key, payload.language or "tr")
-        message_id = f"dispatcher_error_{hash(str(detail))}"
+        message_id = client_message_id or f"dispatcher_error_{hash(str(detail))}"
         try:
             chat_persistence.save_assistant_message(
                 user_id=effective_user,
@@ -49,6 +51,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
                 content=msg,
                 metadata={"source": "dispatcher", "error": key, "detail": detail},
                 message_id=message_id,
+                client_message_id=client_message_id or message_id,
             )
         except Exception:
             logger.warning("Dispatcher error persist failed chatId=%s userId=%s", payload.chat_id, effective_user, exc_info=True)
@@ -127,6 +130,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             file_url=payload.file_url,
             metadata=None,
             message_id=None,
+            client_message_id=client_message_id,
         )
 
     user_message_persisted = False
@@ -141,6 +145,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
                     file_name=getattr(latest_user, "file_name", None),
                     file_url=getattr(latest_user, "file_url", None),
                     metadata=getattr(latest_user, "metadata", None),
+                    client_message_id=getattr(latest_user, "client_message_id", None) or client_message_id,
                 )
             )
             user_message_persisted = True
@@ -159,6 +164,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             urls=merged_params.get("urls"),
             parameters=merged_params,
             stream=bool(merged_params.get("stream") or payload.stream),
+            client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to deep_research chatId=%s userId=%s", payload.chat_id, effective_user)
         resp = await run_deep_research(dr_payload, effective_user)
@@ -175,6 +181,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             urls=merged_params.get("urls"),
             parameters=merged_params,
             stream=bool(merged_params.get("stream") or payload.stream),
+            client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to web_search chatId=%s userId=%s", payload.chat_id, effective_user)
         resp = await run_web_search(ws_payload, effective_user)
@@ -191,6 +198,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             urls=merged_params.get("urls"),
             parameters=merged_params,
             stream=bool(merged_params.get("stream") or payload.stream),
+            client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to web_link chatId=%s userId=%s", payload.chat_id, effective_user)
         resp = await run_web_link(wl_payload, effective_user)
@@ -207,6 +215,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             user_id=effective_user,
             parameters=merged_params,
             stream=bool(merged_params.get("stream") or payload.stream),
+            client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to social_posts chatId=%s userId=%s", payload.chat_id, effective_user)
         resp = await run_social_posts(sp_payload, effective_user)

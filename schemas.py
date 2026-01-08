@@ -87,6 +87,7 @@ class ChatMessagePayload(BaseModel):
     file_url: Optional[str] = Field(default=None, alias="fileUrl")
     metadata: Optional[Dict[str, Any]] = None
     message_id: Optional[str] = Field(default=None, alias="messageId")
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -99,6 +100,7 @@ class ChatRequestPayload(BaseModel):
     language: Optional[str] = None
     stream: bool = False
     skip_user_persist: bool = Field(default=False, alias="skipUserPersist")
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -187,6 +189,7 @@ class AgentDispatchRequest(BaseModel):
     user_id: Optional[str] = Field(default=None, alias="userId")
     stream: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -199,6 +202,7 @@ class DeepResearchRequest(BaseModel):
     urls: Optional[List[str]] = None
     stream: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -211,6 +215,7 @@ class WebSearchRequest(BaseModel):
     urls: Optional[List[str]] = None
     stream: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -222,6 +227,7 @@ class SocialPostRequest(BaseModel):
     user_id: Optional[str] = Field(default=None, alias="userId")
     stream: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
