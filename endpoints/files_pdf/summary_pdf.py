@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -85,6 +86,12 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             raise RuntimeError("Empty response from Gemini")
         logger.info("PDF summary gemini response | chatId=%s preview=%s", payload.chat_id, text[:500])
 
+        response_message_id = (
+            stream_message_id
+            or getattr(payload, "client_message_id", None)
+            or f"pdf_summary_{uuid.uuid4().hex}"
+        )
+
         base_payload = {
             "success": True,
             "chatId": payload.chat_id,
@@ -97,7 +104,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             tool="pdf_summary",
             content=text,
             streaming=bool(stream_message_id),
-            message_id=stream_message_id,
+            message_id=response_message_id,
             extra_data={
                 "summary": text,
                 "language": language,
@@ -115,6 +122,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
                 "fileName": payload.file_name,
                 "summaryLevel": level,
             },
+            client_message_id=response_message_id,
         )
         if firestore_ok:
             logger.info("PDF summary Firestore save success | chatId=%s", payload.chat_id)

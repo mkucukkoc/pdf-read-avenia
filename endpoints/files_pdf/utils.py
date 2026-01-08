@@ -278,13 +278,15 @@ def save_message_to_firestore(
             extra={"userId": user_id},
         )
         return False
+    resolved_client_id = client_message_id or f"msg_{uuid.uuid4().hex()}"
     try:
         chat_persistence.save_assistant_message(
             user_id=user_id,
             chat_id=chat_id,
             content=content,
             metadata=metadata or {},
-            client_message_id=client_message_id,
+            message_id=resolved_client_id,
+            client_message_id=resolved_client_id,
         )
         return True
     except RuntimeError:

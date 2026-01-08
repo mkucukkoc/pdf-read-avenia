@@ -265,6 +265,7 @@ class PdfSummaryRequest(BaseModel):
     prompt: Optional[str] = None
     stream: bool = False
     model: Optional[str] = None
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -278,6 +279,7 @@ class DocSummaryRequest(BaseModel):
     prompt: Optional[str] = None
     stream: bool = False
     model: Optional[str] = None
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
 
     model_config = ConfigDict(populate_by_name=True)
 

@@ -213,10 +213,13 @@ class ChatService:
                 payload.chat_id,
                 assistant_content[:200],
             )
+            assistant_message_id = self._generate_message_id()
             assistant_message = ChatMessagePayload(
                 role="assistant",
                 content=assistant_content,
                 timestamp=datetime.now(timezone.utc).isoformat(),
+                message_id=assistant_message_id,
+                client_message_id=assistant_message_id,
             )
 
             if payload.chat_id:
@@ -230,6 +233,8 @@ class ChatService:
                             "tool": "chat_gemini",
                             "requestId": request_id,
                         },
+                        message_id=assistant_message_id,
+                        client_message_id=assistant_message_id,
                     )
                 )
             else:
@@ -515,6 +520,8 @@ class ChatService:
                 role="assistant",
                 content=final_content,
                 timestamp=datetime.now(timezone.utc).isoformat(),
+                message_id=message_id,
+                client_message_id=message_id,
             )
             logger.info(
                 "Final streaming content ready requestId=%s chatId=%s messageId=%s contentLength=%s",
@@ -537,6 +544,7 @@ class ChatService:
                             "stream": True,
                         },
                         message_id=message_id,
+                        client_message_id=message_id,
                     )
                 )
 
