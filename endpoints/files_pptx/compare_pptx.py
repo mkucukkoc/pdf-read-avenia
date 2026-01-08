@@ -118,6 +118,7 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
             tool="pptx_compare",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -157,6 +158,7 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
                 "file2": payload.file2,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX compare Firestore save success | chatId=%s", payload.chat_id)

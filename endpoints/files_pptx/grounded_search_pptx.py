@@ -137,6 +137,7 @@ async def grounded_search_pptx(payload: PptxGroundedSearchRequest, request: Requ
                 "language": language,
                 "question": payload.question,
             },
+            followup_language=language,
         )
         if not text:
             msg = get_pdf_error_message("no_answer_found", language)
@@ -178,6 +179,7 @@ async def grounded_search_pptx(payload: PptxGroundedSearchRequest, request: Requ
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX grounded_search Firestore save success | chatId=%s", payload.chat_id)

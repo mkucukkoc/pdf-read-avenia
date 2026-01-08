@@ -114,6 +114,7 @@ async def multi_analyze_pptx(payload: PptxMultiAnalyzeRequest, request: Request)
             tool="pptx_multi_analyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -151,6 +152,7 @@ async def multi_analyze_pptx(payload: PptxMultiAnalyzeRequest, request: Request)
                 "fileUrls": payload.file_urls,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX multi_analyze Firestore save success | chatId=%s", payload.chat_id)

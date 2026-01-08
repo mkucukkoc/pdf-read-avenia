@@ -89,6 +89,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
                 "language": language,
                 "fields": payload.fields,
             },
+            followup_language=language,
         )
         if not extracted:
             raise RuntimeError("Empty response from Gemini")
@@ -124,6 +125,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
                 "fileName": payload.file_name,
                 "fields": payload.fields,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF deepextract Firestore save success | chatId=%s", payload.chat_id)

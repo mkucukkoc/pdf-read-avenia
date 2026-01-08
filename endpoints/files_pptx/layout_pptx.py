@@ -129,6 +129,7 @@ async def layout_pptx(payload: PptxLayoutRequest, request: Request) -> Dict[str,
             chunk_metadata={
                 "language": language,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -166,6 +167,7 @@ async def layout_pptx(payload: PptxLayoutRequest, request: Request) -> Dict[str,
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX layout Firestore save success | chatId=%s", payload.chat_id)

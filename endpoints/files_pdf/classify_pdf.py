@@ -100,6 +100,7 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
                 "language": language,
                 "labels": label_candidates,
             },
+            followup_language=language,
         )
         if not classification:
             raise RuntimeError("Empty response from Gemini")
@@ -135,6 +136,7 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
                 "fileName": payload.file_name,
                 "labels": label_candidates,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF classify Firestore save success | chatId=%s", payload.chat_id)

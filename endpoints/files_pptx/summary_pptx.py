@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -171,7 +172,7 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
         file_uri = upload_to_gemini_files(pdf_bytes, "application/pdf", payload.file_name or "slides.pdf", gemini_key)
         logger.info("PPTX summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
 
-        streaming_enabled = False
+        streaming_enabled = bool(payload.stream)
         text: str | None = None
         stream_message_id = None
         selected_model: str | None = None
@@ -199,6 +200,7 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
                         "summaryLevel": payload.summary_level or "basic",
                         "model": model,
                     },
+                    followup_language=language,
                 )
                 selected_model = model
                 break
@@ -220,6 +222,12 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
             text[:500],
         )
 
+        response_message_id = (
+            stream_message_id
+            or getattr(payload, "client_message_id", None)
+            or f"pptx_summary_{uuid.uuid4().hex}"
+        )
+
         extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
@@ -233,7 +241,7 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
             tool="pptx_summary",
             content=text,
             streaming=bool(stream_message_id),
-            message_id=stream_message_id,
+            message_id=response_message_id,
             extra_data={
                 "summary": text,
                 "language": language,
@@ -253,6 +261,8 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
                 "summaryLevel": payload.summary_level or "basic",
                 "provider": "gemini",
             },
+            client_message_id=response_message_id,
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX summary Firestore save success | chatId=%s", payload.chat_id)

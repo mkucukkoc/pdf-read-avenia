@@ -133,6 +133,7 @@ async def rewrite_word(payload: DocRewriteRequest, request: Request) -> Dict[str
                 "language": language,
                 "style": payload.style,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -172,6 +173,7 @@ async def rewrite_word(payload: DocRewriteRequest, request: Request) -> Dict[str
                 "style": payload.style,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word rewrite Firestore save success | chatId=%s", payload.chat_id)

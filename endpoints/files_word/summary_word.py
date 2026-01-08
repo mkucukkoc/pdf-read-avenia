@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -135,7 +136,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
         file_uri = upload_to_gemini_files(pdf_bytes, "application/pdf", pdf_filename or "document.pdf", gemini_key)
         logger.info("Word summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
 
-        streaming_enabled = False
+        streaming_enabled = bool(payload.stream)
         text: str | None = None
         stream_message_id = None
         selected_model: str | None = None
@@ -163,6 +164,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
                         "summaryLevel": payload.summary_level or "basic",
                         "model": model,
                     },
+                    followup_language=language,
                 )
                 selected_model = model
                 break
@@ -184,6 +186,12 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
             text[:500],
         )
 
+        response_message_id = (
+            stream_message_id
+            or getattr(payload, "client_message_id", None)
+            or f"word_summary_{uuid.uuid4().hex}"
+        )
+
         extra_fields = {
             "success": True,
             "chatId": payload.chat_id,
@@ -197,7 +205,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
             tool="word_summary",
             content=text,
             streaming=bool(stream_message_id),
-            message_id=stream_message_id,
+            message_id=response_message_id,
             extra_data={
                 "summary": text,
                 "language": language,
@@ -217,7 +225,8 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
                 "summaryLevel": payload.summary_level or "basic",
                 "provider": "gemini",
             },
-            client_message_id=getattr(payload, "client_message_id", None),
+            client_message_id=response_message_id,
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word summary Firestore save success | chatId=%s", payload.chat_id)

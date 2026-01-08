@@ -93,6 +93,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             tool="pdf_qna",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not answer:
             raise RuntimeError("Empty response from Gemini")
@@ -128,6 +129,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
                 "fileName": payload.file_name,
                 "question": payload.question,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF qna Firestore save success | chatId=%s", payload.chat_id)

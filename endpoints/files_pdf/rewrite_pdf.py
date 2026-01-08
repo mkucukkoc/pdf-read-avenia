@@ -80,6 +80,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             tool="pdf_rewrite",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not rewritten:
             raise RuntimeError("Empty response from Gemini")
@@ -115,6 +116,7 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
                 "fileName": payload.file_name,
                 "style": payload.style,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF rewrite Firestore save success | chatId=%s", payload.chat_id)

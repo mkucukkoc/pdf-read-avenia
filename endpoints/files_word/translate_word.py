@@ -142,6 +142,7 @@ async def translate_word(payload: DocTranslateRequest, request: Request) -> Dict
                 "targetLanguage": target_language,
                 "sourceLanguage": source_language,
             },
+            followup_language=target_language or language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -184,6 +185,7 @@ async def translate_word(payload: DocTranslateRequest, request: Request) -> Dict
                 "sourceLanguage": source_language,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word translate Firestore save success | chatId=%s", payload.chat_id)

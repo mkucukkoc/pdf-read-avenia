@@ -79,6 +79,7 @@ async def layout_pdf(payload: PdfLayoutRequest, request: Request) -> Dict[str, A
             tool="pdf_layout",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not layout_info:
             raise RuntimeError("Empty response from Gemini")
@@ -113,6 +114,7 @@ async def layout_pdf(payload: PdfLayoutRequest, request: Request) -> Dict[str, A
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF layout Firestore save success | chatId=%s", payload.chat_id)

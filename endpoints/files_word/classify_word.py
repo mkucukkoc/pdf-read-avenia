@@ -135,6 +135,7 @@ async def classify_word(payload: DocClassifyRequest, request: Request) -> Dict[s
                 "language": language,
                 "labels": payload.labels,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -176,6 +177,7 @@ async def classify_word(payload: DocClassifyRequest, request: Request) -> Dict[s
                 "labels": payload.labels,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word classify Firestore save success | chatId=%s", payload.chat_id)

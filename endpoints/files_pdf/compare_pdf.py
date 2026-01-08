@@ -109,6 +109,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 "file1": payload.file1,
                 "file2": payload.file2,
             },
+            followup_language=language,
         )
         if not diff:
             raise RuntimeError("Empty response from Gemini")
@@ -147,6 +148,7 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 "file2": payload.file2,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF compare Firestore save success | chatId=%s", payload.chat_id)

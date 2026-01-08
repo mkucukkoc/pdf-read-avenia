@@ -135,6 +135,7 @@ async def classify_pptx(payload: PptxClassifyRequest, request: Request) -> Dict[
                 "language": language,
                 "labels": payload.labels,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -175,6 +176,7 @@ async def classify_pptx(payload: PptxClassifyRequest, request: Request) -> Dict[
                 "fileName": payload.file_name,
                 "labels": payload.labels,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX classify Firestore save success | chatId=%s", payload.chat_id)

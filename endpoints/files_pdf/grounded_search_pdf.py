@@ -79,6 +79,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
             tool="pdf_grounded_search",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not answer:
             raise RuntimeError("Empty response from Gemini")
@@ -114,6 +115,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
                 "fileName": payload.file_name,
                 "question": payload.question,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF grounded_search Firestore save success | chatId=%s", payload.chat_id)

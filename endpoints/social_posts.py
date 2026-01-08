@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import uuid
 from typing import Any, Dict, Optional
 
 import httpx
@@ -75,6 +76,40 @@ def _strip_markdown_stars(text: Optional[str]) -> str:
     return re.sub(r"\*", "", text)
 
 
+async def _emit_streaming_text(chat_id: str, message_id: str, tool: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    if not chat_id:
+        return
+    chunk_size = 600
+    accumulated = ""
+    total = len(text)
+    for start in range(0, total, chunk_size):
+        chunk = text[start : start + chunk_size]
+        accumulated += chunk
+        payload: Dict[str, Any] = {
+            "chatId": chat_id,
+            "messageId": message_id,
+            "tool": tool,
+            "delta": chunk,
+            "content": accumulated,
+            "isFinal": False,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+        await stream_manager.emit_chunk(chat_id, payload)
+
+    final_payload: Dict[str, Any] = {
+        "chatId": chat_id,
+        "messageId": message_id,
+        "tool": tool,
+        "content": accumulated,
+        "delta": None,
+        "isFinal": True,
+    }
+    if metadata:
+        final_payload["metadata"] = metadata
+    await stream_manager.emit_chunk(chat_id, final_payload)
+
+
 async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
 
@@ -145,7 +180,8 @@ Topic:
         logger.info("SocialPosts start", extra={"userId": user_id, "chatId": payload.chat_id, "lang": language})
         text = _strip_markdown_stars(await _call_gemini(styled_prompt, api_key, model))
 
-        message_id = client_message_id or f"social_posts_{hash(prompt)}"
+        message_id = client_message_id or f"social_posts_{uuid.uuid4().hex}"
+        streaming_enabled = bool(payload.chat_id)
         if payload.chat_id:
             try:
                 chat_persistence.save_assistant_message(
@@ -160,15 +196,11 @@ Topic:
                 logger.warning("SocialPosts persist failed chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)
 
             try:
-                await stream_manager.emit_chunk(
-                    payload.chat_id,
-                    {
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "tool": "social_posts",
-                        "content": text,
-                        "isFinal": True,
-                    },
+                await _emit_streaming_text(
+                    chat_id=payload.chat_id,
+                    message_id=message_id,
+                    tool="social_posts",
+                    text=text,
                 )
             except Exception:
                 logger.warning("SocialPosts streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
@@ -180,7 +212,7 @@ Topic:
                     "content": text,
                     "id": message_id,
                 },
-                "streaming": True,
+                "streaming": streaming_enabled,
             },
         }
         try:

@@ -279,6 +279,7 @@ def save_message_to_firestore(
     content: str,
     metadata: Optional[Dict[str, Any]] = None,
     client_message_id: Optional[str] = None,
+    stream_message_id: Optional[str] = None,
 ) -> bool:
     # Normalize markdown artifacts before persisting
     content = _strip_markdown_stars(content)
@@ -290,12 +291,15 @@ def save_message_to_firestore(
         return False
     # Use a direct uuid4 import to avoid any accidental shadowing of the uuid module
     resolved_client_id = client_message_id or f"msg_{_uuid4().hex}"
+    metadata_payload: Dict[str, Any] = dict(metadata or {})
+    if stream_message_id:
+        metadata_payload["streamMessageId"] = stream_message_id
     try:
         chat_persistence.save_assistant_message(
             user_id=user_id,
             chat_id=chat_id,
             content=content,
-            metadata=metadata or {},
+            metadata=metadata_payload,
             message_id=resolved_client_id,
             client_message_id=resolved_client_id,
         )
@@ -364,10 +368,25 @@ async def generate_text_with_optional_stream(
     tool: str,
     model: Optional[str] = None,
     chunk_metadata: Optional[Dict[str, Any]] = None,
+    followup_language: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
+    # Optionally instruct the model to end with a concise follow-up question in the same language.
+    effective_parts = list(parts)
+    if followup_language:
+        followup_text = (
+            f"Always end your response with a concise, relevant follow-up question to the user, in {followup_language}."
+        )
+        effective_parts.append({"text": followup_text})
+    else:
+        effective_parts.append(
+            {
+                "text": "Always end your response with a concise, relevant follow-up question to the user, in the same language as the response.",
+            }
+        )
+
     effective_model = _effective_pdf_model(model)
     if not stream or not chat_id:
-        response_json = await asyncio.to_thread(call_gemini_generate, parts, api_key, effective_model)
+        response_json = await asyncio.to_thread(call_gemini_generate, effective_parts, api_key, effective_model)
         candidates = response_json.get("candidates", [])
         if not candidates:
             feedback = response_json.get("promptFeedback", {}) or {}
@@ -383,7 +402,7 @@ async def generate_text_with_optional_stream(
     message_id = f"{tool}_{_uuid4().hex}"
     accumulated: list[str] = []
     try:
-        async for chunk in stream_gemini_text(parts, api_key, effective_model):
+        async for chunk in stream_gemini_text(effective_parts, api_key, effective_model):
             clean_chunk = _strip_markdown_stars(chunk)
             accumulated.append(clean_chunk)
             payload: Dict[str, Any] = {

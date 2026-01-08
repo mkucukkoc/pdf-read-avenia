@@ -83,6 +83,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
             tool="pdf_analyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -121,6 +122,7 @@ async def analyze_pdf(payload: PdfAnalyzeRequest, request: Request) -> Dict[str,
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF analyze Firestore save success | chatId=%s", payload.chat_id)

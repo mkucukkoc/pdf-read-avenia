@@ -81,6 +81,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             tool="pdf_summary",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -123,6 +124,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
                 "summaryLevel": level,
             },
             client_message_id=response_message_id,
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF summary Firestore save success | chatId=%s", payload.chat_id)

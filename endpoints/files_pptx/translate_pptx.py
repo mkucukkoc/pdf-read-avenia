@@ -141,6 +141,7 @@ async def translate_pptx(payload: PptxTranslateRequest, request: Request) -> Dic
                 "targetLanguage": target_language,
                 "sourceLanguage": source_language,
             },
+            followup_language=target_language or language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -182,6 +183,7 @@ async def translate_pptx(payload: PptxTranslateRequest, request: Request) -> Dic
                 "targetLanguage": target_language,
                 "sourceLanguage": source_language,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX translate Firestore save success | chatId=%s", payload.chat_id)

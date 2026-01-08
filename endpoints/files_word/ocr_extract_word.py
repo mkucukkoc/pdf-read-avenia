@@ -130,6 +130,7 @@ async def ocr_extract_word(payload: DocOcrExtractRequest, request: Request) -> D
             chunk_metadata={
                 "language": language,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -168,6 +169,7 @@ async def ocr_extract_word(payload: DocOcrExtractRequest, request: Request) -> D
                 "fileName": payload.file_name,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word OCR extract Firestore save success | chatId=%s", payload.chat_id)

@@ -75,6 +75,7 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
             tool="pdf_multianalyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -108,6 +109,7 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
                 "tool": "pdf_multianalyze",
                 "fileUrls": payload.file_urls,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF multianalyze Firestore save success | chatId=%s", payload.chat_id)

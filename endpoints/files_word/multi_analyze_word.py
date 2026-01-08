@@ -115,6 +115,7 @@ async def multi_analyze_word(payload: DocMultiAnalyzeRequest, request: Request) 
             tool="word_multi_analyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -153,6 +154,7 @@ async def multi_analyze_word(payload: DocMultiAnalyzeRequest, request: Request) 
                 "fileName": payload.file_name,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word multi_analyze Firestore save success | chatId=%s", payload.chat_id)

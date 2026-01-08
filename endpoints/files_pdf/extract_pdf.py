@@ -79,6 +79,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             tool="pdf_extract",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not extraction:
             raise RuntimeError("Empty response from Gemini")
@@ -113,6 +114,7 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF extract Firestore save success | chatId=%s", payload.chat_id)

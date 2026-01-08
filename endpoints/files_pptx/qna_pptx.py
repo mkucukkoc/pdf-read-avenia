@@ -126,6 +126,7 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
                 "language": language,
                 "question": payload.question,
             },
+            followup_language=language,
         )
         if not answer:
             msg = get_pdf_error_message("no_answer_found", language)
@@ -167,6 +168,7 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
                 "fileUri": file_uri,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX QnA Firestore save success | chatId=%s", payload.chat_id)

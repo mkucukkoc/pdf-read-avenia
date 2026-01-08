@@ -135,6 +135,7 @@ async def deep_extract_pptx(payload: PptxDeepExtractRequest, request: Request) -
                 "language": language,
                 "fields": payload.fields,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -175,6 +176,7 @@ async def deep_extract_pptx(payload: PptxDeepExtractRequest, request: Request) -
                 "fileName": payload.file_name,
                 "fields": payload.fields,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PPTX deep_extract Firestore save success | chatId=%s", payload.chat_id)

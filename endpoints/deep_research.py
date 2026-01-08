@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import uuid
 from typing import Any, Dict, Optional, List
 from urllib.parse import urlparse
 
@@ -273,6 +274,40 @@ def _strip_markdown_stars(text: Optional[str]) -> str:
     return re.sub(r"\*", "", text)
 
 
+async def _emit_streaming_text(chat_id: str, message_id: str, tool: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    if not chat_id:
+        return
+    chunk_size = 600
+    accumulated = ""
+    total = len(text)
+    for start in range(0, total, chunk_size):
+        chunk = text[start : start + chunk_size]
+        accumulated += chunk
+        payload: Dict[str, Any] = {
+            "chatId": chat_id,
+            "messageId": message_id,
+            "tool": tool,
+            "delta": chunk,
+            "content": accumulated,
+            "isFinal": False,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+        await stream_manager.emit_chunk(chat_id, payload)
+
+    final_payload: Dict[str, Any] = {
+        "chatId": chat_id,
+        "messageId": message_id,
+        "tool": tool,
+        "content": accumulated,
+        "delta": None,
+        "isFinal": True,
+    }
+    if metadata:
+        final_payload["metadata"] = metadata
+    await stream_manager.emit_chunk(chat_id, final_payload)
+
+
 async def run_deep_research(payload: DeepResearchRequest, user_id: str) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
@@ -335,6 +370,7 @@ Derin araştırma yap.
 - Maddeler halinde
 - En fazla 300 kelime
 Yanıt dili: {language}
+Her cevabın sonunda aynı dilde kısa ve ilgili bir takip sorusu sor.
 
 Konu:
 {user_prompt}
@@ -409,16 +445,12 @@ Konu:
 
             if streaming_enabled:
                 try:
-                    await stream_manager.emit_chunk(
-                        payload.chat_id,
-                        {
-                            "chatId": payload.chat_id,
-                            "messageId": message_id,
-                            "tool": "deep_research",
-                            "content": body,
-                            "citations": citations,
-                            "isFinal": True,
-                        },
+                    await _emit_streaming_text(
+                        chat_id=payload.chat_id,
+                        message_id=message_id,
+                        tool="deep_research",
+                        text=body,
+                        metadata={"citations": citations},
                     )
                 except Exception:
                     logger.warning("DeepResearch streaming emit failed chatId=%s", payload.chat_id, exc_info=True)

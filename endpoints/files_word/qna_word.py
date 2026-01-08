@@ -127,6 +127,7 @@ async def qna_word(payload: DocQnaRequest, request: Request) -> Dict[str, Any]:
                 "language": language,
                 "question": payload.question,
             },
+            followup_language=language,
         )
         if not answer:
             msg = get_pdf_error_message("no_answer_found", language)
@@ -169,6 +170,7 @@ async def qna_word(payload: DocQnaRequest, request: Request) -> Dict[str, Any]:
                 "fileName": payload.file_name,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word QnA Firestore save success | chatId=%s", payload.chat_id)

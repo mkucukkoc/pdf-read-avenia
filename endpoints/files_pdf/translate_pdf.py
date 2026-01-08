@@ -87,6 +87,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             tool="pdf_translate",
             model=effective_model,
             chunk_metadata={"language": target_lang},
+            followup_language=target_lang,
         )
         if not translation:
             raise RuntimeError("Empty response from Gemini")
@@ -125,6 +126,7 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
                 "targetLanguage": target_lang,
                 "sourceLanguage": payload.sourceLanguage,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF translate Firestore save success | chatId=%s", payload.chat_id)

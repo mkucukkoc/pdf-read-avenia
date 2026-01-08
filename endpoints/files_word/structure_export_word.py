@@ -135,6 +135,7 @@ async def structure_export_word(payload: DocStructureExportRequest, request: Req
             chunk_metadata={
                 "language": language,
             },
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -173,6 +174,7 @@ async def structure_export_word(payload: DocStructureExportRequest, request: Req
                 "fileName": payload.file_name,
             },
             client_message_id=getattr(payload, "client_message_id", None),
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("Word structure_export Firestore save success | chatId=%s", payload.chat_id)

@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import uuid
 from typing import Any, Dict, Optional
 
 import httpx
@@ -78,6 +79,45 @@ def _strip_markdown_stars(text: Optional[str]) -> str:
     return re.sub(r"\*", "", text)
 
 
+async def _emit_streaming_text(chat_id: str, message_id: str, tool: str, text: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Best-effort chunked emit to mimic streaming for chat UI.
+    Splits text and sends incremental content + delta over websocket.
+    """
+    if not chat_id:
+        return
+    chunk_size = 600
+    accumulated = ""
+    total = len(text)
+    for start in range(0, total, chunk_size):
+        chunk = text[start : start + chunk_size]
+        accumulated += chunk
+        payload: Dict[str, Any] = {
+            "chatId": chat_id,
+            "messageId": message_id,
+            "tool": tool,
+            "delta": chunk,
+            "content": accumulated,
+            "isFinal": False,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+        await stream_manager.emit_chunk(chat_id, payload)
+
+    # final
+    final_payload: Dict[str, Any] = {
+        "chatId": chat_id,
+        "messageId": message_id,
+        "tool": tool,
+        "content": accumulated,
+        "delta": None,
+        "isFinal": True,
+    }
+    if metadata:
+        final_payload["metadata"] = metadata
+    await stream_manager.emit_chunk(chat_id, final_payload)
+
+
 async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
@@ -130,6 +170,10 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
     language = normalize_language(payload.language) or "Turkish"
     if not prompt:
         return _error_response(language, payload.chat_id, user_id, 400, "prompt_required")
+    followup_instruction = (
+        f"Always end your response with a concise, relevant follow-up question to the user, in {language}."
+    )
+    prompt_with_followup = f"{prompt}\n\n{followup_instruction}"
 
     try:
         api_key = os.getenv("GEMINI_API_KEY", "")
@@ -143,7 +187,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
             len(payload.urls or []),
         )
 
-        result = await _call_gemini_web_search(prompt, api_key, model, payload.urls)
+        result = await _call_gemini_web_search(prompt_with_followup, api_key, model, payload.urls)
         text = _strip_markdown_stars(_extract_text(result))
         if not text:
             logger.error(
@@ -154,7 +198,8 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
 
         logger.info("Web search extracted text", extra={"text_len": len(text), "text_preview": text[:400]})
 
-        message_id = client_message_id or f"web_search_{result.get('id') or ''}"
+        message_id = client_message_id or f"web_search_{result.get('id') or uuid.uuid4().hex}"
+        streaming_enabled = bool(payload.chat_id)
         if payload.chat_id:
             try:
                 chat_persistence.save_assistant_message(
@@ -169,15 +214,12 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
                 logger.warning("Failed to persist web search message chatId=%s userId=%s", payload.chat_id, user_id, exc_info=True)
 
             try:
-                await stream_manager.emit_chunk(
-                    payload.chat_id,
-                    {
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "tool": "web_search",
-                        "content": text,
-                        "isFinal": True,
-                    },
+                await _emit_streaming_text(
+                    chat_id=payload.chat_id,
+                    message_id=message_id,
+                    tool="web_search",
+                    text=text,
+                    metadata={"model": model},
                 )
             except Exception:
                 logger.warning("WebSearch streaming emit failed chatId=%s", payload.chat_id, exc_info=True)
@@ -189,7 +231,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
                     "content": text,
                     "id": message_id,
                 },
-                "streaming": True,
+                "streaming": streaming_enabled,
             },
         }
         try:

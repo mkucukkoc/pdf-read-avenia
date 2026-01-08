@@ -79,6 +79,7 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
             tool="pdf_ocr_extract",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -113,6 +114,7 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF ocr_extract Firestore save success | chatId=%s", payload.chat_id)

@@ -79,6 +79,7 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
             tool="pdf_structure_export",
             model=effective_model,
             chunk_metadata={"language": language},
+            followup_language=language,
         )
         if not structure:
             raise RuntimeError("Empty response from Gemini")
@@ -113,6 +114,7 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
                 "fileUrl": payload.file_url,
                 "fileName": payload.file_name,
             },
+            stream_message_id=stream_message_id,
         )
         if firestore_ok:
             logger.info("PDF structure_export Firestore save success | chatId=%s", payload.chat_id)
