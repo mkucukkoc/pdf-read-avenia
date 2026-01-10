@@ -428,9 +428,8 @@ class ChatService:
             message_id,
         )
         producer_error: Optional[Exception] = None
-
-        producer_error: Optional[Exception] = None
         fallback_used = False
+        stream_error_code: Optional[str] = None
 
         try:
             system_instruction = self._build_system_instruction(payload.language)
@@ -506,6 +505,7 @@ class ChatService:
                 # Build graceful success-shaped error response for empty/failed stream
                 error_detail = producer_error or RuntimeError("No content received from Gemini stream")
                 fallback_used = True
+                stream_error_code = "stream_failed"
                 resp = build_success_error_response(
                     tool="chat_send_streaming",
                     language=payload.language,
@@ -515,19 +515,6 @@ class ChatService:
                     detail=str(error_detail),
                 )
                 final_content = resp["data"]["message"]["content"]
-
-                # Emit final chunk so client sees the message
-                await stream_manager.emit_chunk(
-                    payload.chat_id,
-                    {
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "content": final_content,
-                        "delta": final_content,
-                        "isFinal": True,
-                        "error": "stream_failed",
-                    },
-                )
 
             final_content = self._strip_markdown_stars(final_content)
 
@@ -589,6 +576,7 @@ class ChatService:
                     "content": final_content,
                     "delta": None,
                     "isFinal": True,
+                    **({"error": stream_error_code} if stream_error_code else {}),
                 },
             )
 
@@ -607,6 +595,8 @@ class ChatService:
                 payload.chat_id,
                 message_id,
             )
+            language = (payload.language or "tr").lower()
+            error_message = get_api_error_message("upstream_500", language)
             await stream_manager.emit_chunk(
                 payload.chat_id,
                 {
@@ -614,16 +604,7 @@ class ChatService:
                     "messageId": message_id,
                     "isFinal": True,
                     "error": "stream_failed",
-                    "content": "",
-                },
-            )
-            await stream_manager.emit_chunk(
-                payload.chat_id,
-                {
-                    "chatId": payload.chat_id,
-                    "messageId": message_id,
-                    "isFinal": True,
-                    "error": "stream_failed",
+                    "content": error_message,
                 },
             )
 
@@ -971,4 +952,3 @@ class ChatService:
 chat_service = ChatService.get_instance()
 
 __all__ = ["chat_service", "ChatService"]
-
