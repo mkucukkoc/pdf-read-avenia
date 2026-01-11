@@ -91,6 +91,13 @@ def _guess_extension_from_mime(mime_type: str) -> str:
 
 
 def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
+    return build_system_message(
+        language=language,
+        tone_key=tone_key,
+        response_style=None,
+        include_followup=True,
+        followup_language=language,
+    )
     tone_instruction = build_tone_instruction(tone_key, language)
     parts = []
     if language:
@@ -409,6 +416,9 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         )
 
         await emit_status(None)
+        system_message = _build_system_instruction(language, payload.tone_key)
+        prompt_text = build_prompt_text(system_message, prompt)
+
         system_message = build_system_message(
             language=language,
             tone_key=payload.tone_key,

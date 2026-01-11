@@ -60,6 +60,7 @@ def _guess_extension_from_mime(mime_type: str) -> str:
 
 
 
+
 def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
     tone_instruction = build_tone_instruction(tone_key, language)
     parts = []
@@ -79,6 +80,17 @@ def _extract_text_response(resp_json: Dict[str, Any]) -> Optional[str]:
     text_parts = [part.get("text", "").strip() for part in parts if isinstance(part.get("text"), str)]
     combined = "\n".join([text for text in text_parts if text])
     return combined or None
+
+
+def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
+    return build_system_message(
+        language=language,
+        tone_key=tone_key,
+        response_style=None,
+        include_followup=True,
+        followup_language=language,
+    )
+
 
 
 def _save_message_to_firestore(
@@ -368,6 +380,9 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
+        system_message = _build_system_instruction(language, payload.tone_key)
+        prompt_text = build_prompt_text(system_message, prompt)
+
         system_message = build_system_message(
             language=language,
             tone_key=payload.tone_key,
