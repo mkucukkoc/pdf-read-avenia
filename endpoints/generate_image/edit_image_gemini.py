@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from PIL import Image
 
 from core.language_support import normalize_language, get_image_gen_message
-from core.tone_instructions import build_tone_instruction
+from core.gemini_prompt import build_prompt_text, build_system_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_image_edit_failed_message
@@ -57,6 +57,7 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     if "gif" in mime_type:
         return ".gif"
     return ".png"
+
 
 
 def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
@@ -108,12 +109,11 @@ def _save_message_to_firestore(
 
 
 def _call_gemini_edit_api(
-    prompt: str,
+    prompt_text: str,
     base64_image: str,
     mime_type: str,
     api_key: str,
     model: Optional[str] = None,
-    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -130,7 +130,7 @@ def _call_gemini_edit_api(
             {
                 "role": "user",
                 "parts": [
-                    {"text": prompt},
+                    {"text": prompt_text},
                     {
                         "inlineData": {
                             "data": base64_image,
@@ -141,8 +141,6 @@ def _call_gemini_edit_api(
             }
         ]
     }
-    if system_instruction:
-        request_body["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     log_gemini_request(
         logger,
@@ -153,7 +151,7 @@ def _call_gemini_edit_api(
     )
     logger.info(
         "Calling Gemini edit API",
-        extra={"prompt_len": len(prompt), "prompt_preview": prompt[:120], "mime_type": mime_type, "model": effective_model},
+        extra={"prompt_len": len(prompt_text), "prompt_preview": prompt_text[:120], "mime_type": mime_type, "model": effective_model},
     )
     resp = requests.post(url, json=request_body, timeout=120)
     response_json = resp.json() if resp.text else {}
@@ -370,15 +368,23 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
+        system_message = build_system_message(
+            language=language,
+            tone_key=payload.tone_key,
+            response_style=None,
+            include_followup=True,
+            followup_language=language,
+        )
+        prompt_text = build_prompt_text(system_message, prompt)
+
         tone_instruction = _build_system_instruction(language, payload.tone_key)
         response_json = await asyncio.to_thread(
             _call_gemini_edit_api,
-            prompt,
+            prompt_text,
             inline["data"],
             inline["mimeType"],
             gemini_key,
             effective_model,
-            tone_instruction,
         )
         logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
 

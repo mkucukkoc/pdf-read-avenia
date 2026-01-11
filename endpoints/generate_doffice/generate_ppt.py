@@ -13,7 +13,7 @@ from pptx.dml.color import RGBColor
 from pptx.util import Inches, Pt
 from firebase_admin import storage
 
-from core.tone_instructions import build_tone_instruction
+from core.gemini_prompt import build_system_message, merge_parts_with_system
 from schemas import PptRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
 from endpoints.generate_doffice.ppt_style import generate_random_style
@@ -36,7 +36,7 @@ def _effective_model() -> str:
     return model
 
 
-async def _call_gemini_json(prompt: str, tone_instruction: Optional[str]) -> Dict[str, Any]:
+async def _call_gemini_json(prompt: str, system_message: Optional[str]) -> Dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -46,14 +46,16 @@ async def _call_gemini_json(prompt: str, tone_instruction: Optional[str]) -> Dic
 
     model = _effective_model()
     url = f"https://generativelanguage.googleapis.com/v1beta/{model}:generateContent?key={api_key}"
+    parts = [
+        {"text": SYSTEM_INSTRUCTION},
+        {"text": f"USER_PROMPT: {prompt}"},
+    ]
+    effective_parts = merge_parts_with_system(parts, system_message)
     payload = {
         "contents": [
             {
                 "role": "user",
-                "parts": [
-                    {"text": SYSTEM_INSTRUCTION},
-                    {"text": f"USER_PROMPT: {prompt}"},
-                ],
+                "parts": effective_parts,
             }
         ],
         "tools": [{"google_search": {}}],
@@ -63,8 +65,6 @@ async def _call_gemini_json(prompt: str, tone_instruction: Optional[str]) -> Dic
             "maxOutputTokens": 2048,
         },
     }
-    if tone_instruction:
-        payload["system_instruction"] = {"parts": [{"text": tone_instruction}]}
 
     log_gemini_request(
         logger,
@@ -181,8 +181,14 @@ async def generate_ppt(data: PptRequest):
     logger.info("Generate PPT request received", extra={"prompt_length": len(data.prompt or "")})
     try:
         # 1) Gemini'den yapılandırılmış JSON al
-        tone_instruction = build_tone_instruction(data.tone_key, None)
-        ppt_json = await _call_gemini_json(data.prompt, tone_instruction)
+        system_message = build_system_message(
+            language=None,
+            tone_key=data.tone_key,
+            response_style=None,
+            include_response_style=False,
+            include_followup=False,
+        )
+        ppt_json = await _call_gemini_json(data.prompt, system_message)
         logger.debug("Gemini PPT JSON parsed", extra={"keys": list(ppt_json.keys())})
 
         # 2) PowerPoint dosyasını oluştur
@@ -210,9 +216,6 @@ async def generate_ppt(data: PptRequest):
     except Exception as e:
         logger.exception("Generate PPT failed")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
 
 
 

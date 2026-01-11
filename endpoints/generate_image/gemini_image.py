@@ -12,7 +12,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language, get_image_gen_message
-from core.tone_instructions import build_tone_instruction
+from core.gemini_prompt import build_prompt_text, build_system_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
@@ -102,12 +102,11 @@ def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) 
 
 
 async def _call_gemini_api(
-    prompt: str,
+    prompt_text: str,
     api_key: str,
     model: str,
     use_google_search: bool = False,
     aspect_ratio: Optional[str] = None,
-    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -118,8 +117,8 @@ async def _call_gemini_api(
     logger.info(
         "Gemini API call start",
         extra={
-            "prompt_preview": prompt[:120],
-            "prompt_len": len(prompt),
+            "prompt_preview": prompt_text[:120],
+            "prompt_len": len(prompt_text),
             "model": model,
             "use_google_search": use_google_search,
             "aspect_ratio": aspect_ratio,
@@ -132,14 +131,12 @@ async def _call_gemini_api(
             {
                 "parts": [
                     {
-                        "text": prompt,
+                        "text": prompt_text,
                     }
                 ],
             }
         ]
     }
-    if system_instruction:
-        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     if use_google_search:
         payload["tools"] = [{"google_search": {}}]
@@ -187,12 +184,11 @@ async def _call_gemini_api(
 
 
 async def _call_gemini_edit_api(
-    prompt: str,
+    prompt_text: str,
     image_base64: str,
     mime_type: str,
     api_key: str,
     model: Optional[str] = None,
-    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -202,7 +198,7 @@ async def _call_gemini_edit_api(
 
     logger.info(
         "Gemini edit API call start",
-        extra={"prompt_preview": prompt[:120], "prompt_len": len(prompt), "mime_type": mime_type},
+        extra={"prompt_preview": prompt_text[:120], "prompt_len": len(prompt_text), "mime_type": mime_type},
     )
 
     effective_model = model or os.getenv("GEMINI_IMAGE_EDIT_MODEL") or "gemini-2.5-flash-image"
@@ -212,7 +208,7 @@ async def _call_gemini_edit_api(
         "contents": [
             {
                 "parts": [
-                    {"text": prompt},
+                    {"text": prompt_text},
                     {
                         "inline_data": {
                             "mime_type": mime_type or "image/png",
@@ -223,8 +219,6 @@ async def _call_gemini_edit_api(
             }
         ]
     }
-    if system_instruction:
-        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     log_gemini_request(
         logger,
@@ -415,14 +409,22 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         )
 
         await emit_status(None)
+        system_message = build_system_message(
+            language=language,
+            tone_key=payload.tone_key,
+            response_style=None,
+            include_followup=True,
+            followup_language=language,
+        )
+        prompt_text = build_prompt_text(system_message, prompt)
+
         tone_instruction = _build_system_instruction(language, payload.tone_key)
         response_json = await _call_gemini_api(
-            prompt,
+            prompt_text,
             gemini_key,
             model,
             use_google_search,
             aspect_ratio,
-            system_instruction=tone_instruction,
         )
         logger.info(
             "Gemini API response received",

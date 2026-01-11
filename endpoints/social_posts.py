@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
+from core.gemini_prompt import build_prompt_text, build_system_message
 from core.language_support import normalize_language
 from core.useChatPersistence import chat_persistence
 from core.websocket_manager import stream_manager
@@ -192,9 +193,16 @@ async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str
 Topic:
 {prompt}
 """
+        system_message = build_system_message(
+            language=language,
+            tone_key=payload.tone_key,
+            response_style=payload.response_style,
+            include_followup=False,
+        )
+        prompt_text = build_prompt_text(system_message, styled_prompt)
 
         logger.info("SocialPosts start", extra={"userId": user_id, "chatId": payload.chat_id, "lang": language})
-        text = _strip_markdown_stars(await _call_gemini(styled_prompt, api_key, model))
+        text = _strip_markdown_stars(await _call_gemini(prompt_text, api_key, model))
 
         message_id = client_message_id or f"social_posts_{uuid.uuid4().hex}"
         streaming_enabled = bool(payload.chat_id)

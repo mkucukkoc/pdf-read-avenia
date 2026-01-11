@@ -9,7 +9,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
-from core.tone_instructions import build_tone_instruction
+from core.gemini_prompt import build_prompt_text, build_system_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from schemas import GeminiImageAnalyzeRequest
@@ -146,17 +146,24 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     response_json = None
     last_error: Optional[HTTPException] = None
     selected_model: Optional[str] = None
-    tone_instruction = build_tone_instruction(payload.tone_key, language)
+    system_message = build_system_message(
+        language=language,
+        tone_key=payload.tone_key,
+        response_style=None,
+        include_followup=True,
+        followup_language=language,
+    )
 
     try:
         for idx, model in enumerate(candidate_models):
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+            prompt_text = build_prompt_text(system_message, prompt)
             request_body = {
                 "contents": [
                     {
                         "role": "user",
                         "parts": [
-                            {"text": prompt},
+                            {"text": prompt_text},
                             {
                                 "inlineData": {
                                     "data": inline["data"],
@@ -167,8 +174,6 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                     }
                 ]
             }
-            if tone_instruction:
-                request_body["system_instruction"] = {"parts": [{"text": tone_instruction}]}
 
             log_gemini_request(
                 logger,

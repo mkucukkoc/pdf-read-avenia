@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
+from core.gemini_prompt import build_system_message, merge_parts_with_system
 from core.language_support import normalize_language
 from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
@@ -23,7 +24,13 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = os.getenv("GEMINI_WEB_SEARCH_MODEL", "models/gemini-2.5-flash")
 
 
-async def _call_gemini_web_search(prompt: str, api_key: str, model: str, urls: Optional[list[str]] = None) -> Dict[str, Any]:
+async def _call_gemini_web_search(
+    prompt: str,
+    api_key: str,
+    model: str,
+    urls: Optional[list[str]] = None,
+    system_message: Optional[str] = None,
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -35,8 +42,9 @@ async def _call_gemini_web_search(prompt: str, api_key: str, model: str, urls: O
         url_lines = "\n".join(urls)
         parts.append({"text": f"Context URLs:\n{url_lines}"})
 
+    effective_parts = merge_parts_with_system(parts, system_message)
     payload = {
-        "contents": [{"parts": parts}],
+        "contents": [{"parts": effective_parts}],
         "tools": [{"google_search": {}}],
     }
 
@@ -185,11 +193,6 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
     language = normalize_language(payload.language) or "Turkish"
     if not prompt:
         return _error_response(language, payload.chat_id, user_id, 400, "prompt_required")
-    followup_instruction = (
-        f"Always end your response with a concise, relevant follow-up question to the user, in {language}."
-    )
-    prompt_with_followup = f"{prompt}\n\n{followup_instruction}"
-
     try:
         api_key = os.getenv("GEMINI_API_KEY", "")
         model = DEFAULT_MODEL if DEFAULT_MODEL.startswith("models/") else f"models/{DEFAULT_MODEL}"
@@ -202,7 +205,14 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
             len(payload.urls or []),
         )
 
-        result = await _call_gemini_web_search(prompt_with_followup, api_key, model, payload.urls)
+        system_message = build_system_message(
+            language=language,
+            tone_key=payload.tone_key,
+            response_style=payload.response_style,
+            include_followup=True,
+            followup_language=language,
+        )
+        result = await _call_gemini_web_search(prompt, api_key, model, payload.urls, system_message)
         text = _strip_markdown_stars(_extract_text(result))
         if not text:
             logger.error(

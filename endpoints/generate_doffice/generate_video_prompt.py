@@ -3,6 +3,7 @@ import requests
 from fastapi import Body, HTTPException
 from fastapi.responses import JSONResponse
 from main import app, GEMINI_API_KEY
+from core.gemini_prompt import build_prompt_text, build_system_message
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_video_prompt")
@@ -14,11 +15,19 @@ async def generate_video_prompt(prompt: str = Body(..., embed=True)):
     try:
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={GEMINI_API_KEY}"
 
+        system_message = build_system_message(
+            language=None,
+            tone_key=None,
+            response_style=None,
+            include_response_style=False,
+            include_followup=False,
+        )
+        prompt_text = build_prompt_text(system_message, f"Create a creative short video prompt: {prompt}")
         payload = {
             "contents": [
                 {
                     "parts": [
-                        {"text": f"Create a creative short video prompt: {prompt}"}
+                        {"text": prompt_text}
                     ]
                 }
             ],
@@ -58,8 +67,6 @@ async def generate_video_prompt(prompt: str = Body(..., embed=True)):
     except Exception as e:
         logger.exception("Generate video prompt failed")
         raise HTTPException(status_code=500, detail=str(e))
-
-
 
 
 

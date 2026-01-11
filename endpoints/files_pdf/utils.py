@@ -14,7 +14,8 @@ from firebase_admin import firestore
 from fastapi import HTTPException, Request
 
 from core.language_support import normalize_language
-from core.tone_instructions import ToneKey, build_tone_instruction
+from core.gemini_prompt import build_system_message, merge_parts_with_system
+from core.tone_instructions import ToneKey
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response import get_pdf_error_message
@@ -198,9 +199,8 @@ def call_gemini_generate(
     parts = _normalize_parts_for_office(parts)
     # Belirtilen istek: v1beta + models/<name>
     url = f"https://generativelanguage.googleapis.com/v1beta/{effective_model}:generateContent?key={api_key}"
-    payload = {"contents": [{"role": "user", "parts": parts}]}
-    if system_instruction:
-        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+    effective_parts = merge_parts_with_system(parts, system_instruction)
+    payload = {"contents": [{"role": "user", "parts": effective_parts}]}
     log_gemini_request(
         logger,
         "gemini_doc_generate",
@@ -254,9 +254,8 @@ def call_gemini_generate_stream(
         )
     effective_model = _effective_pdf_model(model)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:streamGenerateContent?alt=sse&key={api_key}"
-    payload = {"contents": [{"role": "user", "parts": parts}]}
-    if system_instruction:
-        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+    effective_parts = merge_parts_with_system(parts, system_instruction)
+    payload = {"contents": [{"role": "user", "parts": effective_parts}]}
     log_gemini_request(
         logger,
         "gemini_doc_stream_generate",
@@ -449,26 +448,18 @@ async def generate_text_with_optional_stream(
     tone_key: Optional[ToneKey] = None,
     tone_language: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
-    # Optionally instruct the model to end with a concise follow-up question in the same language.
-    effective_parts = list(parts)
-    if followup_language:
-        followup_text = (
-            f"Always end your response with a concise, relevant follow-up question to the user, in {followup_language}."
-        )
-        effective_parts.append({"text": followup_text})
-    else:
-        effective_parts.append(
-            {
-                "text": "Always end your response with a concise, relevant follow-up question to the user, in the same language as the response.",
-            }
-        )
-
     effective_model = _effective_pdf_model(model)
-    system_instruction = build_tone_instruction(tone_key, tone_language)
+    system_instruction = build_system_message(
+        language=tone_language,
+        tone_key=tone_key,
+        response_style=None,
+        include_followup=True,
+        followup_language=followup_language or tone_language,
+    )
     if not stream or not chat_id:
         response_json = await asyncio.to_thread(
             call_gemini_generate,
-            effective_parts,
+            parts,
             api_key,
             effective_model,
             system_instruction,
@@ -489,7 +480,7 @@ async def generate_text_with_optional_stream(
     accumulated: list[str] = []
     try:
         async for chunk in stream_gemini_text(
-            effective_parts,
+            parts,
             api_key,
             effective_model,
             system_instruction=system_instruction,

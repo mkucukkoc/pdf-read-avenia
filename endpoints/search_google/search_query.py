@@ -6,8 +6,8 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import HTTPException, Request
 
+from core.gemini_prompt import build_system_message, merge_parts_with_system
 from core.language_support import normalize_language
-from core.tone_instructions import build_tone_instruction
 from endpoints.agent.utils import get_request_user_id
 from endpoints.files_pdf.utils import (
     attach_streaming_payload,
@@ -55,12 +55,11 @@ async def _call_gemini_search(
     if urls:
         tools.append({"url_context": {}})
 
+    effective_parts = merge_parts_with_system(parts, system_instruction)
     payload = {
-        "contents": [{"role": "user", "parts": parts}],
+        "contents": [{"role": "user", "parts": effective_parts}],
         "tools": tools,
     }
-    if system_instruction:
-        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     log_gemini_request(
         logger,
@@ -223,7 +222,13 @@ async def generate_search_queries(payload: SearchQueryRequest, request: Request)
             },
         )
 
-        tone_instruction = build_tone_instruction(payload.tone_key, language)
+        tone_instruction = build_system_message(
+            language=language,
+            tone_key=payload.tone_key,
+            response_style=payload.response_style,
+            include_response_style=False,
+            include_followup=False,
+        )
         response_json = await _call_gemini_search(
             parts=parts,
             api_key=api_key,
