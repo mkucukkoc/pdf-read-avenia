@@ -98,14 +98,6 @@ def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) 
         include_followup=True,
         followup_language=language,
     )
-    tone_instruction = build_tone_instruction(tone_key, language)
-    parts = []
-    if language:
-        parts.append(f"Respond ONLY in {language}.")
-    if tone_instruction:
-        parts.append(tone_instruction)
-    combined = "\n\n".join(parts).strip()
-    return combined or None
 
 
 async def _call_gemini_api(
@@ -142,14 +134,14 @@ async def _call_gemini_api(
                     }
                 ],
             }
-        ]
+        ],
+        "response_modalities": ["IMAGE", "TEXT"],
     }
 
     if use_google_search:
         payload["tools"] = [{"google_search": {}}]
-        payload["response_modalities"] = ["TEXT", "IMAGE"]
-        if aspect_ratio:
-            payload["image_config"] = {"aspect_ratio": aspect_ratio}
+    if aspect_ratio:
+        payload["image_config"] = {"aspect_ratio": aspect_ratio}
 
     log_gemini_request(
         logger,
@@ -418,17 +410,6 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         await emit_status(None)
         system_message = _build_system_instruction(language, payload.tone_key)
         prompt_text = build_prompt_text(system_message, prompt)
-
-        system_message = build_system_message(
-            language=language,
-            tone_key=payload.tone_key,
-            response_style=None,
-            include_followup=True,
-            followup_language=language,
-        )
-        prompt_text = build_prompt_text(system_message, prompt)
-
-        tone_instruction = _build_system_instruction(language, payload.tone_key)
         response_json = await _call_gemini_api(
             prompt_text,
             gemini_key,

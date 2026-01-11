@@ -255,6 +255,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             aspect_ratio=merged_params.get("aspectRatio"),
             model=merged_params.get("model"),
             stream=bool(merged_params.get("stream") or payload.stream),
+            tone_key=payload.tone_key,
         )
         logger.info("Dispatcher short-circuit to create_images (gemini_image) chatId=%s userId=%s", payload.chat_id, effective_user)
         internal_request = build_internal_request(effective_user)
