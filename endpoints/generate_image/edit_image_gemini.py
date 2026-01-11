@@ -59,6 +59,17 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     return ".png"
 
 
+def _build_image_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
+    """Align image edit prompts with chat language + tone handling."""
+    normalized_lang = normalize_language(language)
+    language_instruction = f"Respond ONLY in {normalized_lang}." if normalized_lang else None
+    tone_instruction = build_tone_instruction(tone_key, normalized_lang)
+    pieces = [p for p in (language_instruction, tone_instruction) if p]
+    if not pieces:
+        return None
+    return "\n\n".join(pieces)
+
+
 def _save_message_to_firestore(
     user_id: str,
     chat_id: str,
@@ -118,7 +129,8 @@ def _call_gemini_edit_api(
                     },
                 ],
             }
-        ]
+        ],
+        "response_modalities": ["TEXT", "IMAGE"],
     }
     if system_instruction:
         request_body["system_instruction"] = {"parts": [{"text": system_instruction}]}
@@ -157,12 +169,23 @@ def _extract_image_data(response_json: Dict[str, Any]) -> Dict[str, str]:
     if not candidates:
         raise RuntimeError("Gemini response missing candidates")
 
-    content = candidates[0].get("content") or {}
-    parts = content.get("parts") or []
-    for part in parts:
-        inline_data = part.get("inlineData") or part.get("inline_data")
-        if inline_data and inline_data.get("data"):
-            return inline_data
+    inline_data: Optional[Dict[str, Any]] = None
+    collected_text: list[str] = []
+
+    for candidate in candidates:
+        content = candidate.get("content") or {}
+        parts = content.get("parts") or []
+        for part in parts:
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                collected_text.append(text.strip())
+            inline_candidate = part.get("inlineData") or part.get("inline_data")
+            if inline_candidate and inline_candidate.get("data"):
+                inline_data = inline_candidate
+
+    if inline_data and inline_data.get("data"):
+        inline_data["text"] = "\n\n".join(collected_text).strip() if collected_text else None
+        return inline_data
 
     raise RuntimeError("Gemini response missing inline image data")
 
@@ -349,7 +372,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
-        tone_instruction = build_tone_instruction(payload.tone_key, normalize_language(payload.language))
+        system_instruction = _build_image_system_instruction(language, payload.tone_key)
         response_json = await asyncio.to_thread(
             _call_gemini_edit_api,
             prompt,
@@ -357,7 +380,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             inline["mimeType"],
             gemini_key,
             effective_model,
-            tone_instruction,
+            system_instruction,
         )
         logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
 
@@ -377,6 +400,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             logger.info("Using data URL fallback (edit)", extra={"has_data_url": bool(data_url)})
             await emit_status(None)
 
+        response_text = inline_data.get("text") or get_image_gen_message(language, "edited")
         result_payload = {
             "success": True,
             "imageUrl": final_url,
@@ -385,12 +409,14 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             "language": language,
             "model": effective_model,
             "mimeType": inline_data["mimeType"],
+            "text": response_text,
         }
         final_image_link = final_url or data_url
         metadata = {
             "prompt": prompt,
             "model": effective_model,
             "tool": "image_edit_gemini",
+            "responseText": response_text,
         }
         logger.info(
             "Writing Gemini edit message to Firestore",
@@ -402,17 +428,16 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 "model": effective_model,
             },
         )
-        edited_msg = get_image_gen_message(language, "edited")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
-            content=edited_msg,
+            content=response_text,
             image_url=final_image_link,
             metadata=metadata,
             client_message_id=getattr(payload, "client_message_id", None),
         )
         await emit_status(
-            edited_msg,
+            response_text,
             final=True,
             metadata={
                 "imageUrl": final_image_link,
@@ -423,13 +448,14 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         result = attach_streaming_payload(
             result_payload,
             tool="image_edit_gemini",
-            content=edited_msg,
+            content=response_text,
             streaming=streaming_enabled,
             message_id=message_id if streaming_enabled else None,
             extra_data={
                 "imageUrl": final_url,
                 "dataUrl": data_url,
                 "mimeType": inline_data["mimeType"],
+                "text": response_text,
             },
         )
         try:

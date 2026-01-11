@@ -90,6 +90,17 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     return ".png"
 
 
+def _build_image_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
+    """Align image prompts with chat by enforcing language and tone in system prompt."""
+    normalized_lang = normalize_language(language)
+    language_instruction = f"Respond ONLY in {normalized_lang}." if normalized_lang else None
+    tone_instruction = build_tone_instruction(tone_key, normalized_lang)
+    pieces = [p for p in (language_instruction, tone_instruction) if p]
+    if not pieces:
+        return None
+    return "\n\n".join(pieces)
+
+
 async def _call_gemini_api(
     prompt: str,
     api_key: str,
@@ -125,14 +136,14 @@ async def _call_gemini_api(
                     }
                 ],
             }
-        ]
+        ],
+        "response_modalities": ["TEXT", "IMAGE"],
     }
     if system_instruction:
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     if use_google_search:
         payload["tools"] = [{"google_search": {}}]
-        payload["response_modalities"] = ["TEXT", "IMAGE"]
         if aspect_ratio:
             payload["image_config"] = {"aspect_ratio": aspect_ratio}
 
@@ -203,14 +214,15 @@ async def _call_gemini_edit_api(
                 "parts": [
                     {"text": prompt},
                     {
-                        "inline_data": {
-                            "mime_type": mime_type or "image/png",
+                        "inlineData": {
+                            "mimeType": mime_type or "image/png",
                             "data": image_base64,
                         }
                     },
                 ]
             }
-        ]
+        ],
+        "response_modalities": ["TEXT", "IMAGE"],
     }
     if system_instruction:
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
@@ -253,18 +265,29 @@ def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:
     if not candidates:
         raise ValueError("No candidates in Gemini response")
 
-    parts = (candidates[0].get("content", {}) or {}).get("parts", [])
-    for part in parts:
-        inline = part.get("inline_data") or part.get("inlineData")
-        if inline and inline.get("data"):
-            logger.info(
-                "Inline data found",
-                extra={"mimeType": inline.get("mimeType") or "image/png", "data_len": len(inline.get("data", ""))},
-            )
-            return {
-                "data": inline["data"],
-                "mimeType": inline.get("mimeType") or "image/png",
-            }
+    collected_text: list[str] = []
+    inline: Optional[Dict[str, Any]] = None
+
+    for candidate in candidates:
+        parts = (candidate.get("content", {}) or {}).get("parts", [])
+        for part in parts:
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                collected_text.append(text.strip())
+            inline_candidate = part.get("inline_data") or part.get("inlineData")
+            if inline_candidate and inline_candidate.get("data"):
+                inline = inline_candidate
+
+    if inline and inline.get("data"):
+        logger.info(
+            "Inline data found",
+            extra={"mimeType": inline.get("mimeType") or "image/png", "data_len": len(inline.get("data", ""))},
+        )
+        return {
+            "data": inline["data"],
+            "mimeType": inline.get("mimeType") or "image/png",
+            "text": "\n\n".join(collected_text).strip() if collected_text else None,
+        }
 
     raise ValueError("No inlineData found in Gemini response")
 
@@ -394,14 +417,14 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         )
 
         await emit_status(None)
-        tone_instruction = build_tone_instruction(payload.tone_key, normalize_language(payload.language))
+        system_instruction = _build_image_system_instruction(language, payload.tone_key)
         response_json = await _call_gemini_api(
             prompt,
             gemini_key,
             model,
             use_google_search,
             aspect_ratio,
-            system_instruction=tone_instruction,
+            system_instruction=system_instruction,
         )
         logger.info(
             "Gemini API response received",
@@ -422,6 +445,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             logger.info("Using data URL fallback", extra={"has_data_url": bool(data_url)})
             await emit_status(None)
 
+        response_text = inline_data.get("text") or get_image_gen_message(language, "ready")
         result_payload = {
             "success": True,
             "imageUrl": final_url,
@@ -430,6 +454,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             "language": language,
             "model": model,
             "mimeType": inline_data["mimeType"],
+            "text": response_text,
         }
         final_image_link = final_url or data_url
         metadata = {
@@ -438,6 +463,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             "useGoogleSearch": use_google_search,
             "aspectRatio": aspect_ratio,
             "tool": "generate_image_gemini",
+            "responseText": response_text,
         }
         logger.info(
             "Writing Gemini generate message to Firestore",
@@ -449,11 +475,10 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 "model": model,
             },
         )
-        ready_msg = get_image_gen_message(language, "ready")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
-            content=ready_msg,
+            content=response_text,
             image_url=final_image_link,
             metadata=metadata,
             client_message_id=getattr(payload, "client_message_id", None),
@@ -461,13 +486,14 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         result = attach_streaming_payload(
             result_payload,
             tool="generate_image_gemini",
-            content=ready_msg,
+            content=response_text,
             streaming=streaming_enabled,
             message_id=message_id if streaming_enabled else None,
             extra_data={
                 "imageUrl": final_url,
                 "dataUrl": data_url,
                 "mimeType": inline_data["mimeType"],
+                "text": response_text,
             },
         )
         try:
