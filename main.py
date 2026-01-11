@@ -55,6 +55,7 @@ from core.language_support import (
 from endpoints.chat import router as chat_router
 from endpoints.chat.first_prompt import router as chat_first_prompt_router
 from endpoints.chat.manage import router as chat_manage_router
+from endpoints.chat.settings import router as chat_settings_router
 from endpoints.agent import router as agent_router
 from endpoints.chat_title import router as chat_title_router
 from endpoints.generate_image.gemini_image import router as gemini_image_router
@@ -205,6 +206,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(chat_first_prompt_router)
 app.include_router(chat_manage_router)
+app.include_router(chat_settings_router)
 app.include_router(agent_router)
 app.include_router(chat_title_router)
 app.include_router(deep_research_router)

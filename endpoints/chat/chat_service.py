@@ -47,6 +47,7 @@ class ChatService:
             "GEMINI_SYSTEM_PROMPT",
             "You are an AI chat. Your name is Avenia.",
         )
+        self._default_response_style = os.getenv("DEFAULT_RESPONSE_STYLE", "cheerful and adaptive")
         logger.debug("ChatService initialized with model=%s titleModel=%s", self._default_model, self._title_model)
         logger.info("ChatService ready; default=%s title=%s", self._default_model, self._title_model)
         logger.debug("Firestore client configured: %s", bool(self._db))
@@ -771,19 +772,25 @@ class ChatService:
         if response_style and response_style.strip():
             return response_style.strip()
         if not self._db or not user_id:
-            return None
+            return self._default_response_style
         try:
-            snapshot = self._db.collection("users").document(user_id).get()
-            if not snapshot.exists:
-                return None
-            data = snapshot.to_dict() or {}
-            settings = data.get("settings") or {}
-            stored_style = settings.get("responseStyle")
-            if isinstance(stored_style, str) and stored_style.strip():
-                return stored_style.strip()
+            snapshot = self._db.collection("users_chat_settings").document(user_id).get()
+            if snapshot.exists:
+                data = snapshot.to_dict() or {}
+                settings = data.get("settings") or {}
+                stored_style = settings.get("responseStyle")
+                if isinstance(stored_style, str) and stored_style.strip():
+                    return stored_style.strip()
+            legacy_snapshot = self._db.collection("users").document(user_id).get()
+            if legacy_snapshot.exists:
+                legacy_data = legacy_snapshot.to_dict() or {}
+                legacy_settings = legacy_data.get("settings") or {}
+                legacy_style = legacy_settings.get("responseStyle")
+                if isinstance(legacy_style, str) and legacy_style.strip():
+                    return legacy_style.strip()
         except Exception:
             logger.warning("Failed to load response style userId=%s", user_id, exc_info=True)
-        return None
+        return self._default_response_style
 
     def _build_system_instruction(
         self,
