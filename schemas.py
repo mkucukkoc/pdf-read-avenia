@@ -98,6 +98,7 @@ class ChatRequestPayload(BaseModel):
     has_image: bool = Field(default=False, alias="hasImage")
     image_file_url: Optional[str] = Field(default=None, alias="imageFileUrl")
     language: Optional[str] = None
+    response_style: Optional[str] = Field(default=None, alias="responseStyle")
     stream: bool = False
     skip_user_persist: bool = Field(default=False, alias="skipUserPersist")
     client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
@@ -176,6 +177,7 @@ class AgentDispatchRequest(BaseModel):
     prompt: Optional[str] = None
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
+    response_style: Optional[str] = Field(default=None, alias="responseStyle")
     conversation: List[ChatMessagePayload] = Field(default_factory=list)
     file_url: Optional[str] = Field(default=None, alias="fileUrl")
     file_urls: Optional[List[str]] = Field(default=None, alias="fileUrls")
@@ -198,6 +200,7 @@ class DeepResearchRequest(BaseModel):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
+    response_style: Optional[str] = Field(default=None, alias="responseStyle")
     user_id: Optional[str] = Field(default=None, alias="userId")
     urls: Optional[List[str]] = None
     stream: bool = False
@@ -211,6 +214,7 @@ class WebSearchRequest(BaseModel):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
+    response_style: Optional[str] = Field(default=None, alias="responseStyle")
     user_id: Optional[str] = Field(default=None, alias="userId")
     urls: Optional[List[str]] = None
     stream: bool = False
@@ -224,6 +228,7 @@ class SocialPostRequest(BaseModel):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
+    response_style: Optional[str] = Field(default=None, alias="responseStyle")
     user_id: Optional[str] = Field(default=None, alias="userId")
     stream: bool = False
     parameters: Dict[str, Any] = Field(default_factory=dict)

@@ -157,6 +157,7 @@ class ChatService:
                 logger.warning("User message persist failed requestId=%s chatId=%s", request_id, payload.chat_id, exc_info=True)
                 return _error_response(exc, 500)
 
+        response_style = await self._resolve_response_style(user_id, payload.response_style)
         if payload.stream:
             stream_message_id = self._generate_message_id()
             logger.info(
@@ -172,6 +173,7 @@ class ChatService:
                     payload=payload,
                     message_id=stream_message_id,
                     request_id=request_id,
+                    response_style=response_style,
                 )
             )
             streaming_resp = {
@@ -192,7 +194,7 @@ class ChatService:
                 payload.chat_id,
                 payload.language,
             )
-            system_instruction = self._build_system_instruction(payload.language)
+            system_instruction = self._build_system_instruction(payload.language, response_style)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
             logger.debug(
                 "Chat prompt prepared requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
@@ -419,6 +421,7 @@ class ChatService:
         payload: ChatRequestPayload,
         message_id: str,
         request_id: str,
+        response_style: Optional[str],
     ) -> None:
         logger.info(
             "Starting streaming response requestId=%s userId=%s chatId=%s messageId=%s",
@@ -432,7 +435,7 @@ class ChatService:
         stream_error_code: Optional[str] = None
 
         try:
-            system_instruction = self._build_system_instruction(payload.language)
+            system_instruction = self._build_system_instruction(payload.language, response_style)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
             logger.debug(
                 "Chat prompt prepared (stream) requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
@@ -760,13 +763,42 @@ class ChatService:
 
         return _iter_deltas()
 
-    def _build_system_instruction(self, language_code: Optional[str]) -> str:
+    async def _resolve_response_style(
+        self,
+        user_id: str,
+        response_style: Optional[str],
+    ) -> Optional[str]:
+        if response_style and response_style.strip():
+            return response_style.strip()
+        if not self._db or not user_id:
+            return None
+        try:
+            snapshot = self._db.collection("users").document(user_id).get()
+            if not snapshot.exists:
+                return None
+            data = snapshot.to_dict() or {}
+            settings = data.get("settings") or {}
+            stored_style = settings.get("responseStyle")
+            if isinstance(stored_style, str) and stored_style.strip():
+                return stored_style.strip()
+        except Exception:
+            logger.warning("Failed to load response style userId=%s", user_id, exc_info=True)
+        return None
+
+    def _build_system_instruction(
+        self,
+        language_code: Optional[str],
+        response_style: Optional[str],
+    ) -> str:
         base = self._system_instruction or ""
+        style_part = ""
+        if response_style:
+            style_part = f" Use the response style: {response_style}."
         followup = " Always end your response with a concise, relevant follow-up question to the user, in the same language."
         if language_code:
             lang_part = f" Respond ONLY in {language_code}."
-            return (base + lang_part + followup).strip()
-        return (base + followup).strip()
+            return (base + style_part + lang_part + followup).strip()
+        return (base + style_part + followup).strip()
 
     async def _maybe_generate_chat_title(
         self,

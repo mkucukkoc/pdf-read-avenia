@@ -104,6 +104,8 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         merged_params.setdefault("sourceLanguage", payload.source_language)
     if payload.stream is not None:
         merged_params.setdefault("stream", payload.stream)
+    if payload.response_style is not None:
+        merged_params["responseStyle"] = payload.response_style
 
     if payload.file_url and "selectedFile" not in merged_params:
         merged_params["selectedFile"] = {
@@ -160,6 +162,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             prompt=payload.prompt or (latest_user.content if latest_user else ""),
             chat_id=payload.chat_id,
             language=payload.language,
+            response_style=payload.response_style,
             user_id=effective_user,
             urls=merged_params.get("urls"),
             parameters=merged_params,
@@ -177,6 +180,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             prompt=payload.prompt or (latest_user.content if latest_user else ""),
             chat_id=payload.chat_id,
             language=payload.language,
+            response_style=payload.response_style,
             user_id=effective_user,
             urls=merged_params.get("urls"),
             parameters=merged_params,
@@ -194,6 +198,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             prompt=payload.prompt or (latest_user.content if latest_user else ""),
             chat_id=payload.chat_id,
             language=payload.language,
+            response_style=payload.response_style,
             user_id=effective_user,
             urls=merged_params.get("urls"),
             parameters=merged_params,
@@ -212,6 +217,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             prompt=payload.prompt or (latest_user.content if latest_user else ""),
             chat_id=payload.chat_id,
             language=payload.language,
+            response_style=payload.response_style,
             user_id=effective_user,
             parameters=merged_params,
             stream=bool(merged_params.get("stream") or payload.stream),
@@ -393,6 +399,7 @@ async def _forward_to_default_chat(
         has_image=has_image,
         image_file_url=image_file_url,
         language=payload.language,
+        response_style=payload.response_style or parameters.get("responseStyle") or parameters.get("response_style"),
         stream=payload.stream,
         skip_user_persist=skip_user_persist,
     )
@@ -410,4 +417,3 @@ async def _forward_to_default_chat(
     except Exception:
         logger.warning("Dispatcher forward response logging failed")
     return resp
-
