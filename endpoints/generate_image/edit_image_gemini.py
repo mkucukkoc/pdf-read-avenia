@@ -59,6 +59,27 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     return ".png"
 
 
+def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
+    tone_instruction = build_tone_instruction(tone_key, language)
+    parts = []
+    if language:
+        parts.append(f"Respond ONLY in {language}.")
+    if tone_instruction:
+        parts.append(tone_instruction)
+    combined = "\n\n".join(parts).strip()
+    return combined or None
+
+
+def _extract_text_response(resp_json: Dict[str, Any]) -> Optional[str]:
+    candidates = resp_json.get("candidates") or []
+    if not candidates:
+        return None
+    parts = (candidates[0].get("content", {}) or {}).get("parts", [])
+    text_parts = [part.get("text", "").strip() for part in parts if isinstance(part.get("text"), str)]
+    combined = "\n".join([text for text in text_parts if text])
+    return combined or None
+
+
 def _save_message_to_firestore(
     user_id: str,
     chat_id: str,
@@ -349,7 +370,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
-        tone_instruction = build_tone_instruction(payload.tone_key, normalize_language(payload.language))
+        tone_instruction = _build_system_instruction(language, payload.tone_key)
         response_json = await asyncio.to_thread(
             _call_gemini_edit_api,
             prompt,
@@ -402,7 +423,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 "model": effective_model,
             },
         )
-        edited_msg = get_image_gen_message(language, "edited")
+        response_text = _extract_text_response(response_json)
+        edited_msg = response_text or get_image_gen_message(language, "edited")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",

@@ -90,6 +90,17 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     return ".png"
 
 
+def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
+    tone_instruction = build_tone_instruction(tone_key, language)
+    parts = []
+    if language:
+        parts.append(f"Respond ONLY in {language}.")
+    if tone_instruction:
+        parts.append(tone_instruction)
+    combined = "\n\n".join(parts).strip()
+    return combined or None
+
+
 async def _call_gemini_api(
     prompt: str,
     api_key: str,
@@ -269,6 +280,16 @@ def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:
     raise ValueError("No inlineData found in Gemini response")
 
 
+def _extract_text_response(resp_json: Dict[str, Any]) -> Optional[str]:
+    candidates = resp_json.get("candidates") or []
+    if not candidates:
+        return None
+    parts = (candidates[0].get("content", {}) or {}).get("parts", [])
+    text_parts = [part.get("text", "").strip() for part in parts if isinstance(part.get("text"), str)]
+    combined = "\n".join([text for text in text_parts if text])
+    return combined or None
+
+
 def _save_temp_image(image_base64: str, mime_type: str) -> str:
     extension = ".png"
     if "jpeg" in mime_type or "jpg" in mime_type:
@@ -394,7 +415,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         )
 
         await emit_status(None)
-        tone_instruction = build_tone_instruction(payload.tone_key, normalize_language(payload.language))
+        tone_instruction = _build_system_instruction(language, payload.tone_key)
         response_json = await _call_gemini_api(
             prompt,
             gemini_key,
@@ -449,7 +470,8 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 "model": model,
             },
         )
-        ready_msg = get_image_gen_message(language, "ready")
+        response_text = _extract_text_response(response_json)
+        ready_msg = response_text or get_image_gen_message(language, "ready")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
