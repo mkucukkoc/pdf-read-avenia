@@ -89,6 +89,8 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
                 "language": language,
                 "fields": payload.fields,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not extracted:

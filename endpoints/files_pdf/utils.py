@@ -14,6 +14,7 @@ from firebase_admin import firestore
 from fastapi import HTTPException, Request
 
 from core.language_support import normalize_language
+from core.tone_instructions import ToneKey, build_tone_instruction
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response import get_pdf_error_message
@@ -146,7 +147,12 @@ def _normalize_parts_for_office(parts: list[Dict[str, Any]]) -> list[Dict[str, A
     return normalized
 
 
-def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optional[str] = None) -> Dict[str, Any]:
+def call_gemini_generate(
+    parts: list[Dict[str, Any]],
+    api_key: str,
+    model: Optional[str] = None,
+    system_instruction: Optional[str] = None,
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -157,6 +163,8 @@ def call_gemini_generate(parts: list[Dict[str, Any]], api_key: str, model: Optio
     # Belirtilen istek: v1beta + models/<name>
     url = f"https://generativelanguage.googleapis.com/v1beta/{effective_model}:generateContent?key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}
+    if system_instruction:
+        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
     resp = requests.post(url, json=payload, timeout=180)
     body_preview = (resp.text or "")[:800]
     logger.info("Gemini doc request", extra={"status": resp.status_code, "model": effective_model, "body_preview": body_preview})
@@ -186,6 +194,7 @@ def call_gemini_generate_stream(
     parts: list[Dict[str, Any]],
     api_key: str,
     model: Optional[str] = None,
+    system_instruction: Optional[str] = None,
 ) -> Generator[str, None, None]:
     if not api_key:
         raise HTTPException(
@@ -195,6 +204,8 @@ def call_gemini_generate_stream(
     effective_model = _effective_pdf_model(model)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:streamGenerateContent?alt=sse&key={api_key}"
     payload = {"contents": [{"role": "user", "parts": parts}]}
+    if system_instruction:
+        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
     resp = requests.post(
         url,
         json=payload,
@@ -332,6 +343,7 @@ async def stream_gemini_text(
     parts: list[Dict[str, Any]],
     api_key: str,
     model: Optional[str] = None,
+    system_instruction: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
@@ -340,7 +352,7 @@ async def stream_gemini_text(
 
     def producer():
         try:
-            for chunk in call_gemini_generate_stream(parts, api_key, effective_model):
+            for chunk in call_gemini_generate_stream(parts, api_key, effective_model, system_instruction):
                 if chunk:
                     asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
         except Exception as exc:  # pragma: no cover - defensive guard
@@ -369,6 +381,8 @@ async def generate_text_with_optional_stream(
     model: Optional[str] = None,
     chunk_metadata: Optional[Dict[str, Any]] = None,
     followup_language: Optional[str] = None,
+    tone_key: Optional[ToneKey] = None,
+    tone_language: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
     # Optionally instruct the model to end with a concise follow-up question in the same language.
     effective_parts = list(parts)
@@ -385,8 +399,15 @@ async def generate_text_with_optional_stream(
         )
 
     effective_model = _effective_pdf_model(model)
+    system_instruction = build_tone_instruction(tone_key, tone_language)
     if not stream or not chat_id:
-        response_json = await asyncio.to_thread(call_gemini_generate, effective_parts, api_key, effective_model)
+        response_json = await asyncio.to_thread(
+            call_gemini_generate,
+            effective_parts,
+            api_key,
+            effective_model,
+            system_instruction,
+        )
         candidates = response_json.get("candidates", [])
         if not candidates:
             feedback = response_json.get("promptFeedback", {}) or {}
@@ -402,7 +423,12 @@ async def generate_text_with_optional_stream(
     message_id = f"{tool}_{_uuid4().hex}"
     accumulated: list[str] = []
     try:
-        async for chunk in stream_gemini_text(effective_parts, api_key, effective_model):
+        async for chunk in stream_gemini_text(
+            effective_parts,
+            api_key,
+            effective_model,
+            system_instruction=system_instruction,
+        ):
             clean_chunk = _strip_markdown_stars(chunk)
             accumulated.append(clean_chunk)
             payload: Dict[str, Any] = {
@@ -477,5 +503,3 @@ def attach_streaming_payload(
     except Exception:
         logger.warning("files_pdf response logging failed tool=%s", tool)
     return result
-
-

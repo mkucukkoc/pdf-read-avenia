@@ -109,6 +109,8 @@ async def compare_pdf(payload: PdfCompareRequest, request: Request) -> Dict[str,
                 "file1": payload.file1,
                 "file2": payload.file2,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not diff:

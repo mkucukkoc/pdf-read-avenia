@@ -129,6 +129,8 @@ async def extract_pptx(payload: PptxExtractRequest, request: Request) -> Dict[st
             chunk_metadata={
                 "language": language,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

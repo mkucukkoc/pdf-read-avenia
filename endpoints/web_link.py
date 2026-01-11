@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.tone_instructions import build_tone_instruction
 from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
@@ -23,7 +24,13 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = os.getenv("GEMINI_WEB_SEARCH_MODEL", "models/gemini-2.5-flash")
 
 
-async def _call_gemini_web_link(prompt: str, api_key: str, model: str, urls: Optional[list[str]] = None) -> Dict[str, Any]:
+async def _call_gemini_web_link(
+    prompt: str,
+    api_key: str,
+    model: str,
+    urls: Optional[list[str]] = None,
+    system_instruction: Optional[str] = None,
+) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -39,6 +46,8 @@ async def _call_gemini_web_link(prompt: str, api_key: str, model: str, urls: Opt
         "contents": [{"parts": parts}],
         "tools": [{"google_search": {}}],
     }
+    if system_instruction:
+        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     url = f"{API_BASE}/{model}:generateContent?key={api_key}"
     logger.info(
@@ -181,7 +190,14 @@ async def run_web_link(payload: WebSearchRequest, user_id: str) -> Dict[str, Any
             len(payload.urls or []),
         )
 
-        result = await _call_gemini_web_link(prompt_with_followup, api_key, model, payload.urls)
+        tone_instruction = build_tone_instruction(payload.tone_key, language)
+        result = await _call_gemini_web_link(
+            prompt_with_followup,
+            api_key,
+            model,
+            payload.urls,
+            system_instruction=tone_instruction,
+        )
         text = _strip_markdown_stars(_extract_text(result))
         if not text:
             logger.error(
@@ -254,4 +270,3 @@ async def web_link_endpoint(payload: WebSearchRequest, request: Request) -> Dict
 
 
 __all__ = ["router", "run_web_link"]
-

@@ -79,6 +79,8 @@ async def extract_pdf(payload: PdfExtractRequest, request: Request) -> Dict[str,
             tool="pdf_extract",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not extraction:

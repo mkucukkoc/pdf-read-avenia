@@ -80,6 +80,8 @@ async def rewrite_pdf(payload: PdfRewriteRequest, request: Request) -> Dict[str,
             tool="pdf_rewrite",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not rewritten:

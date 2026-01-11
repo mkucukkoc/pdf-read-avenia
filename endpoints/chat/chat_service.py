@@ -17,6 +17,7 @@ from google.cloud import firestore as firestore_client
 
 from core.firebase import db
 from core.useChatPersistence import chat_persistence
+from core.tone_instructions import build_tone_instruction
 from schemas import ChatMessagePayload, ChatRequestPayload
 from core.websocket_manager import stream_manager
 from endpoints.chat_title.service import generate_chat_title
@@ -195,7 +196,7 @@ class ChatService:
                 payload.chat_id,
                 payload.language,
             )
-            system_instruction = self._build_system_instruction(payload.language, response_style)
+            system_instruction = self._build_system_instruction(payload.language, response_style, payload.tone_key)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
             logger.debug(
                 "Chat prompt prepared requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
@@ -436,7 +437,7 @@ class ChatService:
         stream_error_code: Optional[str] = None
 
         try:
-            system_instruction = self._build_system_instruction(payload.language, response_style)
+            system_instruction = self._build_system_instruction(payload.language, response_style, payload.tone_key)
             prompt_text = self._prepare_gemini_prompt(payload.messages, payload.image_file_url, system_instruction)
             logger.debug(
                 "Chat prompt prepared (stream) requestId=%s userId=%s chatId=%s language=%s promptPreview=%s",
@@ -796,16 +797,17 @@ class ChatService:
         self,
         language_code: Optional[str],
         response_style: Optional[str],
+        tone_key: Optional[str],
     ) -> str:
         base = self._system_instruction or ""
-        style_part = ""
-        if response_style:
-            style_part = f" Use the response style: {response_style}."
+        style_part = f" Use the response style: {response_style}." if response_style else ""
         followup = " Always end your response with a concise, relevant follow-up question to the user, in the same language."
+        tone_instruction = build_tone_instruction(tone_key, language_code)
+        tone_part = f"\n\n{tone_instruction}" if tone_instruction else ""
         if language_code:
             lang_part = f" Respond ONLY in {language_code}."
-            return (base + style_part + lang_part + followup).strip()
-        return (base + style_part + followup).strip()
+            return (base + style_part + lang_part + tone_part + followup).strip()
+        return (base + style_part + tone_part + followup).strip()
 
     async def _maybe_generate_chat_title(
         self,

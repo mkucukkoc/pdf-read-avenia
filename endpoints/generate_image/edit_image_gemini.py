@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from PIL import Image
 
 from core.language_support import normalize_language, get_image_gen_message
+from core.tone_instructions import build_tone_instruction
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_image_edit_failed_message
@@ -91,6 +92,7 @@ def _call_gemini_edit_api(
     mime_type: str,
     api_key: str,
     model: Optional[str] = None,
+    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -118,6 +120,8 @@ def _call_gemini_edit_api(
             }
         ]
     }
+    if system_instruction:
+        request_body["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     logger.info(
         "Calling Gemini edit API",
@@ -330,6 +334,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
+        tone_instruction = build_tone_instruction(payload.tone_key, normalize_language(payload.language))
         response_json = await asyncio.to_thread(
             _call_gemini_edit_api,
             prompt,
@@ -337,6 +342,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
             inline["mimeType"],
             gemini_key,
             effective_model,
+            tone_instruction,
         )
         logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
 
@@ -479,4 +485,3 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
 
 
 __all__ = ["router"]
-

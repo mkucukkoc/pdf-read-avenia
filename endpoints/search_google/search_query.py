@@ -7,6 +7,7 @@ import httpx
 from fastapi import HTTPException, Request
 
 from core.language_support import normalize_language
+from core.tone_instructions import build_tone_instruction
 from endpoints.agent.utils import get_request_user_id
 from endpoints.files_pdf.utils import (
     attach_streaming_payload,
@@ -37,6 +38,7 @@ async def _call_gemini_search(
     api_key: str,
     model: str,
     urls: Optional[list[str]] = None,
+    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -57,6 +59,8 @@ async def _call_gemini_search(
         "contents": [{"role": "user", "parts": parts}],
         "tools": tools,
     }
+    if system_instruction:
+        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     logger.info(
         "Gemini search-query http call prepared",
@@ -204,7 +208,14 @@ async def generate_search_queries(payload: SearchQueryRequest, request: Request)
             },
         )
 
-        response_json = await _call_gemini_search(parts=parts, api_key=api_key, model=model, urls=payload.urls)
+        tone_instruction = build_tone_instruction(payload.tone_key, language)
+        response_json = await _call_gemini_search(
+            parts=parts,
+            api_key=api_key,
+            model=model,
+            urls=payload.urls,
+            system_instruction=tone_instruction,
+        )
 
         optimized = extract_text_response(response_json)
         if not optimized:
@@ -289,10 +300,21 @@ async def generate_search_queries(payload: SearchQueryRequest, request: Request)
         return _error_response(language, payload.chat_id, user_id, 500, str(exc))
 
 
-async def _call_async(parts: list[Dict[str, Any]], api_key: str, model: str) -> Dict[str, Any]:
+async def _call_async(
+    parts: list[Dict[str, Any]],
+    api_key: str,
+    model: str,
+    system_instruction: Optional[str] = None,
+) -> Dict[str, Any]:
     # Fallback async wrapper if no app loop is set
-    return await asyncio.to_thread(_call_gemini_search, parts, api_key, model)
+    return await asyncio.to_thread(
+        lambda: _call_gemini_search(
+            parts=parts,
+            api_key=api_key,
+            model=model,
+            system_instruction=system_instruction,
+        )
+    )
 
 
 __all__ = ["generate_search_queries"]
-

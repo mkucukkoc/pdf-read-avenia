@@ -115,6 +115,8 @@ async def multi_analyze_word(payload: DocMultiAnalyzeRequest, request: Request) 
             tool="word_multi_analyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

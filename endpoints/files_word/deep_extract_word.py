@@ -136,6 +136,8 @@ async def deep_extract_word(payload: DocDeepExtractRequest, request: Request) ->
                 "language": language,
                 "fields": payload.fields,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

@@ -164,6 +164,8 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
                         "summaryLevel": payload.summary_level or "basic",
                         "model": model,
                     },
+                    tone_key=payload.tone_key,
+                    tone_language=language,
                     followup_language=language,
                 )
                 selected_model = model

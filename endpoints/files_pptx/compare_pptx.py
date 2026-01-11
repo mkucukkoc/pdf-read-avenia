@@ -118,6 +118,8 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
             tool="pptx_compare",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

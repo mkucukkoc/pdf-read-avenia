@@ -79,6 +79,8 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
             tool="pdf_grounded_search",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not answer:

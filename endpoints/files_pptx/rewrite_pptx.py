@@ -132,6 +132,8 @@ async def rewrite_pptx(payload: PptxRewriteRequest, request: Request) -> Dict[st
                 "language": language,
                 "style": payload.style,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

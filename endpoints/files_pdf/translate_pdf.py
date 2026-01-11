@@ -87,6 +87,8 @@ async def translate_pdf(payload: PdfTranslateRequest, request: Request) -> Dict[
             tool="pdf_translate",
             model=effective_model,
             chunk_metadata={"language": target_lang},
+            tone_key=payload.tone_key,
+            tone_language=target_lang,
             followup_language=target_lang,
         )
         if not translation:

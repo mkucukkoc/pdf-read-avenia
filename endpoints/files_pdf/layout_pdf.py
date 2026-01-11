@@ -79,6 +79,8 @@ async def layout_pdf(payload: PdfLayoutRequest, request: Request) -> Dict[str, A
             tool="pdf_layout",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not layout_info:

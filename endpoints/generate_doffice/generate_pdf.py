@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fpdf import FPDF
 from firebase_admin import storage
 
+from core.tone_instructions import build_tone_instruction
 from schemas import PdfGenRequest
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_pdf")
@@ -30,7 +31,7 @@ def _effective_model() -> str:
     return model
 
 
-async def _call_gemini_json(prompt: str) -> Dict[str, Any]:
+async def _call_gemini_json(prompt: str, tone_instruction: Optional[str]) -> Dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -57,6 +58,8 @@ async def _call_gemini_json(prompt: str) -> Dict[str, Any]:
             "maxOutputTokens": 2048,
         },
     }
+    if tone_instruction:
+        payload["system_instruction"] = {"parts": [{"text": tone_instruction}]}
 
     logger.info("Gemini PDF JSON request", extra={"model": model, "prompt_preview": prompt[:200]})
 
@@ -144,7 +147,8 @@ async def generate_pdf(data: PdfGenRequest):
     logger.info("Generate PDF request received", extra={"prompt_length": len(data.prompt or "")})
     try:
         # 1) Gemini'den yapılandırılmış JSON al
-        doc_json = await _call_gemini_json(data.prompt)
+        tone_instruction = build_tone_instruction(data.tone_key, None)
+        doc_json = await _call_gemini_json(data.prompt, tone_instruction)
         logger.debug("Gemini PDF JSON parsed", extra={"keys": list(doc_json.keys())})
 
         # 2) PDF dosyasını oluştur
@@ -173,4 +177,3 @@ async def generate_pdf(data: PdfGenRequest):
     except Exception as e:
         logger.exception("Generate PDF failed")
         raise HTTPException(status_code=500, detail=str(e))
-

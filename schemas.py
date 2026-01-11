@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.tone_instructions import ToneKey
+
 SlideType = Literal[
     "cover",
     "problem",
@@ -24,7 +26,7 @@ SlideType = Literal[
 ]
 
 
-class PresentationRequest(BaseModel):
+class PresentationRequest(ToneRequestBase):
     topic: str
     language: str
     audience: str
@@ -92,7 +94,13 @@ class ChatMessagePayload(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class ChatRequestPayload(BaseModel):
+class ToneRequestBase(BaseModel):
+    tone_key: Optional[ToneKey] = Field(default=None, alias="toneKey")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ChatRequestPayload(ToneRequestBase):
     messages: List[ChatMessagePayload]
     chat_id: str = Field(..., alias="chatId")
     has_image: bool = Field(default=False, alias="hasImage")
@@ -106,11 +114,11 @@ class ChatRequestPayload(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class TextToSpeechRequest(BaseModel):
+class TextToSpeechRequest(ToneRequestBase):
     messages: List[ChatMessagePayload]
 
 
-class ImageEditRequest(BaseModel):
+class ImageEditRequest(ToneRequestBase):
     image_url: str = Field(..., alias="imageUrl")
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
@@ -121,7 +129,7 @@ class ImageEditRequest(BaseModel):
 
 
 
-class GeminiImageRequest(BaseModel):
+class GeminiImageRequest(ToneRequestBase):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -135,7 +143,7 @@ class GeminiImageRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class GeminiImageEditRequest(BaseModel):
+class GeminiImageEditRequest(ToneRequestBase):
     prompt: str
     image_url: Optional[str] = Field(default=None, alias="imageUrl")
     chat_id: Optional[str] = Field(default=None, alias="chatId")
@@ -148,7 +156,7 @@ class GeminiImageEditRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class GeminiImageAnalyzeRequest(BaseModel):
+class GeminiImageAnalyzeRequest(ToneRequestBase):
     image_url: str = Field(..., alias="imageUrl")
     prompt: Optional[str] = None
     chat_id: Optional[str] = Field(default=None, alias="chatId")
@@ -159,7 +167,7 @@ class GeminiImageAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class GeminiVideoRequest(BaseModel):
+class GeminiVideoRequest(ToneRequestBase):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -169,11 +177,11 @@ class GeminiVideoRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class CreateChatRequest(BaseModel):
+class CreateChatRequest(ToneRequestBase):
     title: Optional[str] = None
 
 
-class AgentDispatchRequest(BaseModel):
+class AgentDispatchRequest(ToneRequestBase):
     prompt: Optional[str] = None
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -196,7 +204,7 @@ class AgentDispatchRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DeepResearchRequest(BaseModel):
+class DeepResearchRequest(ToneRequestBase):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -210,7 +218,7 @@ class DeepResearchRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class WebSearchRequest(BaseModel):
+class WebSearchRequest(ToneRequestBase):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -224,7 +232,7 @@ class WebSearchRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class SocialPostRequest(BaseModel):
+class SocialPostRequest(ToneRequestBase):
     prompt: str
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -237,7 +245,7 @@ class SocialPostRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfAnalyzeRequest(BaseModel):
+class PdfAnalyzeRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -249,7 +257,7 @@ class PdfAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocAnalyzeRequest(BaseModel):
+class DocAnalyzeRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -261,21 +269,7 @@ class DocAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfSummaryRequest(BaseModel):
-    file_url: str = Field(..., alias="fileUrl")
-    chat_id: str = Field(..., alias="chatId")
-    language: Optional[str] = None
-    summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
-    file_name: Optional[str] = Field(default=None, alias="fileName")
-    prompt: Optional[str] = None
-    stream: bool = False
-    model: Optional[str] = None
-    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class DocSummaryRequest(BaseModel):
+class PdfSummaryRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -289,7 +283,21 @@ class DocSummaryRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PptxSummaryRequest(BaseModel):
+class DocSummaryRequest(ToneRequestBase):
+    file_url: str = Field(..., alias="fileUrl")
+    chat_id: str = Field(..., alias="chatId")
+    language: Optional[str] = None
+    summary_level: Optional[str] = Field(default="basic", alias="summaryLevel")
+    file_name: Optional[str] = Field(default=None, alias="fileName")
+    prompt: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+    client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PptxSummaryRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -301,7 +309,7 @@ class PptxSummaryRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxAnalyzeRequest(BaseModel):
+class PptxAnalyzeRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -312,7 +320,7 @@ class PptxAnalyzeRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxQnaRequest(BaseModel):
+class PptxQnaRequest(ToneRequestBase):
     file_id: Optional[str] = Field(default=None, alias="fileId")
     file_url: Optional[str] = Field(default=None, alias="fileUrl")
     question: str
@@ -325,7 +333,7 @@ class PptxQnaRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxExtractRequest(BaseModel):
+class PptxExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -336,7 +344,7 @@ class PptxExtractRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxCompareRequest(BaseModel):
+class PptxCompareRequest(ToneRequestBase):
     file1: str = Field(..., alias="file1")
     file2: str = Field(..., alias="file2")
     chat_id: str = Field(..., alias="chatId")
@@ -349,7 +357,7 @@ class PptxCompareRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class SearchQueryRequest(BaseModel):
+class SearchQueryRequest(ToneRequestBase):
     query: str = Field(..., alias="query")
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -361,7 +369,7 @@ class SearchQueryRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class AiDetectImageRequest(BaseModel):
+class AiDetectImageRequest(ToneRequestBase):
     image_url: str = Field(..., alias="imageUrl")
     chat_id: Optional[str] = Field(default=None, alias="chatId")
     language: Optional[str] = None
@@ -369,24 +377,24 @@ class AiDetectImageRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocRequest(BaseModel):
+class DocRequest(ToneRequestBase):
     prompt: str
 
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PptRequest(BaseModel):
+class PptRequest(ToneRequestBase):
     prompt: str
 
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfGenRequest(BaseModel):
+class PdfGenRequest(ToneRequestBase):
     prompt: str
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxRewriteRequest(BaseModel):
+class PptxRewriteRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -398,7 +406,7 @@ class PptxRewriteRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxClassifyRequest(BaseModel):
+class PptxClassifyRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -410,7 +418,7 @@ class PptxClassifyRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxMultiAnalyzeRequest(BaseModel):
+class PptxMultiAnalyzeRequest(ToneRequestBase):
     file_urls: list[str] = Field(..., alias="fileUrls")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -420,7 +428,7 @@ class PptxMultiAnalyzeRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxOcrExtractRequest(BaseModel):
+class PptxOcrExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -431,7 +439,7 @@ class PptxOcrExtractRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxLayoutRequest(BaseModel):
+class PptxLayoutRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -442,7 +450,7 @@ class PptxLayoutRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxDeepExtractRequest(BaseModel):
+class PptxDeepExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -454,7 +462,7 @@ class PptxDeepExtractRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxGroundedSearchRequest(BaseModel):
+class PptxGroundedSearchRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     question: str = Field(..., alias="question")
@@ -466,7 +474,7 @@ class PptxGroundedSearchRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxTranslateRequest(BaseModel):
+class PptxTranslateRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     target_language: str = Field(..., alias="targetLanguage")
@@ -478,7 +486,7 @@ class PptxTranslateRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PptxStructureExportRequest(BaseModel):
+class PptxStructureExportRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -489,7 +497,7 @@ class PptxStructureExportRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-class PdfQnaRequest(BaseModel):
+class PdfQnaRequest(ToneRequestBase):
     file_id: Optional[str] = Field(default=None, alias="fileId")
     file_url: Optional[str] = Field(default=None, alias="fileUrl")
     question: str
@@ -502,7 +510,7 @@ class PdfQnaRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocQnaRequest(BaseModel):
+class DocQnaRequest(ToneRequestBase):
     file_id: Optional[str] = Field(default=None, alias="fileId")
     file_url: Optional[str] = Field(default=None, alias="fileUrl")
     question: str
@@ -516,7 +524,7 @@ class DocQnaRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfExtractRequest(BaseModel):
+class PdfExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -528,7 +536,7 @@ class PdfExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocExtractRequest(BaseModel):
+class DocExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -540,7 +548,7 @@ class DocExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfCompareRequest(BaseModel):
+class PdfCompareRequest(ToneRequestBase):
     file1: str = Field(..., alias="file1")
     file2: str = Field(..., alias="file2")
     chat_id: str = Field(..., alias="chatId")
@@ -553,7 +561,7 @@ class PdfCompareRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocCompareRequest(BaseModel):
+class DocCompareRequest(ToneRequestBase):
     file1: str = Field(..., alias="file1")
     file2: str = Field(..., alias="file2")
     chat_id: str = Field(..., alias="chatId")
@@ -566,7 +574,7 @@ class DocCompareRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfRewriteRequest(BaseModel):
+class PdfRewriteRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -579,7 +587,7 @@ class PdfRewriteRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocRewriteRequest(BaseModel):
+class DocRewriteRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -592,7 +600,7 @@ class DocRewriteRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfClassifyRequest(BaseModel):
+class PdfClassifyRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -605,7 +613,7 @@ class PdfClassifyRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocClassifyRequest(BaseModel):
+class DocClassifyRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -618,7 +626,7 @@ class DocClassifyRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfMultiAnalyzeRequest(BaseModel):
+class PdfMultiAnalyzeRequest(ToneRequestBase):
     file_urls: list[str] = Field(..., alias="fileUrls")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -629,7 +637,7 @@ class PdfMultiAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocMultiAnalyzeRequest(BaseModel):
+class DocMultiAnalyzeRequest(ToneRequestBase):
     file_urls: list[str] = Field(..., alias="fileUrls")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -640,7 +648,7 @@ class DocMultiAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfOcrExtractRequest(BaseModel):
+class PdfOcrExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -652,7 +660,7 @@ class PdfOcrExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocOcrExtractRequest(BaseModel):
+class DocOcrExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -664,7 +672,7 @@ class DocOcrExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfLayoutRequest(BaseModel):
+class PdfLayoutRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -676,7 +684,7 @@ class PdfLayoutRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocLayoutRequest(BaseModel):
+class DocLayoutRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -688,7 +696,7 @@ class DocLayoutRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfDeepExtractRequest(BaseModel):
+class PdfDeepExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -701,7 +709,7 @@ class PdfDeepExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocDeepExtractRequest(BaseModel):
+class DocDeepExtractRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -714,7 +722,7 @@ class DocDeepExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfGroundedSearchRequest(BaseModel):
+class PdfGroundedSearchRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     question: str = Field(..., alias="question")
@@ -727,7 +735,7 @@ class PdfGroundedSearchRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocGroundedSearchRequest(BaseModel):
+class DocGroundedSearchRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     question: str = Field(..., alias="question")
@@ -740,7 +748,7 @@ class DocGroundedSearchRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfTranslateRequest(BaseModel):
+class PdfTranslateRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     target_language: str = Field(..., alias="targetLanguage")
@@ -753,7 +761,7 @@ class PdfTranslateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PdfStructureExportRequest(BaseModel):
+class PdfStructureExportRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -765,7 +773,7 @@ class PdfStructureExportRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocStructureExportRequest(BaseModel):
+class DocStructureExportRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     language: Optional[str] = None
@@ -777,7 +785,7 @@ class DocStructureExportRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class DocTranslateRequest(BaseModel):
+class DocTranslateRequest(ToneRequestBase):
     file_url: str = Field(..., alias="fileUrl")
     chat_id: str = Field(..., alias="chatId")
     target_language: str = Field(..., alias="targetLanguage")

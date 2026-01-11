@@ -130,6 +130,8 @@ async def layout_word(payload: DocLayoutRequest, request: Request) -> Dict[str, 
             chunk_metadata={
                 "language": language,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

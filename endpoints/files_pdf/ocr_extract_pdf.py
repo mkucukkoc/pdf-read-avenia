@@ -79,6 +79,8 @@ async def ocr_extract_pdf(payload: PdfOcrExtractRequest, request: Request) -> Di
             tool="pdf_ocr_extract",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

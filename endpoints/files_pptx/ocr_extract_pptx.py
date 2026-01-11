@@ -129,6 +129,8 @@ async def ocr_extract_pptx(payload: PptxOcrExtractRequest, request: Request) -> 
             chunk_metadata={
                 "language": language,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

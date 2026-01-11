@@ -100,6 +100,8 @@ async def classify_pdf(payload: PdfClassifyRequest, request: Request) -> Dict[st
                 "language": language,
                 "labels": label_candidates,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not classification:

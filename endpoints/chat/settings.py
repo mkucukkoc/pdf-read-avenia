@@ -41,13 +41,21 @@ async def save_response_style(payload: ResponseStyleRequest, request: Request) -
 
     try:
         doc_ref = db.collection("users_chat_settings").document(user_id)
-        doc_ref.set(
-            {
-                "settings": {"responseStyle": response_style},
-                "updatedAt": firestore_client.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
+        existing = doc_ref.get()
+        has_created_at = False
+        try:
+            has_created_at = bool(existing.exists and existing.to_dict().get("createdAt"))
+        except Exception:
+            has_created_at = False
+
+        payload = {
+            "settings": {"responseStyle": response_style},
+            "updatedAt": firestore_client.SERVER_TIMESTAMP,
+        }
+        if not has_created_at:
+            payload["createdAt"] = firestore_client.SERVER_TIMESTAMP
+
+        doc_ref.set(payload, merge=True)
         resp = {"success": True, "data": {"responseStyle": response_style}}
         log_response(logger, "chat_settings_response_style", resp)
         return resp

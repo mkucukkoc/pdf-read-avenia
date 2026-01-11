@@ -12,6 +12,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language, get_image_gen_message
+from core.tone_instructions import build_tone_instruction
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
@@ -95,6 +96,7 @@ async def _call_gemini_api(
     model: str,
     use_google_search: bool = False,
     aspect_ratio: Optional[str] = None,
+    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -125,6 +127,8 @@ async def _call_gemini_api(
             }
         ]
     }
+    if system_instruction:
+        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     if use_google_search:
         payload["tools"] = [{"google_search": {}}]
@@ -162,6 +166,7 @@ async def _call_gemini_edit_api(
     mime_type: str,
     api_key: str,
     model: Optional[str] = None,
+    system_instruction: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not api_key:
         raise HTTPException(
@@ -192,6 +197,8 @@ async def _call_gemini_edit_api(
             }
         ]
     }
+    if system_instruction:
+        payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     response = await asyncio.to_thread(requests.post, url, json=payload, timeout=180)
     logger.info("Gemini edit image request completed", extra={"status": response.status_code})
@@ -357,7 +364,15 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         )
 
         await emit_status(None)
-        response_json = await _call_gemini_api(prompt, gemini_key, model, use_google_search, aspect_ratio)
+        tone_instruction = build_tone_instruction(payload.tone_key, normalize_language(payload.language))
+        response_json = await _call_gemini_api(
+            prompt,
+            gemini_key,
+            model,
+            use_google_search,
+            aspect_ratio,
+            system_instruction=tone_instruction,
+        )
         logger.info(
             "Gemini API response received",
             extra={"has_candidates": bool(response_json.get("candidates")), "model": model, "useGoogleSearch": use_google_search},
@@ -494,5 +509,3 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
 
 
 ## Edit endpoint moved to endpoints/generate_image/edit_image_gemini.py
-
-

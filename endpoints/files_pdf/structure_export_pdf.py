@@ -79,6 +79,8 @@ async def structure_export_pdf(payload: PdfStructureExportRequest, request: Requ
             tool="pdf_structure_export",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not structure:

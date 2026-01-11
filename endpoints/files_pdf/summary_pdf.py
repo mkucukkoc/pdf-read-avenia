@@ -81,6 +81,8 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             tool="pdf_summary",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

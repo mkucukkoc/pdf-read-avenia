@@ -135,6 +135,8 @@ async def classify_pptx(payload: PptxClassifyRequest, request: Request) -> Dict[
                 "language": language,
                 "labels": payload.labels,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

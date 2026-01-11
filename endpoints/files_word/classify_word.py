@@ -135,6 +135,8 @@ async def classify_word(payload: DocClassifyRequest, request: Request) -> Dict[s
                 "language": language,
                 "labels": payload.labels,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

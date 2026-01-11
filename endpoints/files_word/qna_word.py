@@ -127,6 +127,8 @@ async def qna_word(payload: DocQnaRequest, request: Request) -> Dict[str, Any]:
                 "language": language,
                 "question": payload.question,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not answer:

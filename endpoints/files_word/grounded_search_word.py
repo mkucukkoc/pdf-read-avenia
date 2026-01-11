@@ -138,6 +138,8 @@ async def grounded_search_word(payload: DocGroundedSearchRequest, request: Reque
                 "language": language,
                 "question": payload.question,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

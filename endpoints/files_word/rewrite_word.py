@@ -133,6 +133,8 @@ async def rewrite_word(payload: DocRewriteRequest, request: Request) -> Dict[str
                 "language": language,
                 "style": payload.style,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

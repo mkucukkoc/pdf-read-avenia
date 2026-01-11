@@ -135,6 +135,8 @@ async def structure_export_word(payload: DocStructureExportRequest, request: Req
             chunk_metadata={
                 "language": language,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

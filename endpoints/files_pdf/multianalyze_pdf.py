@@ -75,6 +75,8 @@ async def multianalyze_pdf(payload: PdfMultiAnalyzeRequest, request: Request) ->
             tool="pdf_multianalyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

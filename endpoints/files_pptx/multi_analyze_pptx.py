@@ -114,6 +114,8 @@ async def multi_analyze_pptx(payload: PptxMultiAnalyzeRequest, request: Request)
             tool="pptx_multi_analyze",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

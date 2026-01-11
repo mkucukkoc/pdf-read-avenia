@@ -200,6 +200,8 @@ async def summary_pptx(payload: PptxSummaryRequest, request: Request) -> Dict[st
                         "summaryLevel": payload.summary_level or "basic",
                         "model": model,
                     },
+                    tone_key=payload.tone_key,
+                    tone_language=language,
                     followup_language=language,
                 )
                 selected_model = model

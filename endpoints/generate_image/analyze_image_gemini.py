@@ -9,6 +9,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.tone_instructions import build_tone_instruction
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from schemas import GeminiImageAnalyzeRequest
@@ -145,6 +146,7 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     response_json = None
     last_error: Optional[HTTPException] = None
     selected_model: Optional[str] = None
+    tone_instruction = build_tone_instruction(payload.tone_key, language)
 
     try:
         for idx, model in enumerate(candidate_models):
@@ -165,6 +167,8 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                     }
                 ]
             }
+            if tone_instruction:
+                request_body["system_instruction"] = {"parts": [{"text": tone_instruction}]}
 
             logger.info(
                 "Calling Gemini analyze API",

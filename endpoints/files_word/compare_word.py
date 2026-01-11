@@ -119,6 +119,8 @@ async def compare_word(payload: DocCompareRequest, request: Request) -> Dict[str
             tool="word_compare",
             model=effective_model,
             chunk_metadata={"language": language},
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

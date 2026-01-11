@@ -130,6 +130,8 @@ async def ocr_extract_word(payload: DocOcrExtractRequest, request: Request) -> D
             chunk_metadata={
                 "language": language,
             },
+            tone_key=payload.tone_key,
+            tone_language=language,
             followup_language=language,
         )
         if not text:

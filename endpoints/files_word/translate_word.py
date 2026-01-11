@@ -142,6 +142,8 @@ async def translate_word(payload: DocTranslateRequest, request: Request) -> Dict
                 "targetLanguage": target_language,
                 "sourceLanguage": source_language,
             },
+            tone_key=payload.tone_key,
+            tone_language=target_language or language,
             followup_language=target_language or language,
         )
         if not text:
