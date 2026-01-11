@@ -7,6 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.tone_instructions import ToneKey
 
+
+class ToneRequestBase(BaseModel):
+    tone_key: Optional[ToneKey] = Field(default=None, alias="toneKey")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 SlideType = Literal[
     "cover",
     "problem",
@@ -24,26 +31,6 @@ SlideType = Literal[
     "risks",
     "cta",
 ]
-
-
-class PresentationRequest(ToneRequestBase):
-    topic: str
-    language: str
-    audience: str
-    tone: str
-    slide_count: int = Field(..., alias="slideCount", ge=5, le=30)
-    brand_name: str = Field(..., alias="brandName")
-    primary_color: str = Field(..., alias="primaryColor")
-    secondary_color: str = Field(..., alias="secondaryColor")
-    dark_background_color: str = Field(..., alias="darkBackgroundColor")
-    primary_font: str = Field(..., alias="primaryFont")
-    secondary_font: str = Field(..., alias="secondaryFont")
-    include_demo: bool = Field(False, alias="includeDemo")
-    include_pricing: bool = Field(False, alias="includePricing")
-    include_competition: bool = Field(False, alias="includeCompetition")
-    include_roadmap: bool = Field(False, alias="includeRoadmap")
-
-    model_config = ConfigDict(populate_by_name=True)
 
 
 class Slide(BaseModel):
@@ -70,6 +57,26 @@ class PresentationMetadata(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class PresentationRequest(ToneRequestBase):
+    topic: str
+    language: str
+    audience: str
+    tone: str
+    slide_count: int = Field(..., alias="slideCount", ge=5, le=30)
+    brand_name: str = Field(..., alias="brandName")
+    primary_color: str = Field(..., alias="primaryColor")
+    secondary_color: str = Field(..., alias="secondaryColor")
+    dark_background_color: str = Field(..., alias="darkBackgroundColor")
+    primary_font: str = Field(..., alias="primaryFont")
+    secondary_font: str = Field(..., alias="secondaryFont")
+    include_demo: bool = Field(False, alias="includeDemo")
+    include_pricing: bool = Field(False, alias="includePricing")
+    include_competition: bool = Field(False, alias="includeCompetition")
+    include_roadmap: bool = Field(False, alias="includeRoadmap")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class PresentationResponse(BaseModel):
     id: str
     title: str
@@ -90,12 +97,6 @@ class ChatMessagePayload(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     message_id: Optional[str] = Field(default=None, alias="messageId")
     client_message_id: Optional[str] = Field(default=None, alias="clientMessageId")
-
-    model_config = ConfigDict(populate_by_name=True)
-
-
-class ToneRequestBase(BaseModel):
-    tone_key: Optional[ToneKey] = Field(default=None, alias="toneKey")
 
     model_config = ConfigDict(populate_by_name=True)
 
