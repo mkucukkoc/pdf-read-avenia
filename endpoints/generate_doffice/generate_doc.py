@@ -12,6 +12,7 @@ from firebase_admin import storage
 
 from core.tone_instructions import build_tone_instruction
 from schemas import DocRequest
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_doc")
 router = APIRouter()
@@ -62,12 +63,27 @@ async def _call_gemini_json(prompt: str, tone_instruction: Optional[str]) -> Dic
     if tone_instruction:
         payload["system_instruction"] = {"parts": [{"text": tone_instruction}]}
 
+    log_gemini_request(
+        logger,
+        "generate_doc",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     logger.info("Gemini doc JSON request", extra={"model": model, "prompt_preview": prompt[:200]})
 
     async with httpx.AsyncClient(timeout=90) as client:
         resp = await client.post(url, json=payload)
 
     body_preview = (resp.text or "")[:800]
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "generate_doc",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     logger.info("Gemini doc JSON response", extra={"status": resp.status_code, "body_preview": body_preview})
 
     if not resp.ok:
@@ -76,7 +92,7 @@ async def _call_gemini_json(prompt: str, tone_instruction: Optional[str]) -> Dic
             detail={"success": False, "error": "gemini_doc_failed", "message": body_preview},
         )
 
-    data = resp.json()
+    data = response_json
     parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
     if not parts:
         raise HTTPException(
@@ -151,7 +167,6 @@ async def generate_doc(data: DocRequest):
     except Exception as e:
         logger.exception("Generate doc failed")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 

@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
 from schemas import GeminiVideoRequest
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
 
 logger = logging.getLogger("pdf_read_refresh.gemini_video")
 
@@ -54,8 +55,23 @@ async def _call_veo_generate(prompt: str, api_key: str, model: str = "veo-3.1-ge
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateVideo?key={api_key}"
     payload = {"prompt": prompt}
 
+    log_gemini_request(
+        logger,
+        "gemini_video_generate",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     logger.info("Veo generateVideo call start", extra={"prompt_preview": prompt[:120], "prompt_len": len(prompt)})
     resp = await asyncio.to_thread(requests.post, url, json=payload, timeout=60)
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "gemini_video_generate",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     logger.info("Veo generateVideo response", extra={"status": resp.status_code, "body_preview": resp.text[:800]})
 
     if not resp.ok:
@@ -65,7 +81,7 @@ async def _call_veo_generate(prompt: str, api_key: str, model: str = "veo-3.1-ge
             detail={"success": False, "error": "veo_generate_failed", "message": resp.text[:500]},
         )
 
-    data = resp.json()
+    data = response_json
     operation_name = data.get("name")
     if not operation_name:
         raise HTTPException(
@@ -81,6 +97,13 @@ async def _poll_operation(operation_name: str, api_key: str, poll_interval: floa
     start = time.time()
 
     while True:
+        log_gemini_request(
+            logger,
+            "gemini_video_poll",
+            url=url,
+            payload=None,
+            method="GET",
+        )
         resp = await asyncio.to_thread(requests.get, url, timeout=30)
         if not resp.ok:
             logger.error("Veo operation poll failed", extra={"status": resp.status_code, "body": resp.text[:800]})
@@ -89,7 +112,14 @@ async def _poll_operation(operation_name: str, api_key: str, poll_interval: floa
                 detail={"success": False, "error": "veo_poll_failed", "message": resp.text[:300]},
             )
 
-        data = resp.json()
+        data = resp.json() if resp.text else {}
+        log_gemini_response(
+            logger,
+            "gemini_video_poll",
+            url=url,
+            status_code=resp.status_code,
+            response=data,
+        )
         logger.info("Veo operation poll response", extra={"done": data.get("done"), "body_preview": resp.text[:800]})
         done = data.get("done", False)
         if done:
@@ -206,5 +236,4 @@ async def generate_gemini_video(payload: GeminiVideoRequest, request: Request) -
                 logger.info("Temp video file removed", extra={"path": tmp_file_path})
             except OSError:
                 logger.warning("Temp video cleanup failed", extra={"path": tmp_file_path})
-
 

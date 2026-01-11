@@ -18,7 +18,7 @@ from errors_response.image_errors import get_no_image_generate_message
 from errors_response.api_errors import get_api_error_message
 from schemas import GeminiImageRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_search")
 
@@ -77,6 +77,13 @@ def _call_gemini_api(
     if aspect_ratio:
         payload["aspect_ratio"] = aspect_ratio
 
+    log_gemini_request(
+        logger,
+        "generate_image_gemini_search",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     logger.info(
         "Gemini Image API call start (search)",
         extra={
@@ -89,6 +96,14 @@ def _call_gemini_api(
     )
 
     resp = requests.post(url, json=payload, timeout=120)
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "generate_image_gemini_search",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     logger.info(
         "Gemini Image API response (search)",
         extra={"status": resp.status_code, "body_preview": resp.text[:800], "use_google_search": use_google_search},
@@ -101,8 +116,7 @@ def _call_gemini_api(
             detail={"success": False, "error": "gemini_image_search_failed", "message": resp.text[:500]},
         )
 
-    data = resp.json()
-    return data
+    return response_json
 
 
 def _extract_image_data(response_json: Dict[str, Any]) -> Dict[str, str]:
@@ -386,7 +400,6 @@ async def generate_gemini_image_with_search(payload: GeminiImageRequest, request
 
 
 __all__ = ["router"]
-
 
 
 

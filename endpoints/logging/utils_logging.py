@@ -58,3 +58,33 @@ def log_response(logger: logging.Logger, name: str, response_obj: Any) -> None:
     logger.info("%s response JSON (%s):\n%s", name, label, json_pretty(response_obj))
 
 
+def log_gemini_request(
+    logger: logging.Logger,
+    name: str,
+    *,
+    url: str,
+    payload: Any,
+    model: str | None = None,
+    method: str = "POST",
+) -> None:
+    log_request(
+        logger,
+        f"{name}.gemini_request",
+        {"method": method, "url": url, "model": model, "payload": payload},
+    )
+
+
+def log_gemini_response(
+    logger: logging.Logger,
+    name: str,
+    *,
+    url: str,
+    status_code: int,
+    response: Any,
+) -> None:
+    log_response(
+        logger,
+        f"{name}.gemini_response",
+        {"url": url, "status": status_code, "response": response},
+    )
+

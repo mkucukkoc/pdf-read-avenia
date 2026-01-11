@@ -12,7 +12,7 @@ from core.useChatPersistence import chat_persistence
 from core.websocket_manager import stream_manager
 from endpoints.agent.utils import get_request_user_id
 from schemas import SocialPostRequest
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
 
 logger = logging.getLogger("pdf_read_refresh.social_posts")
@@ -40,13 +40,29 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
         ]
     }
 
+    url = f"{API_BASE}/models/{model}:generateContent?key={api_key}"
+    log_gemini_request(
+        logger,
+        "social_posts",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     logger.info("SocialPosts Gemini API call", extra={"model": model})
     async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(f"{API_BASE}/models/{model}:generateContent?key={api_key}", json=payload)
+        resp = await client.post(url, json=payload)
 
     logger.info(
         "SocialPosts Gemini API response",
         extra={"status": resp.status_code, "body_preview": (resp.text or "")[:800]},
+    )
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "social_posts",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
     )
 
     if not resp.is_success:
@@ -56,7 +72,7 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
             detail={"success": False, "error": "social_posts_failed", "message": body_preview},
         )
 
-    data = resp.json()
+    data = response_json
     candidates = data.get("candidates") or []
     for cand in candidates:
         content = cand.get("content") or {}
@@ -240,4 +256,3 @@ async def social_posts_endpoint(payload: SocialPostRequest, request: Request) ->
 
 
 __all__ = ["router", "run_social_posts"]
-

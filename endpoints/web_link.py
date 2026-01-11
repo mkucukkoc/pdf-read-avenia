@@ -13,7 +13,7 @@ from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
 from schemas import WebSearchRequest
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
 
 logger = logging.getLogger("pdf_read_refresh.web_link")
@@ -50,6 +50,13 @@ async def _call_gemini_web_link(
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
     url = f"{API_BASE}/{model}:generateContent?key={api_key}"
+    log_gemini_request(
+        logger,
+        "web_link",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     logger.info(
         "Web link call",
         extra={
@@ -62,13 +69,21 @@ async def _call_gemini_web_link(
         resp = await client.post(url, json=payload)
 
     body_preview = (resp.text or "")[:800]
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "web_link",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     logger.info("Web link response status=%s", resp.status_code, extra={"body_preview": body_preview})
     if not resp.is_success:
         raise HTTPException(
             status_code=resp.status_code,
             detail={"success": False, "error": "web_link_failed", "message": body_preview},
         )
-    return resp.json()
+    return response_json
 
 
 def _extract_text(result: Dict[str, Any]) -> str:

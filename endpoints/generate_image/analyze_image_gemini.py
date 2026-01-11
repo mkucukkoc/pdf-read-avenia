@@ -14,7 +14,7 @@ from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from schemas import GeminiImageAnalyzeRequest
 from errors_response.api_errors import get_api_error_message
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from endpoints.files_pdf.utils import attach_streaming_payload
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_analyze")
@@ -170,6 +170,13 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
             if tone_instruction:
                 request_body["system_instruction"] = {"parts": [{"text": tone_instruction}]}
 
+            log_gemini_request(
+                logger,
+                "analyze_image_gemini",
+                url=url,
+                payload=request_body,
+                model=model,
+            )
             logger.info(
                 "Calling Gemini analyze API",
                 extra={
@@ -181,6 +188,14 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 },
             )
             resp = requests.post(url, json=request_body, timeout=120)
+            response_json = resp.json() if resp.text else {}
+            log_gemini_response(
+                logger,
+                "analyze_image_gemini",
+                url=url,
+                status_code=resp.status_code,
+                response=response_json,
+            )
             logger.info(
                 "Gemini analyze API response",
                 extra={"attempt": idx + 1, "status": resp.status_code, "body_preview": (resp.text or "")[:800]},
@@ -193,7 +208,6 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 continue
 
             try:
-                response_json = resp.json()
                 selected_model = model
                 break
             except Exception as exc:

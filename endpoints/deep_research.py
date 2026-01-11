@@ -14,7 +14,7 @@ from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
 from schemas import DeepResearchRequest
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
 
 logger = logging.getLogger("pdf_read_refresh.deep_research")
@@ -41,6 +41,14 @@ async def _start_interaction(
     if urls:
         payload["context"] = {"urls": urls}
 
+    url = f"{API_BASE}/interactions?key={api_key}"
+    log_gemini_request(
+        logger,
+        "deep_research_start",
+        url=url,
+        payload=payload,
+        model=agent,
+    )
     logger.info(
         "DeepResearch start call",
         extra={
@@ -51,7 +59,7 @@ async def _start_interaction(
             "payload": payload,
         },
     )
-    resp = await client.post(f"{API_BASE}/interactions?key={api_key}", json=payload)
+    resp = await client.post(url, json=payload)
 
     logger.info(
         "DeepResearch start response",
@@ -60,6 +68,14 @@ async def _start_interaction(
             "body_preview": (resp.text or "")[:800],
             "headers": dict(resp.headers),
         },
+    )
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "deep_research_start",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
     )
 
     if not resp.is_success:
@@ -70,7 +86,7 @@ async def _start_interaction(
             detail={"success": False, "error": "deep_research_start_failed", "message": body_preview},
         )
 
-    data = resp.json()
+    data = response_json
     interaction_id = data.get("id") or data.get("name")
     logger.info(
         "DeepResearch start parsed",
@@ -92,6 +108,13 @@ async def _poll_interaction(client: httpx.AsyncClient, interaction_id: str, api_
     url = f"{API_BASE}/interactions/{interaction_id}?key={api_key}"
     last_payload: Dict[str, Any] = {}
     for attempt in range(MAX_POLL_ATTEMPTS):
+        log_gemini_request(
+            logger,
+            "deep_research_poll",
+            url=url,
+            payload=None,
+            method="GET",
+        )
         logger.info("DeepResearch poll", extra={"interaction_id": interaction_id, "attempt": attempt + 1})
         resp = await client.get(url)
         logger.info(
@@ -102,6 +125,14 @@ async def _poll_interaction(client: httpx.AsyncClient, interaction_id: str, api_
                 "headers": dict(resp.headers),
             },
         )
+        response_json = resp.json() if resp.text else {}
+        log_gemini_response(
+            logger,
+            "deep_research_poll",
+            url=url,
+            status_code=resp.status_code,
+            response=response_json,
+        )
         if not resp.is_success:
             body_preview = (resp.text or "")[:400]
             logger.error("Deep Research poll failed id=%s status=%s body=%s", interaction_id, resp.status_code, body_preview)
@@ -110,7 +141,7 @@ async def _poll_interaction(client: httpx.AsyncClient, interaction_id: str, api_
                 detail={"success": False, "error": "deep_research_poll_failed", "message": body_preview},
             )
 
-        payload = resp.json()
+        payload = response_json
         last_payload = payload
         outputs = payload.get("outputs") or []
         status = str(payload.get("status") or payload.get("state") or "").lower()
@@ -492,4 +523,3 @@ async def deep_research_endpoint(payload: DeepResearchRequest, request: Request)
 
 
 __all__ = ["router", "run_deep_research"]
-

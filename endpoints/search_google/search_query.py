@@ -15,7 +15,7 @@ from endpoints.files_pdf.utils import (
     log_full_payload,
     save_message_to_firestore,
 )
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from schemas import SearchQueryRequest
 from errors_response.api_errors import get_api_error_message
 
@@ -62,6 +62,13 @@ async def _call_gemini_search(
     if system_instruction:
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
+    log_gemini_request(
+        logger,
+        "search_query",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     logger.info(
         "Gemini search-query http call prepared",
         extra={
@@ -77,6 +84,14 @@ async def _call_gemini_search(
         resp = await client.post(url, json=payload)
 
     body_preview = (resp.text or "")[:800]
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "search_query",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     logger.info(
         "Gemini search-query request",
         extra={"status": resp.status_code, "model": model, "body_preview": body_preview},
@@ -90,7 +105,7 @@ async def _call_gemini_search(
                 "message": body_preview,
             },
         )
-    return resp.json()
+    return response_json
 
 
 async def generate_search_queries(payload: SearchQueryRequest, request: Request) -> Dict[str, Any]:

@@ -21,7 +21,7 @@ from core.tone_instructions import build_tone_instruction
 from schemas import ChatMessagePayload, ChatRequestPayload
 from core.websocket_manager import stream_manager
 from endpoints.chat_title.service import generate_chat_title
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
 
 logger = logging.getLogger("pdf_read_refresh.chat_service")
@@ -646,8 +646,23 @@ class ChatService:
         }
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+        log_gemini_request(
+            logger,
+            "chat_gemini",
+            url=url,
+            payload=payload,
+            model=model,
+        )
         resp = requests.post(url, json=payload, timeout=120)
         resp.encoding = "utf-8"
+        response_json = resp.json() if resp.text else {}
+        log_gemini_response(
+            logger,
+            "chat_gemini",
+            url=url,
+            status_code=resp.status_code,
+            response=response_json,
+        )
         logger.info(
             "Gemini text request completed status=%s bodyPreview=%s",
             resp.status_code,
@@ -655,7 +670,7 @@ class ChatService:
         )
         if not resp.ok:
             raise RuntimeError(f"Gemini text generation failed: {resp.status_code} {resp.text[:400]}")
-        data = resp.json()
+        data = response_json
         candidates = data.get("candidates") or []
         if not candidates:
             return ""
@@ -684,6 +699,13 @@ class ChatService:
         if system_instruction:
             payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
+        log_gemini_request(
+            logger,
+            "chat_gemini_stream",
+            url=url,
+            payload=payload,
+            model=model,
+        )
         resp = requests.post(
             url,
             json=payload,
@@ -723,6 +745,13 @@ class ChatService:
                 except json.JSONDecodeError:
                     logger.debug("Gemini stream non-JSON event preview=%s", data_str[:200])
                     return
+                log_gemini_response(
+                    logger,
+                    "chat_gemini_stream",
+                    url=url,
+                    status_code=resp.status_code,
+                    response=obj,
+                )
                 logger.debug("Gemini stream chunk parsed keys=%s", list(obj.keys()))
                 candidates = obj.get("candidates") or []
                 for candidate in candidates:

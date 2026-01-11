@@ -19,7 +19,7 @@ from errors_response.image_errors import get_no_image_generate_message
 from errors_response.api_errors import get_api_error_message
 from schemas import GeminiImageEditRequest, GeminiImageRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image")
 
@@ -136,7 +136,22 @@ async def _call_gemini_api(
         if aspect_ratio:
             payload["image_config"] = {"aspect_ratio": aspect_ratio}
 
+    log_gemini_request(
+        logger,
+        "generate_image_gemini",
+        url=url,
+        payload=payload,
+        model=model,
+    )
     response = await asyncio.to_thread(requests.post, url, json=payload, timeout=120)
+    response_json = response.json() if response.text else {}
+    log_gemini_response(
+        logger,
+        "generate_image_gemini",
+        url=url,
+        status_code=response.status_code,
+        response=response_json,
+    )
     logger.info(
         "Gemini image request completed",
         extra={
@@ -157,7 +172,7 @@ async def _call_gemini_api(
             },
         )
 
-    return response.json()
+    return response_json
 
 
 async def _call_gemini_edit_api(
@@ -200,7 +215,22 @@ async def _call_gemini_edit_api(
     if system_instruction:
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
+    log_gemini_request(
+        logger,
+        "image_edit_gemini",
+        url=url,
+        payload=payload,
+        model=effective_model,
+    )
     response = await asyncio.to_thread(requests.post, url, json=payload, timeout=180)
+    response_json = response.json() if response.text else {}
+    log_gemini_response(
+        logger,
+        "image_edit_gemini",
+        url=url,
+        status_code=response.status_code,
+        response=response_json,
+    )
     logger.info("Gemini edit image request completed", extra={"status": response.status_code})
 
     if not response.ok:
@@ -214,7 +244,7 @@ async def _call_gemini_edit_api(
             },
         )
 
-    return response.json()
+    return response_json
 
 
 def _extract_image_data(resp_json: Dict[str, Any]) -> Dict[str, str]:

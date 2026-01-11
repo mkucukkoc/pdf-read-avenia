@@ -18,7 +18,13 @@ from core.tone_instructions import ToneKey, build_tone_instruction
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response import get_pdf_error_message
-from endpoints.logging.utils_logging import json_pretty, log_request, log_response
+from endpoints.logging.utils_logging import (
+    json_pretty,
+    log_gemini_request,
+    log_gemini_response,
+    log_request,
+    log_response,
+)
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
 
@@ -81,7 +87,22 @@ def upload_to_gemini_files(content: bytes, mime_type: str, display_name: str, ap
         "X-Goog-Upload-Header-Content-Type": mime_type,
         "Content-Type": "application/json",
     }
-    start_resp = requests.post(start_url, headers=start_headers, json={"file": {"display_name": display_name}}, timeout=30)
+    start_payload = {"file": {"display_name": display_name}}
+    log_gemini_request(
+        logger,
+        "gemini_files_start",
+        url=start_url,
+        payload=start_payload,
+        method="POST",
+    )
+    start_resp = requests.post(start_url, headers=start_headers, json=start_payload, timeout=30)
+    log_gemini_response(
+        logger,
+        "gemini_files_start",
+        url=start_url,
+        status_code=start_resp.status_code,
+        response={"headers": dict(start_resp.headers)},
+    )
     if not start_resp.ok:
         logger.error("Gemini Files start failed", extra={"status": start_resp.status_code, "body": start_resp.text[:500]})
         raise HTTPException(
@@ -101,7 +122,22 @@ def upload_to_gemini_files(content: bytes, mime_type: str, display_name: str, ap
         "Content-Type": mime_type,
         "Content-Length": str(len(content)),
     }
+    log_gemini_request(
+        logger,
+        "gemini_files_upload",
+        url=upload_url,
+        payload={"content_length": len(content), "mime_type": mime_type},
+        method="POST",
+    )
     upload_resp = requests.post(upload_url, headers=upload_headers, data=content, timeout=120)
+    upload_json = upload_resp.json() if upload_resp.text else {}
+    log_gemini_response(
+        logger,
+        "gemini_files_upload",
+        url=upload_url,
+        status_code=upload_resp.status_code,
+        response=upload_json,
+    )
     if not upload_resp.ok:
         logger.error("Gemini Files upload failed", extra={"status": upload_resp.status_code, "body": upload_resp.text[:500]})
         raise HTTPException(
@@ -165,7 +201,22 @@ def call_gemini_generate(
     payload = {"contents": [{"role": "user", "parts": parts}]}
     if system_instruction:
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+    log_gemini_request(
+        logger,
+        "gemini_doc_generate",
+        url=url,
+        payload=payload,
+        model=effective_model,
+    )
     resp = requests.post(url, json=payload, timeout=180)
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "gemini_doc_generate",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     body_preview = (resp.text or "")[:800]
     logger.info("Gemini doc request", extra={"status": resp.status_code, "model": effective_model, "body_preview": body_preview})
     if not resp.ok:
@@ -187,7 +238,7 @@ def call_gemini_generate(
                 "model": effective_model,
             },
         )
-    return resp.json()
+    return response_json
 
 
 def call_gemini_generate_stream(
@@ -206,6 +257,13 @@ def call_gemini_generate_stream(
     payload = {"contents": [{"role": "user", "parts": parts}]}
     if system_instruction:
         payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
+    log_gemini_request(
+        logger,
+        "gemini_doc_stream_generate",
+        url=url,
+        payload=payload,
+        model=effective_model,
+    )
     resp = requests.post(
         url,
         json=payload,
@@ -246,6 +304,13 @@ def call_gemini_generate_stream(
         except json.JSONDecodeError:
             logger.debug("Gemini doc stream non-JSON event preview=%s", data_str[:200])
             return
+        log_gemini_response(
+            logger,
+            "gemini_doc_stream_generate",
+            url=url,
+            status_code=resp.status_code,
+            response=obj,
+        )
         candidates = obj.get("candidates") or []
         for candidate in candidates:
             parts = (candidate.get("content") or {}).get("parts") or []

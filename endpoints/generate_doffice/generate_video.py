@@ -5,6 +5,7 @@ import httpx
 from fastapi import Body, HTTPException
 from fastapi.responses import JSONResponse
 from main import app, wait_for_video_ready, GEMINI_API_KEY, RUNWAY_API_KEY
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_video")
 
@@ -22,9 +23,23 @@ async def generate_video(user_prompt: str = Body(..., embed=True)):
     }
 
     try:
+        log_gemini_request(
+            logger,
+            "generate_video",
+            url=gemini_url,
+            payload=gemini_payload,
+            model="gemini-1.5-pro",
+        )
         logger.debug("Sending Gemini prompt generation request", extra={"payload": gemini_payload})
         gemini_response = requests.post(gemini_url, json=gemini_payload)
-        gemini_data = gemini_response.json()
+        gemini_data = gemini_response.json() if gemini_response.text else {}
+        log_gemini_response(
+            logger,
+            "generate_video",
+            url=gemini_url,
+            status_code=gemini_response.status_code,
+            response=gemini_data,
+        )
         creative_prompt = gemini_data["candidates"][0]["content"]["parts"][0]["text"]
         if len(creative_prompt) > 1000:
             logger.debug("Cleaning creative prompt length", extra={"original_length": len(creative_prompt)})
@@ -82,7 +97,6 @@ async def generate_video(user_prompt: str = Body(..., embed=True)):
     except Exception as e:
         logger.exception("Runway video generation failed")
         raise HTTPException(status_code=500, detail="Runway video üretim hatası: " + str(e))
-
 
 
 

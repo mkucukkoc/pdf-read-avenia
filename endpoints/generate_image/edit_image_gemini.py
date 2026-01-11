@@ -22,7 +22,7 @@ from errors_response.image_errors import get_image_edit_failed_message
 from errors_response.api_errors import get_api_error_message
 from schemas import GeminiImageEditRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
-from endpoints.logging.utils_logging import log_request, log_response
+from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_edit")
 
@@ -123,18 +123,33 @@ def _call_gemini_edit_api(
     if system_instruction:
         request_body["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
+    log_gemini_request(
+        logger,
+        "image_edit_gemini",
+        url=url,
+        payload=request_body,
+        model=effective_model,
+    )
     logger.info(
         "Calling Gemini edit API",
         extra={"prompt_len": len(prompt), "prompt_preview": prompt[:120], "mime_type": mime_type, "model": effective_model},
     )
     resp = requests.post(url, json=request_body, timeout=120)
+    response_json = resp.json() if resp.text else {}
+    log_gemini_response(
+        logger,
+        "image_edit_gemini",
+        url=url,
+        status_code=resp.status_code,
+        response=response_json,
+    )
     logger.info("Gemini edit API response", extra={"status": resp.status_code, "body_preview": resp.text[:800]})
     if not resp.ok:
         raise HTTPException(
             status_code=resp.status_code,
             detail={"success": False, "error": "gemini_edit_failed", "message": resp.text[:500]},
         )
-    return resp.json()
+    return response_json
 
 
 def _extract_image_data(response_json: Dict[str, Any]) -> Dict[str, str]:
