@@ -11,6 +11,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PdfSummaryRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -69,6 +70,13 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
         logger.info("PDF summary upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
         logger.info("PDF summary upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="summary_pdf",
+            model=effective_model,
+            payload=payload,
+        )
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
@@ -84,6 +92,7 @@ async def summary_pdf(payload: PdfSummaryRequest, request: Request) -> Dict[str,
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")

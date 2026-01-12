@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -9,6 +10,7 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.firebase import db
 from core.gemini_prompt import build_prompt_text, build_system_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
@@ -16,6 +18,7 @@ from schemas import GeminiImageAnalyzeRequest
 from errors_response.api_errors import get_api_error_message
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from endpoints.files_pdf.utils import attach_streaming_payload
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_analyze")
 
@@ -25,6 +28,55 @@ router = APIRouter(prefix="/api/v1/image", tags=["Image"])
 def _extract_user_id(request: Request) -> str:
     payload = getattr(request.state, "token_payload", {}) or {}
     return payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
+
+
+def _build_usage_context(
+    request: Request,
+    user_id: str,
+    endpoint: str,
+    model: str,
+    payload: Any,
+) -> Dict[str, Any]:
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    request_id = (
+        getattr(payload, "client_message_id", None)
+        or request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint=endpoint,
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    usage_data: Dict[str, int],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=usage_data.get("inputTokens", 0),
+            output_tokens=usage_data.get("outputTokens", 0),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for image analyze", exc_info=True)
 
 
 def _detect_mime_from_headers(headers: Dict[str, str]) -> Optional[str]:
@@ -146,6 +198,11 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
     response_json = None
     last_error: Optional[HTTPException] = None
     selected_model: Optional[str] = None
+    usage_context: Optional[Dict[str, Any]] = None
+    usage_data: Dict[str, int] = {}
+    usage_status = "error"
+    usage_error_code = "gemini_image_analyze_failed"
+    start_time = time.monotonic()
     system_message = build_system_message(
         language=language,
         tone_key=payload.tone_key,
@@ -213,6 +270,10 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 continue
 
             try:
+                usage_data = parse_gemini_usage(response_json)
+                usage_context = _build_usage_context(request, user_id, "analyzeImage", model, payload)
+                usage_status = "success"
+                usage_error_code = None
                 selected_model = model
                 break
             except Exception as exc:
@@ -231,6 +292,8 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
         analysis_text = _extract_text(response_json)
 
     except HTTPException as he:
+        usage_status = "error"
+        usage_error_code = "gemini_image_analyze_failed"
         logger.error("Gemini image analyze HTTPException", exc_info=he)
         key = "upstream_500"
         if he.status_code == 404: key = "upstream_404"
@@ -260,6 +323,8 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
             }
         }
     except Exception as exc:
+        usage_status = "error"
+        usage_error_code = "gemini_image_analyze_failed"
         logger.error("Gemini image analyze failed", exc_info=exc)
         message = get_api_error_message("upstream_500", language)
         await emit_status("Analiz cevabında bir sorun oluştu.", final=True, error="upstream_500")
@@ -282,6 +347,14 @@ async def analyze_gemini_image(payload: GeminiImageAnalyzeRequest, request: Requ
                 "streaming": False,
             }
         }
+    finally:
+        _enqueue_usage_event(
+            usage_context,
+            usage_data,
+            int((time.monotonic() - start_time) * 1000),
+            status=usage_status,
+            error_code=usage_error_code,
+        )
 
     logger.info(
         "Gemini analyze completed",

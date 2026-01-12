@@ -16,6 +16,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from google.cloud import firestore as firestore_client
 
 from core.firebase import db
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 from core.useChatPersistence import chat_persistence
 from core.tone_instructions import build_tone_instruction
 from schemas import ChatMessagePayload, ChatRequestPayload
@@ -59,7 +60,12 @@ class ChatService:
             cls._instance = cls()
         return cls._instance
 
-    async def send_message(self, payload: ChatRequestPayload, user_id: str) -> Dict[str, Any]:
+    async def send_message(
+        self,
+        payload: ChatRequestPayload,
+        user_id: str,
+        usage_request: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         def _map_error_key(status_code: int) -> str:
             if status_code == 404:
                 return "upstream_404"
@@ -109,7 +115,7 @@ class ChatService:
             return resp
 
         log_request(logger, "chat_send", payload)
-        request_id = uuid.uuid4().hex[:8]
+        request_id = (usage_request or {}).get("request_id") or uuid.uuid4().hex[:8]
         start_time = datetime.now(timezone.utc)
 
         if not user_id:
@@ -176,6 +182,7 @@ class ChatService:
                     message_id=stream_message_id,
                     request_id=request_id,
                     response_style=response_style,
+                    usage_request=usage_request,
                 )
             )
             streaming_resp = {
@@ -212,13 +219,36 @@ class ChatService:
                 payload.chat_id,
                 self._select_model(payload),
             )
-
-            assistant_content = await asyncio.to_thread(
-                self._call_gemini_generate_content,
-                prompt_text,
-                self._select_model(payload),
-                system_instruction,
-            )
+            selected_model = self._select_model(payload)
+            usage_context = None
+            if usage_request:
+                usage_context = build_base_event(
+                    request_id=request_id,
+                    user_id=user_id,
+                    endpoint="chat",
+                    provider="gemini",
+                    model=selected_model,
+                    token_payload=usage_request.get("token_payload"),
+                    request=usage_request.get("request"),
+                )
+            usage_data: Dict[str, int] = {}
+            try:
+                assistant_content, usage_data = await asyncio.to_thread(
+                    self._call_gemini_generate_content,
+                    prompt_text,
+                    selected_model,
+                    system_instruction,
+                )
+            except Exception as exc:
+                latency_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+                self._enqueue_usage_event(
+                    usage_context,
+                    usage_data,
+                    latency_ms,
+                    status="error",
+                    error_code="gemini_generate_failed",
+                )
+                raise exc
             logger.info(
                 "Gemini text generation completed requestId=%s chatId=%s assistantPreview=%s",
                 request_id,
@@ -299,6 +329,13 @@ class ChatService:
                 user_id,
                 payload.chat_id,
                 processing_time,
+            )
+            self._enqueue_usage_event(
+                usage_context,
+                usage_data,
+                int(processing_time),
+                status="success",
+                error_code=None,
             )
 
             data: Dict[str, Any] = {
@@ -417,6 +454,30 @@ class ChatService:
 
     # ----- Internal helpers -------------------------------------------------
 
+    def _enqueue_usage_event(
+        self,
+        usage_context: Optional[Dict[str, Any]],
+        usage_data: Dict[str, int],
+        latency_ms: int,
+        *,
+        status: str,
+        error_code: Optional[str],
+    ) -> None:
+        if not usage_context or not self._db:
+            return
+        try:
+            event = finalize_event(
+                usage_context,
+                input_tokens=usage_data.get("inputTokens", 0),
+                output_tokens=usage_data.get("outputTokens", 0),
+                latency_ms=latency_ms,
+                status=status,
+                error_code=error_code,
+            )
+            enqueue_usage_update(self._db, event)
+        except Exception:
+            logger.warning("Usage tracking failed in chat_service", exc_info=True)
+
     async def _handle_streaming_response(
         self,
         user_id: str,
@@ -424,6 +485,7 @@ class ChatService:
         message_id: str,
         request_id: str,
         response_style: Optional[str],
+        usage_request: Optional[Dict[str, Any]] = None,
     ) -> None:
         logger.info(
             "Starting streaming response requestId=%s userId=%s chatId=%s messageId=%s",
@@ -432,9 +494,24 @@ class ChatService:
             payload.chat_id,
             message_id,
         )
+        start_time = datetime.now(timezone.utc)
+        usage_context = None
+        usage_out: Dict[str, int] = {}
+        selected_model = self._select_model(payload)
+        if usage_request:
+            usage_context = build_base_event(
+                request_id=request_id,
+                user_id=user_id,
+                endpoint="chat",
+                provider="gemini",
+                model=selected_model,
+                token_payload=usage_request.get("token_payload"),
+                request=usage_request.get("request"),
+            )
         producer_error: Optional[Exception] = None
         fallback_used = False
         stream_error_code: Optional[str] = None
+        stream_failed = False
 
         try:
             system_instruction = self._build_system_instruction(payload.language, response_style, payload.tone_key)
@@ -447,7 +524,7 @@ class ChatService:
                 payload.language or "unknown",
                 prompt_text[:1000],
             )
-            model = self._select_model(payload)
+            model = selected_model
 
             # Real streaming: consume streamGenerateContent deltas and forward as websocket chunks
             loop = asyncio.get_running_loop()
@@ -459,6 +536,7 @@ class ChatService:
                         prompt_text,
                         model,
                         system_instruction,
+                        usage_out,
                     ):
                         asyncio.run_coroutine_threadsafe(queue.put(delta), loop)
                 except Exception as exc:
@@ -511,6 +589,7 @@ class ChatService:
                 error_detail = producer_error or RuntimeError("No content received from Gemini stream")
                 fallback_used = True
                 stream_error_code = "stream_failed"
+                stream_failed = True
                 resp = build_success_error_response(
                     tool="chat_send_streaming",
                     language=payload.language,
@@ -593,6 +672,7 @@ class ChatService:
                 message_id,
             )
         except Exception as exc:  # pragma: no cover - defensive guard
+            stream_failed = True
             logger.exception(
                 "Streaming response failed requestId=%s userId=%s chatId=%s messageId=%s",
                 request_id,
@@ -611,6 +691,15 @@ class ChatService:
                     "error": "stream_failed",
                     "content": error_message,
                 },
+            )
+        finally:
+            latency_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+            self._enqueue_usage_event(
+                usage_context,
+                usage_out,
+                latency_ms,
+                status="error" if stream_failed else "success",
+                error_code="gemini_stream_failed" if stream_failed else None,
             )
 
     def _generate_message_id(self) -> str:
@@ -637,7 +726,12 @@ class ChatService:
             lines.append(f"{prefix}: {content}")
         return "\n".join(lines)
 
-    def _call_gemini_generate_content(self, prompt_text: str, model: str, system_instruction: Optional[str] = None) -> str:
+    def _call_gemini_generate_content(
+        self,
+        prompt_text: str,
+        model: str,
+        system_instruction: Optional[str] = None,
+    ) -> tuple[str, Dict[str, int]]:
         if not self._gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY not configured")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self._gemini_api_key}"
@@ -673,16 +767,20 @@ class ChatService:
         data = response_json
         candidates = data.get("candidates") or []
         if not candidates:
-            return ""
+            return "", parse_gemini_usage(data)
         parts = (candidates[0].get("content") or {}).get("parts") or []
         texts: List[str] = []
         for part in parts:
             if "text" in part and isinstance(part["text"], str):
                 texts.append(part["text"])
-        return "\n".join(texts).strip()
+        return "\n".join(texts).strip(), parse_gemini_usage(data)
 
     def _call_gemini_generate_content_stream(
-        self, prompt_text: str, model: str, system_instruction: Optional[str] = None
+        self,
+        prompt_text: str,
+        model: str,
+        system_instruction: Optional[str] = None,
+        usage_out: Optional[Dict[str, int]] = None,
     ):
         """
         Streams text deltas from Gemini (streamGenerateContent). Yields delta strings.
@@ -753,6 +851,9 @@ class ChatService:
                     response=obj,
                 )
                 logger.debug("Gemini stream chunk parsed keys=%s", list(obj.keys()))
+                usage = parse_gemini_usage(obj)
+                if usage_out is not None and usage:
+                    usage_out.update(usage)
                 candidates = obj.get("candidates") or []
                 for candidate in candidates:
                     parts = (candidate.get("content") or {}).get("parts") or []

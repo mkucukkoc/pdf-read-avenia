@@ -11,6 +11,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxQnaRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -115,6 +116,13 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
             {"text": f"Answer the user's question. {instructions}"},
             {"text": payload.question},
         ]
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="qna_pptx",
+            model=effective_model,
+            payload=payload,
+        )
         answer, stream_message_id = await generate_text_with_optional_stream(
             parts=parts,
             api_key=gemini_key,
@@ -129,6 +137,7 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not answer:
             msg = get_pdf_error_message("no_answer_found", language)
@@ -197,4 +206,3 @@ async def qna_pptx(payload: PptxQnaRequest, request: Request) -> Dict[str, Any]:
             status_code=500,
             detail=str(exc),
         )
-

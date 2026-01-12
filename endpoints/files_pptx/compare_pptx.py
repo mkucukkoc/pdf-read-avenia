@@ -11,6 +11,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxCompareRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -110,6 +111,13 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
             {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri_2}},
             {"text": prompt},
         ]
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="compare_pptx",
+            model=effective_model,
+            payload=payload,
+        )
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=parts,
             api_key=gemini_key,
@@ -121,6 +129,7 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -187,4 +196,3 @@ async def compare_pptx(payload: PptxCompareRequest, request: Request) -> Dict[st
             status_code=500,
             detail=str(exc),
         )
-

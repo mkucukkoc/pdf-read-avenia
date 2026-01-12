@@ -11,6 +11,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxAnalyzeRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -115,6 +116,13 @@ async def analyze_pptx(payload: PptxAnalyzeRequest, request: Request) -> Dict[st
         logger.info("PPTX analyze upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(pdf_bytes, "application/pdf", pdf_filename, gemini_key)
         logger.info("PPTX analyze upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="analyze_pptx",
+            model=effective_model,
+            payload=payload,
+        )
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
@@ -130,6 +138,7 @@ async def analyze_pptx(payload: PptxAnalyzeRequest, request: Request) -> Dict[st
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -195,4 +204,3 @@ async def analyze_pptx(payload: PptxAnalyzeRequest, request: Request) -> Dict[st
             status_code=500,
             detail=str(exc),
         )
-

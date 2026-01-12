@@ -10,6 +10,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PdfDeepExtractRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -74,6 +75,13 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
         logger.info("PDF deepextract upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
         logger.info("PDF deepextract upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="deepextract_pdf",
+            model=effective_model,
+            payload=payload,
+        )
         extracted, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
@@ -92,6 +100,7 @@ async def deepextract_pdf(payload: PdfDeepExtractRequest, request: Request) -> D
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not extracted:
             raise RuntimeError("Empty response from Gemini")

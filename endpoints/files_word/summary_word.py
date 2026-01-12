@@ -12,6 +12,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import DocSummaryRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -152,6 +153,13 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
                     "Word summary model attempt",
                     extra={"chatId": payload.chat_id, "attempt": idx + 1, "model": model},
                 )
+                usage_context = build_usage_context(
+                    request=request,
+                    user_id=user_id,
+                    endpoint="summary_word",
+                    model=model,
+                    payload=payload,
+                )
                 text, stream_message_id = await generate_text_with_optional_stream(
                     parts=parts,
                     api_key=gemini_key,
@@ -167,6 +175,7 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
                     tone_key=payload.tone_key,
                     tone_language=language,
                     followup_language=language,
+                    usage_context=usage_context,
                 )
                 selected_model = model
                 break
@@ -255,5 +264,4 @@ async def summary_word(payload: DocSummaryRequest, request: Request) -> Dict[str
             status_code=500,
             detail=str(exc),
         )
-
 

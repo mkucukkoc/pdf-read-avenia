@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -25,6 +26,21 @@ def _extract_user_id(request: Request) -> str:
     )
 
 
+def _build_usage_request(payload: ChatRequestPayload, request: Request) -> Dict[str, Any]:
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    request_id = (
+        getattr(payload, "client_message_id", None)
+        or request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return {
+        "request": request,
+        "token_payload": token_payload,
+        "request_id": request_id,
+    }
+
+
 @router.post("/send")
 async def send_chat_message(payload: ChatRequestPayload, request: Request) -> Dict[str, Any]:
     user_id = _extract_user_id(request)
@@ -33,7 +49,8 @@ async def send_chat_message(payload: ChatRequestPayload, request: Request) -> Di
             "Chat send request received",
             extra={"userId": user_id, "payload": payload.model_dump()},
         )
-        result = await chat_service.send_message(payload, user_id)
+        usage_request = _build_usage_request(payload, request)
+        result = await chat_service.send_message(payload, user_id, usage_request=usage_request)
         logger.debug("Chat send response payload", extra={"userId": user_id, "response": result})
         return result
     except ValueError as exc:
@@ -158,7 +175,6 @@ async def create_chat_endpoint(payload: CreateChatRequest, request: Request) -> 
 
 
 __all__ = ["router", "chat_service"]
-
 
 
 

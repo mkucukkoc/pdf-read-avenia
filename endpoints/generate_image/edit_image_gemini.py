@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from PIL import Image
 
 from core.language_support import normalize_language, get_image_gen_message
+from core.firebase import db
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_image_edit_failed_message
@@ -22,6 +23,7 @@ from errors_response.api_errors import get_api_error_message
 from schemas import GeminiImageEditRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_edit")
 
@@ -37,6 +39,55 @@ def _get_storage():
 def _extract_user_id(request: Request) -> str:
     payload = getattr(request.state, "token_payload", {}) or {}
     return payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
+
+
+def _build_usage_context(
+    request: Request,
+    user_id: str,
+    endpoint: str,
+    model: str,
+    payload: Any,
+) -> Dict[str, Any]:
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    request_id = (
+        getattr(payload, "client_message_id", None)
+        or request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint=endpoint,
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    usage_data: Dict[str, int],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=usage_data.get("inputTokens", 0),
+            output_tokens=usage_data.get("outputTokens", 0),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for image edit", exc_info=True)
 
 
 def _detect_mime_from_headers(headers: Dict[str, str]) -> Optional[str]:
@@ -376,14 +427,33 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
         system_message = _build_image_system_instruction(language, payload.tone_key)
         prompt_text = f"{system_message}\n\nUSER PROMPT:\n{prompt}"
-        response_json = await asyncio.to_thread(
-            _call_gemini_edit_api,
-            prompt_text,
-            inline["data"],
-            inline["mimeType"],
-            gemini_key,
-            effective_model,
-        )
+        usage_context = _build_usage_context(request, user_id, "createImages", effective_model, payload)
+        usage_data: Dict[str, int] = {}
+        usage_status = "success"
+        usage_error_code: Optional[str] = None
+        start_time = time.monotonic()
+        try:
+            response_json = await asyncio.to_thread(
+                _call_gemini_edit_api,
+                prompt_text,
+                inline["data"],
+                inline["mimeType"],
+                gemini_key,
+                effective_model,
+            )
+            usage_data = parse_gemini_usage(response_json)
+        except Exception:
+            usage_status = "error"
+            usage_error_code = "gemini_image_edit_failed"
+            raise
+        finally:
+            _enqueue_usage_event(
+                usage_context,
+                usage_data,
+                int((time.monotonic() - start_time) * 1000),
+                status=usage_status,
+                error_code=usage_error_code,
+            )
         logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
 
         try:

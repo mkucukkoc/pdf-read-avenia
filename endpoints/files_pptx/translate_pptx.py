@@ -11,6 +11,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxTranslateRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -129,6 +130,13 @@ async def translate_pptx(payload: PptxTranslateRequest, request: Request) -> Dic
             {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
             {"text": f"Translate the document to {target_language}. Source language: {source_language or 'auto'}. {prompt}"},
         ]
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="translate_pptx",
+            model=effective_model,
+            payload=payload,
+        )
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=parts,
             api_key=gemini_key,
@@ -144,6 +152,7 @@ async def translate_pptx(payload: PptxTranslateRequest, request: Request) -> Dic
             tone_key=payload.tone_key,
             tone_language=target_language or language,
             followup_language=target_language or language,
+            usage_context=usage_context,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -212,4 +221,3 @@ async def translate_pptx(payload: PptxTranslateRequest, request: Request) -> Dic
             status_code=500,
             detail=str(exc),
         )
-

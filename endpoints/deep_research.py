@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 import uuid
 from typing import Any, Dict, Optional, List
 from urllib.parse import urlparse
@@ -10,12 +11,14 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.firebase import db
 from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
 from schemas import DeepResearchRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
+from usage_tracking import build_base_event, finalize_event, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.deep_research")
 
@@ -26,6 +29,54 @@ DEFAULT_AGENT = os.getenv("GEMINI_DEEP_RESEARCH_AGENT", "deep-research-pro-previ
 POLL_DELAY_SEC = float(os.getenv("DEEP_RESEARCH_POLL_DELAY", "3.0"))
 # Default ~2 minutes; can be overridden via env.
 MAX_POLL_ATTEMPTS = int(os.getenv("DEEP_RESEARCH_MAX_POLL", "40"))
+
+
+def _build_usage_context(
+    request: Request,
+    user_id: str,
+    endpoint: str,
+    model: str,
+    payload: DeepResearchRequest,
+) -> Dict[str, Any]:
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    request_id = (
+        getattr(payload, "client_message_id", None)
+        or request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint=endpoint,
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for deep_research", exc_info=True)
 
 
 async def _start_interaction(
@@ -519,7 +570,28 @@ async def deep_research_endpoint(payload: DeepResearchRequest, request: Request)
             detail={"success": False, "error": "unauthorized", "message": "Kullanıcı kimliği gerekiyor."},
         )
 
-    return await run_deep_research(payload, user_id)
+    agent = payload.agent or DEFAULT_AGENT
+    usage_context = _build_usage_context(request, user_id, "deepsearch", agent, payload)
+    start_time = time.monotonic()
+    status = "success"
+    error_code = None
+    try:
+        result = await run_deep_research(payload, user_id)
+        if isinstance(result, dict) and result.get("success") is False:
+            status = "error"
+            error_code = result.get("error") or "deepsearch_failed"
+        return result
+    except Exception:
+        status = "error"
+        error_code = "deepsearch_failed"
+        raise
+    finally:
+        _enqueue_usage_event(
+            usage_context,
+            int((time.monotonic() - start_time) * 1000),
+            status=status,
+            error_code=error_code,
+        )
 
 
 __all__ = ["router", "run_deep_research"]

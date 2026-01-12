@@ -11,6 +11,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PptxLayoutRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -119,6 +120,13 @@ async def layout_pptx(payload: PptxLayoutRequest, request: Request) -> Dict[str,
             {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
             {"text": prompt_text},
         ]
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="layout_pptx",
+            model=effective_model,
+            payload=payload,
+        )
         text, stream_message_id = await generate_text_with_optional_stream(
             parts=parts,
             api_key=gemini_key,
@@ -132,6 +140,7 @@ async def layout_pptx(payload: PptxLayoutRequest, request: Request) -> Dict[str,
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not text:
             raise RuntimeError("Empty response from Gemini")
@@ -196,4 +205,3 @@ async def layout_pptx(payload: PptxLayoutRequest, request: Request) -> Dict[str,
             status_code=500,
             detail=str(exc),
         )
-

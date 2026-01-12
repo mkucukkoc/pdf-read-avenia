@@ -10,6 +10,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PdfGroundedSearchRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -67,6 +68,13 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
         logger.info("PDF grounded_search upload start", extra={"chatId": payload.chat_id})
         file_uri = upload_to_gemini_files(content, mime, payload.file_name or "document.pdf", gemini_key)
         logger.info("PDF grounded_search upload ok", extra={"chatId": payload.chat_id, "fileUri": file_uri})
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="grounded_search_pdf",
+            model=effective_model,
+            payload=payload,
+        )
         answer, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
@@ -82,6 +90,7 @@ async def grounded_search_pdf(payload: PdfGroundedSearchRequest, request: Reques
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not answer:
             raise RuntimeError("Empty response from Gemini")

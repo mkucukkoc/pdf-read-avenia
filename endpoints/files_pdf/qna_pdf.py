@@ -10,6 +10,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from schemas import PdfQnaRequest
 from endpoints.files_pdf.utils import (
     extract_user_id,
+    build_usage_context,
     download_file,
     upload_to_gemini_files,
     generate_text_with_optional_stream,
@@ -81,6 +82,13 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             language,
             prompt,
         )
+        usage_context = build_usage_context(
+            request=request,
+            user_id=user_id,
+            endpoint="qna_pdf",
+            model=effective_model,
+            payload=payload,
+        )
         answer, stream_message_id = await generate_text_with_optional_stream(
             parts=[
                 {"file_data": {"mime_type": "application/pdf", "file_uri": file_uri}},
@@ -96,6 +104,7 @@ async def qna_pdf(payload: PdfQnaRequest, request: Request) -> Dict[str, Any]:
             tone_key=payload.tone_key,
             tone_language=language,
             followup_language=language,
+            usage_context=usage_context,
         )
         if not answer:
             raise RuntimeError("Empty response from Gemini")

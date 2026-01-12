@@ -5,6 +5,7 @@ import re
 import json
 import os
 import uuid
+import time
 from uuid import uuid4 as _uuid4
 from typing import Any, AsyncGenerator, Dict, Generator, Optional, Tuple
 
@@ -14,6 +15,7 @@ from firebase_admin import firestore
 from fastapi import HTTPException, Request
 
 from core.language_support import normalize_language
+from core.firebase import db
 from core.gemini_prompt import build_system_message, merge_parts_with_system
 from core.tone_instructions import ToneKey
 from core.websocket_manager import stream_manager
@@ -26,6 +28,7 @@ from endpoints.logging.utils_logging import (
     log_request,
     log_response,
 )
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
 
@@ -37,6 +40,38 @@ def log_full_payload(logger_obj: logging.Logger, name: str, payload_obj: Any) ->
 def extract_user_id(request: Request) -> str:
     payload = getattr(request.state, "token_payload", {}) or {}
     return payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
+
+
+def resolve_request_id(payload: Any, request: Optional[Request]) -> str:
+    if getattr(payload, "client_message_id", None):
+        return str(payload.client_message_id)
+    if request is not None:
+        header_request_id = request.headers.get("x-request-id") or request.headers.get("x-requestid")
+        if header_request_id:
+            return header_request_id
+    return f"req_{uuid.uuid4().hex}"
+
+
+def build_usage_context(
+    *,
+    request: Request,
+    user_id: str,
+    endpoint: str,
+    model: Optional[str],
+    payload: Optional[Any] = None,
+    request_id: Optional[str] = None,
+    provider: str = "gemini",
+) -> Dict[str, Any]:
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    return build_base_event(
+        request_id=request_id or resolve_request_id(payload or {}, request),
+        user_id=user_id,
+        endpoint=endpoint,
+        provider=provider,
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
 
 
 def download_file(url: str, max_mb: int, require_pdf: bool = True) -> Tuple[bytes, str]:
@@ -246,6 +281,7 @@ def call_gemini_generate_stream(
     api_key: str,
     model: Optional[str] = None,
     system_instruction: Optional[str] = None,
+    usage_out: Optional[Dict[str, int]] = None,
 ) -> Generator[str, None, None]:
     if not api_key:
         raise HTTPException(
@@ -310,6 +346,9 @@ def call_gemini_generate_stream(
             status_code=resp.status_code,
             response=obj,
         )
+        usage = parse_gemini_usage(obj)
+        if usage_out is not None and usage:
+            usage_out.update(usage)
         candidates = obj.get("candidates") or []
         for candidate in candidates:
             parts = (candidate.get("content") or {}).get("parts") or []
@@ -408,6 +447,7 @@ async def stream_gemini_text(
     api_key: str,
     model: Optional[str] = None,
     system_instruction: Optional[str] = None,
+    usage_out: Optional[Dict[str, int]] = None,
 ) -> AsyncGenerator[str, None]:
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
@@ -416,7 +456,13 @@ async def stream_gemini_text(
 
     def producer():
         try:
-            for chunk in call_gemini_generate_stream(parts, api_key, effective_model, system_instruction):
+            for chunk in call_gemini_generate_stream(
+                parts,
+                api_key,
+                effective_model,
+                system_instruction,
+                usage_out,
+            ):
                 if chunk:
                     asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
         except Exception as exc:  # pragma: no cover - defensive guard
@@ -447,6 +493,7 @@ async def generate_text_with_optional_stream(
     followup_language: Optional[str] = None,
     tone_key: Optional[ToneKey] = None,
     tone_language: Optional[str] = None,
+    usage_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[str]]:
     effective_model = _effective_pdf_model(model)
     system_instruction = build_system_message(
@@ -456,34 +503,54 @@ async def generate_text_with_optional_stream(
         include_followup=True,
         followup_language=followup_language or tone_language,
     )
+    usage_error: Optional[str] = None
+    usage_data: Dict[str, int] = {}
+    start_time = time.monotonic()
+
     if not stream or not chat_id:
-        response_json = await asyncio.to_thread(
-            call_gemini_generate,
-            parts,
-            api_key,
-            effective_model,
-            system_instruction,
-        )
-        candidates = response_json.get("candidates", [])
-        if not candidates:
-            feedback = response_json.get("promptFeedback", {}) or {}
-            usage = response_json.get("usageMetadata", {}) or {}
-            logger.error("Gemini generate returned no candidates", extra={"feedback": feedback, "usage": usage})
-            raise RuntimeError(
-                f"Gemini response empty. Feedback: {feedback.get('blockReason', 'Unknown')}"
+        try:
+            response_json = await asyncio.to_thread(
+                call_gemini_generate,
+                parts,
+                api_key,
+                effective_model,
+                system_instruction,
             )
-        clean_text = _strip_markdown_stars(extract_text_response(response_json))
-        return clean_text, None
+            usage_data = parse_gemini_usage(response_json)
+            candidates = response_json.get("candidates", [])
+            if not candidates:
+                feedback = response_json.get("promptFeedback", {}) or {}
+                usage = response_json.get("usageMetadata", {}) or {}
+                logger.error("Gemini generate returned no candidates", extra={"feedback": feedback, "usage": usage})
+                raise RuntimeError(
+                    f"Gemini response empty. Feedback: {feedback.get('blockReason', 'Unknown')}"
+                )
+            clean_text = _strip_markdown_stars(extract_text_response(response_json))
+            return clean_text, None
+        except Exception as exc:
+            usage_error = str(exc)
+            raise
+        finally:
+            _finalize_usage_event(
+                usage_context,
+                usage_data,
+                int((time.monotonic() - start_time) * 1000),
+                status="error" if usage_error else "success",
+                error_code="gemini_generate_failed" if usage_error else None,
+            )
 
     # Use dedicated uuid4 import to avoid accidental shadowing
     message_id = f"{tool}_{_uuid4().hex}"
     accumulated: list[str] = []
+    usage_out: Dict[str, int] = {}
+    stream_error = False
     try:
         async for chunk in stream_gemini_text(
             parts,
             api_key,
             effective_model,
             system_instruction=system_instruction,
+            usage_out=usage_out,
         ):
             clean_chunk = _strip_markdown_stars(chunk)
             accumulated.append(clean_chunk)
@@ -498,7 +565,9 @@ async def generate_text_with_optional_stream(
             if chunk_metadata:
                 payload["metadata"] = chunk_metadata
             await stream_manager.emit_chunk(chat_id, payload)
-    except Exception:
+    except Exception as exc:
+        stream_error = True
+        usage_error = str(exc)
         await stream_manager.emit_chunk(
             chat_id,
             {
@@ -510,6 +579,14 @@ async def generate_text_with_optional_stream(
             },
         )
         raise
+    finally:
+        _finalize_usage_event(
+            usage_context,
+            usage_out,
+            int((time.monotonic() - start_time) * 1000),
+            status="error" if stream_error else "success",
+            error_code="gemini_stream_failed" if stream_error else None,
+        )
 
     final_text = "".join(accumulated).strip()
     await stream_manager.emit_chunk(
@@ -525,6 +602,30 @@ async def generate_text_with_optional_stream(
         },
     )
     return final_text, message_id
+
+
+def _finalize_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    usage_data: Dict[str, int],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=usage_data.get("inputTokens", 0),
+            output_tokens=usage_data.get("outputTokens", 0),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for tool=%s", usage_context.get("endpoint"), exc_info=True)
 
 
 def attach_streaming_payload(
