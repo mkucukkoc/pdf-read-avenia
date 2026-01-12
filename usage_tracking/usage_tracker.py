@@ -1,4 +1,6 @@
 import datetime as dt
+import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
@@ -7,6 +9,8 @@ from google.cloud import firestore
 from .dedup import acquire_request_lock
 
 DEFAULT_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+LOGGER = logging.getLogger("pdf_read_refresh.usage_tracking")
+DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "").lower() in ("1", "true", "yes", "on")
 
 
 def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
@@ -27,7 +31,22 @@ def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
     )
     payload = dict(event)
     payload.setdefault("loggedAt", firestore.SERVER_TIMESTAMP)
+    if DEBUG_LOGS:
+        LOGGER.info(
+            "UsageTracking log_event start",
+            extra={
+                "requestId": request_id,
+                "userId": event.get("userId"),
+                "endpoint": event.get("endpoint"),
+                "path": f"usage_events/{date_key}/requests/{request_id}",
+            },
+        )
     doc_ref.set(payload, merge=True)
+    if DEBUG_LOGS:
+        LOGGER.info(
+            "UsageTracking log_event done",
+            extra={"requestId": request_id, "userId": event.get("userId")},
+        )
 
 
 def update_aggregates(db: firestore.Client, event: Dict[str, Any]) -> bool:
@@ -52,6 +71,11 @@ def update_aggregates(db: firestore.Client, event: Dict[str, Any]) -> bool:
             "createdAt": firestore.SERVER_TIMESTAMP,
         },
     ):
+        if DEBUG_LOGS:
+            LOGGER.info(
+                "UsageTracking dedup skip (requestId already exists)",
+                extra={"requestId": request_id, "userId": user_id},
+            )
         return False
 
     lifetime_ref = db.collection("user_usage").document(user_id)
@@ -70,11 +94,32 @@ def update_aggregates(db: firestore.Client, event: Dict[str, Any]) -> bool:
             is_monthly=True,
         )
 
+        if DEBUG_LOGS:
+            LOGGER.info(
+                "UsageTracking aggregate updates prepared",
+                extra={
+                    "requestId": request_id,
+                    "userId": user_id,
+                    "month": month_key,
+                    "lifetime_exists": lifetime_snapshot.exists,
+                    "monthly_exists": monthly_snapshot.exists,
+                },
+            )
+
         transaction.set(lifetime_ref, lifetime_update, merge=True)
         transaction.set(monthly_ref, monthly_update, merge=True)
 
     transaction = db.transaction()
     _txn(transaction)
+    if DEBUG_LOGS:
+        LOGGER.info(
+            "UsageTracking aggregate updates committed",
+            extra={
+                "requestId": request_id,
+                "userId": user_id,
+                "month": month_key,
+            },
+        )
     return True
 
 
@@ -84,13 +129,38 @@ def enqueue_usage_update(db: firestore.Client, event: Dict[str, Any]) -> None:
     def _work() -> None:
         try:
             log_event(db, event)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning(
+                "UsageTracking log_event failed",
+                extra={
+                    "requestId": event.get("requestId"),
+                    "userId": event.get("userId"),
+                    "error": str(exc),
+                },
+                exc_info=DEBUG_LOGS,
+            )
         try:
             update_aggregates(db, event)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning(
+                "UsageTracking update_aggregates failed",
+                extra={
+                    "requestId": event.get("requestId"),
+                    "userId": event.get("userId"),
+                    "error": str(exc),
+                },
+                exc_info=DEBUG_LOGS,
+            )
 
+    if DEBUG_LOGS:
+        LOGGER.info(
+            "UsageTracking enqueue_usage_update submit",
+            extra={
+                "requestId": event.get("requestId"),
+                "userId": event.get("userId"),
+                "endpoint": event.get("endpoint"),
+            },
+        )
     DEFAULT_EXECUTOR.submit(_work)
 
 
