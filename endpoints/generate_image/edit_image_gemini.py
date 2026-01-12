@@ -141,7 +141,7 @@ def _call_gemini_edit_api(
                 ],
             }
         ],
-        "response_modalities": ["IMAGE", "TEXT"],
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
     }
 
     log_gemini_request(

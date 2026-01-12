@@ -135,7 +135,7 @@ async def _call_gemini_api(
                 ],
             }
         ],
-        "response_modalities": ["IMAGE", "TEXT"],
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
     }
 
     if use_google_search:
