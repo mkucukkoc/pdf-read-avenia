@@ -12,7 +12,6 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language, get_image_gen_message
-from core.gemini_prompt import build_prompt_text, build_system_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_no_image_generate_message
@@ -90,13 +89,18 @@ def _guess_extension_from_mime(mime_type: str) -> str:
     return ".png"
 
 
-def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
-    return build_system_message(
-        language=language,
-        tone_key=tone_key,
-        response_style=None,
-        include_followup=True,
-        followup_language=language,
+def _build_image_system_instruction(language: Optional[str], tone_key: Optional[str]) -> str:
+    tone_line = ""
+    if tone_key:
+        tone_line = f"\nTONE: {tone_key}. Apply this tone to the visual style (mood/colors/composition)."
+    lang = language or "en"
+    return (
+        "System: You are an IMAGE generation model inside an app named Avenia.\n"
+        "Task: Generate an IMAGE result. Do NOT answer with only text.\n"
+        "Return the image as inline_data (base64) in the response parts.\n"
+        f"If any text is returned, it must be in {lang}.\n"
+        "Do NOT ask follow-up questions."
+        f"{tone_line}"
     )
 
 
@@ -135,13 +139,13 @@ async def _call_gemini_api(
                 ],
             }
         ],
-        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+        "generationConfig": {"responseModalities": ["IMAGE"]},
     }
 
     if use_google_search:
         payload["tools"] = [{"google_search": {}}]
     if aspect_ratio:
-        payload["image_config"] = {"aspect_ratio": aspect_ratio}
+        logger.info("Aspect ratio requested but not applied to Gemini payload", extra={"aspect_ratio": aspect_ratio})
 
     log_gemini_request(
         logger,
@@ -408,8 +412,8 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
         )
 
         await emit_status(None)
-        system_message = _build_system_instruction(language, payload.tone_key)
-        prompt_text = build_prompt_text(system_message, prompt)
+        system_message = _build_image_system_instruction(language, payload.tone_key)
+        prompt_text = f"{system_message}\n\nUSER PROMPT:\n{prompt}"
         response_json = await _call_gemini_api(
             prompt_text,
             gemini_key,
@@ -421,7 +425,23 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
             "Gemini API response received",
             extra={"has_candidates": bool(response_json.get("candidates")), "model": model, "useGoogleSearch": use_google_search},
         )
-        inline_data = _extract_image_data(response_json)
+        try:
+            inline_data = _extract_image_data(response_json)
+        except ValueError:
+            text_response = _extract_text_response(response_json)
+            logger.error(
+                "Gemini returned text-only response for image request",
+                extra={"text_preview": (text_response or "")[:200], "model": model},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "success": False,
+                    "error": "gemini_no_image",
+                    "message": "Gemini did not return image data (inlineData).",
+                    "textPreview": (text_response or "")[:200] or None,
+                },
+            )
         logger.info("Inline data extracted", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
         await emit_status(None)

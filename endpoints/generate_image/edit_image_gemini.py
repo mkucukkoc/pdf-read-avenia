@@ -15,7 +15,6 @@ from fastapi import APIRouter, HTTPException, Request
 from PIL import Image
 
 from core.language_support import normalize_language, get_image_gen_message
-from core.gemini_prompt import build_prompt_text, build_system_message
 from core.websocket_manager import stream_manager
 from core.useChatPersistence import chat_persistence
 from errors_response.image_errors import get_image_edit_failed_message
@@ -71,13 +70,18 @@ def _extract_text_response(resp_json: Dict[str, Any]) -> Optional[str]:
     return combined or None
 
 
-def _build_system_instruction(language: Optional[str], tone_key: Optional[str]) -> Optional[str]:
-    return build_system_message(
-        language=language,
-        tone_key=tone_key,
-        response_style=None,
-        include_followup=True,
-        followup_language=language,
+def _build_image_system_instruction(language: Optional[str], tone_key: Optional[str]) -> str:
+    tone_line = ""
+    if tone_key:
+        tone_line = f"\nTONE: {tone_key}. Apply this tone to the visual style (mood/colors/composition)."
+    lang = language or "en"
+    return (
+        "System: You are an IMAGE generation model inside an app named Avenia.\n"
+        "Task: Generate an IMAGE result. Do NOT answer with only text.\n"
+        "Return the image as inline_data (base64) in the response parts.\n"
+        f"If any text is returned, it must be in {lang}.\n"
+        "Do NOT ask follow-up questions."
+        f"{tone_line}"
     )
 
 
@@ -141,7 +145,7 @@ def _call_gemini_edit_api(
                 ],
             }
         ],
-        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+        "generationConfig": {"responseModalities": ["IMAGE"]},
     }
 
     log_gemini_request(
@@ -370,8 +374,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         await emit_status(None)
 
         logger.info("Calling Gemini edit API...", extra={"prompt_preview": prompt[:120], "mime_type": inline["mimeType"]})
-        system_message = _build_system_instruction(language, payload.tone_key)
-        prompt_text = build_prompt_text(system_message, prompt)
+        system_message = _build_image_system_instruction(language, payload.tone_key)
+        prompt_text = f"{system_message}\n\nUSER PROMPT:\n{prompt}"
         response_json = await asyncio.to_thread(
             _call_gemini_edit_api,
             prompt_text,
@@ -382,7 +386,23 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         )
         logger.info("Gemini edit API response received", extra={"has_candidates": bool(response_json.get("candidates"))})
 
-        inline_data = _extract_image_data(response_json)
+        try:
+            inline_data = _extract_image_data(response_json)
+        except RuntimeError:
+            text_response = _extract_text_response(response_json)
+            logger.error(
+                "Gemini returned text-only response for image edit request",
+                extra={"text_preview": (text_response or "")[:200], "model": effective_model},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "success": False,
+                    "error": "gemini_no_image",
+                    "message": "Gemini did not return image data (inlineData).",
+                    "textPreview": (text_response or "")[:200] or None,
+                },
+            )
         logger.info("Inline data extracted (edit)", extra={"mimeType": inline_data.get("mimeType")})
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
         logger.info("Temp file ready for upload (edit)", extra={"tmp_path": tmp_file_path})
