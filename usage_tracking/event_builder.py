@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from .fx import FxRateCache
 from .pricing import calculate_cost_usd
 
-DEFAULT_COST_CALCULATION_VERSION = os.getenv("COST_CALCULATION_VERSION", "pricing_v1.0")
+DEFAULT_COST_CALCULATION_VERSION = os.getenv("COST_CALCULATION_VERSION", "pricing_v1.2")
 DEFAULT_CURRENCY = "USD"
 DEFAULT_PROVIDER = "gemini"
 

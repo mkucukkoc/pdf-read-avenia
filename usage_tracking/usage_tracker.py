@@ -12,7 +12,7 @@ DEFAULT_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
     """Write a raw usage event document.
 
-    Firestore path: usage_events/{YYYY-MM-DD}/events/{requestId}
+    Firestore path: usage_events/{YYYY-MM-DD}/requests/{requestId}
     """
 
     request_id = event["requestId"]
@@ -22,10 +22,12 @@ def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
     doc_ref = (
         db.collection("usage_events")
         .document(date_key)
-        .collection("events")
+        .collection("requests")
         .document(request_id)
     )
-    doc_ref.set(event, merge=True)
+    payload = dict(event)
+    payload.setdefault("loggedAt", firestore.SERVER_TIMESTAMP)
+    doc_ref.set(payload, merge=True)
 
 
 def update_aggregates(db: firestore.Client, event: Dict[str, Any]) -> bool:
@@ -44,7 +46,11 @@ def update_aggregates(db: firestore.Client, event: Dict[str, Any]) -> bool:
     if not acquire_request_lock(
         db,
         request_id,
-        {"userId": user_id, "createdAt": firestore.SERVER_TIMESTAMP},
+        {
+            "userId": user_id,
+            "endpoint": event.get("endpoint"),
+            "createdAt": firestore.SERVER_TIMESTAMP,
+        },
     ):
         return False
 
@@ -96,8 +102,9 @@ def _build_aggregate_update(
 ) -> Dict[str, Any]:
     now = firestore.SERVER_TIMESTAMP
     started_at = snapshot.get("startedAt") if snapshot.exists else None
+    existing_usage = snapshot.get("usage") or {}
+    previous_total_requests = existing_usage.get("totalRequests", 0)
 
-    usage = event.get("usage", {})
     total_requests = 1
     input_tokens = event.get("inputTokens", 0)
     output_tokens = event.get("outputTokens", 0)
@@ -201,10 +208,16 @@ def _build_aggregate_update(
 
     latency_ms = event.get("latencyMs")
     if latency_ms is not None:
-        update.setdefault("stats", {}).setdefault("avgLatencyMs", latency_ms)
-        update["stats"]["p95LatencyMs"] = max(
-            latency_ms,
-            snapshot.get("stats", {}).get("p95LatencyMs", 0) if snapshot.exists else 0,
+        prev_avg = (snapshot.get("stats", {}) or {}).get("avgLatencyMs")
+        prev_p95 = (snapshot.get("stats", {}) or {}).get("p95LatencyMs", 0)
+        prev_count = previous_total_requests
+        new_avg = latency_ms if prev_avg is None else ((prev_avg * prev_count) + latency_ms) / max(prev_count + 1, 1)
+        update.setdefault("stats", {})
+        update["stats"].update(
+            {
+                "avgLatencyMs": new_avg,
+                "p95LatencyMs": max(latency_ms, prev_p95),
+            }
         )
 
     metadata = event.get("metadata") or {}
