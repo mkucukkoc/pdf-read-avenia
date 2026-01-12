@@ -92,14 +92,18 @@ def _guess_extension_from_mime(mime_type: str) -> str:
 def _build_image_system_instruction(language: Optional[str], tone_key: Optional[str]) -> str:
     tone_line = ""
     if tone_key:
-        tone_line = f"\nTONE: {tone_key}. Apply this tone to the visual style (mood/colors/composition)."
+        tone_line = f"\nTONE: {tone_key}. Apply this tone to both the visual mood and the caption."
     lang = language or "en"
     return (
         "System: You are an IMAGE generation model inside an app named Avenia.\n"
-        "Task: Generate an IMAGE result. Do NOT answer with only text.\n"
-        "Return the image as inline_data (base64) in the response parts.\n"
-        f"If any text is returned, it must be in {lang}.\n"
-        "Do NOT ask follow-up questions."
+        "Task:\n"
+        f"- Generate an IMAGE and ALSO a SHORT caption in {lang}.\n"
+        "Return output as TWO parts:\n"
+        f"1) text: a 1–2 sentence caption ({lang})\n"
+        "2) inline_data: the image (base64)\n"
+        "Rules:\n"
+        "- Do NOT ask follow-up questions.\n"
+        "- Keep the caption short and friendly."
         f"{tone_line}"
     )
 
@@ -139,7 +143,7 @@ async def _call_gemini_api(
                 ],
             }
         ],
-        "generationConfig": {"responseModalities": ["IMAGE"]},
+        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
     }
 
     if use_google_search:
@@ -443,6 +447,33 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 },
             )
         logger.info("Inline data extracted", extra={"mimeType": inline_data.get("mimeType")})
+        response_text = _extract_text_response(response_json)
+        caption_text = response_text or get_image_gen_message(language, "ready")
+        if streaming_enabled and payload.chat_id:
+            if caption_text:
+                await stream_manager.emit_chunk(
+                    payload.chat_id,
+                    {
+                        "chatId": payload.chat_id,
+                        "messageId": message_id,
+                        "tool": "generate_image_gemini",
+                        "content": caption_text,
+                        "isFinal": False,
+                        "type": "text",
+                    },
+                )
+            await stream_manager.emit_chunk(
+                payload.chat_id,
+                {
+                    "chatId": payload.chat_id,
+                    "messageId": message_id,
+                    "tool": "generate_image_gemini",
+                    "isFinal": True,
+                    "type": "image",
+                    "imageBase64": inline_data["data"],
+                    "mimeType": inline_data["mimeType"],
+                },
+            )
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
         await emit_status(None)
 
@@ -483,8 +514,7 @@ async def generate_gemini_image(payload: GeminiImageRequest, request: Request) -
                 "model": model,
             },
         )
-        response_text = _extract_text_response(response_json)
-        ready_msg = response_text or get_image_gen_message(language, "ready")
+        ready_msg = caption_text
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
