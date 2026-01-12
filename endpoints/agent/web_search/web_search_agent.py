@@ -16,7 +16,7 @@ async def _logged_web_search(payload: WebSearchRequest, request):
         user_id,
         (payload.prompt or "")[:120],
     )
-    return await run_web_search(payload, user_id)
+    return await run_web_search(payload, user_id, request)
 
 
 web_search_agent = handler_agent(
@@ -29,5 +29,4 @@ web_search_agent = handler_agent(
 web_search_agents = [web_search_agent]
 
 __all__ = ["web_search_agents"]
-
 

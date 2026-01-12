@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import uuid
+import time
 from typing import Any, Dict, Optional
 
 import httpx
@@ -9,12 +10,14 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.gemini_prompt import build_prompt_text, build_system_message
 from core.language_support import normalize_language
+from core.firebase import db
 from core.useChatPersistence import chat_persistence
 from core.websocket_manager import stream_manager
 from endpoints.agent.utils import get_request_user_id
 from schemas import SocialPostRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.social_posts")
 
@@ -24,7 +27,57 @@ GEMINI_MODEL = os.getenv("GEMINI_TEXT_MODEL", "gemini-1.5-pro")
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 
-async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
+def _build_usage_context(
+    payload: SocialPostRequest,
+    user_id: str,
+    model: str,
+    request: Optional[Request],
+) -> Optional[Dict[str, Any]]:
+    if not user_id:
+        return None
+    token_payload = getattr(request.state, "token_payload", {}) if request else {}
+    request_id = (
+        getattr(payload, "client_message_id", None)
+        or (request.headers.get("x-request-id") if request else None)
+        or (request.headers.get("x-requestid") if request else None)
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint="social_posts",
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    usage_data: Dict[str, int],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=usage_data.get("inputTokens", 0),
+            output_tokens=usage_data.get("outputTokens", 0),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for social_posts", exc_info=True)
+
+
+async def _call_gemini(prompt: str, api_key: str, model: str) -> tuple[str, Dict[str, Any]]:
     if not api_key:
         raise HTTPException(
             status_code=500,
@@ -80,7 +133,7 @@ async def _call_gemini(prompt: str, api_key: str, model: str) -> str:
         parts = content.get("parts") or []
         for part in parts:
             if isinstance(part, dict) and isinstance(part.get("text"), str):
-                return part["text"]
+                return part["text"], response_json
     raise HTTPException(
         status_code=500,
         detail={"success": False, "error": "social_posts_empty", "message": "No text generated for social post"},
@@ -127,7 +180,7 @@ async def _emit_streaming_text(chat_id: str, message_id: str, tool: str, text: s
     await stream_manager.emit_chunk(chat_id, final_payload)
 
 
-async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str, Any]:
+async def run_social_posts(payload: SocialPostRequest, user_id: str, request: Optional[Request] = None) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
 
     def _map_error_key(status_code: int) -> str:
@@ -181,9 +234,15 @@ async def run_social_posts(payload: SocialPostRequest, user_id: str) -> Dict[str
     if not prompt:
         return _error_response(language, payload.chat_id, user_id, 400, "prompt_required")
 
+    model = GEMINI_MODEL
+    usage_context = _build_usage_context(payload, user_id, model, request)
+    usage_data: Dict[str, int] = {}
+    start_time = time.monotonic()
+    status = "success"
+    error_code = None
+
     try:
         api_key = os.getenv("GEMINI_API_KEY", "")
-        model = GEMINI_MODEL
 
         styled_prompt = f"""Write an engaging, emoji-rich social media post for the topic below.
 - Keep it friendly and inspiring.
@@ -202,7 +261,9 @@ Topic:
         prompt_text = build_prompt_text(system_message, styled_prompt)
 
         logger.info("SocialPosts start", extra={"userId": user_id, "chatId": payload.chat_id, "lang": language})
-        text = _strip_markdown_stars(await _call_gemini(prompt_text, api_key, model))
+        text, response_json = await _call_gemini(prompt_text, api_key, model)
+        usage_data = parse_gemini_usage(response_json)
+        text = _strip_markdown_stars(text)
 
         message_id = client_message_id or f"social_posts_{uuid.uuid4().hex}"
         streaming_enabled = bool(payload.chat_id)
@@ -245,11 +306,25 @@ Topic:
             logger.warning("SocialPosts response logging failed")
         return response_payload
     except HTTPException as he:
+        status = "error"
+        if isinstance(he.detail, dict):
+            error_code = he.detail.get("error")
+        error_code = error_code or _map_error_key(he.status_code)
         logger.error("SocialPosts HTTPException", exc_info=he)
         return _error_response(language, payload.chat_id, user_id, he.status_code, he.detail)
     except Exception as exc:
+        status = "error"
+        error_code = "social_posts_failed"
         logger.exception("SocialPosts unexpected error")
         return _error_response(language, payload.chat_id, user_id, 500, str(exc))
+    finally:
+        _enqueue_usage_event(
+            usage_context,
+            usage_data,
+            int((time.monotonic() - start_time) * 1000),
+            status=status,
+            error_code=error_code,
+        )
 
 
 @router.post("")
@@ -260,7 +335,7 @@ async def social_posts_endpoint(payload: SocialPostRequest, request: Request) ->
             status_code=401,
             detail={"success": False, "error": "unauthorized", "message": "Kullanıcı kimliği gerekiyor."},
         )
-    return await run_social_posts(payload, user_id)
+    return await run_social_posts(payload, user_id, request)
 
 
 __all__ = ["router", "run_social_posts"]

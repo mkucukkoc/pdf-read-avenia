@@ -16,7 +16,7 @@ DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "").lower() in ("1", "true", "yes
 def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
     """Write a raw usage event document.
 
-    Firestore path: usage_events/{YYYY-MM-DD}/requests/{requestId}
+    Firestore path: usage_events/{YYYY-MM-DD}/events/{requestId}
     """
 
     request_id = event["requestId"]
@@ -26,7 +26,7 @@ def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
     doc_ref = (
         db.collection("usage_events")
         .document(date_key)
-        .collection("requests")
+        .collection("events")
         .document(request_id)
     )
     payload = dict(event)
@@ -38,7 +38,7 @@ def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
                 "requestId": request_id,
                 "userId": event.get("userId"),
                 "endpoint": event.get("endpoint"),
-                "path": f"usage_events/{date_key}/requests/{request_id}",
+                "path": f"usage_events/{date_key}/events/{request_id}",
             },
         )
     doc_ref.set(payload, merge=True)

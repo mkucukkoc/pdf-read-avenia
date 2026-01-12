@@ -16,7 +16,7 @@ async def _logged_web_link(payload: WebSearchRequest, request):
         user_id,
         (payload.prompt or "")[:120],
     )
-    return await run_web_link(payload, user_id)
+    return await run_web_link(payload, user_id, request)
 
 
 web_link_agent = handler_agent(
@@ -29,5 +29,4 @@ web_link_agent = handler_agent(
 web_link_agents = [web_link_agent]
 
 __all__ = ["web_link_agents"]
-
 

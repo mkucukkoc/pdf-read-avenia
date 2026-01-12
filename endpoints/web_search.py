@@ -2,6 +2,7 @@ import logging
 import os
 import re
 import uuid
+import time
 from typing import Any, Dict, Optional
 
 import httpx
@@ -9,12 +10,14 @@ from fastapi import APIRouter, HTTPException, Request
 
 from core.gemini_prompt import build_system_message, merge_parts_with_system
 from core.language_support import normalize_language
+from core.firebase import db
 from core.useChatPersistence import chat_persistence
 from endpoints.agent.utils import get_request_user_id
 from core.websocket_manager import stream_manager
 from schemas import WebSearchRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.web_search")
 
@@ -22,6 +25,56 @@ router = APIRouter(prefix="/api/v1/web-search", tags=["WebSearch"])
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = os.getenv("GEMINI_WEB_SEARCH_MODEL", "models/gemini-2.5-flash")
+
+
+def _build_usage_context(
+    payload: WebSearchRequest,
+    user_id: str,
+    model: str,
+    request: Optional[Request],
+) -> Optional[Dict[str, Any]]:
+    if not user_id:
+        return None
+    token_payload = getattr(request.state, "token_payload", {}) if request else {}
+    request_id = (
+        getattr(payload, "client_message_id", None)
+        or (request.headers.get("x-request-id") if request else None)
+        or (request.headers.get("x-requestid") if request else None)
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint="web_search",
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    usage_data: Dict[str, int],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=usage_data.get("inputTokens", 0),
+            output_tokens=usage_data.get("outputTokens", 0),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for web_search", exc_info=True)
 
 
 async def _call_gemini_web_search(
@@ -141,7 +194,7 @@ async def _emit_streaming_text(chat_id: str, message_id: str, tool: str, text: s
     await stream_manager.emit_chunk(chat_id, final_payload)
 
 
-async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, Any]:
+async def run_web_search(payload: WebSearchRequest, user_id: str, request: Optional[Request] = None) -> Dict[str, Any]:
     client_message_id = getattr(payload, "client_message_id", None)
     def _map_error_key(status_code: int) -> str:
         if status_code == 404:
@@ -193,9 +246,16 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
     language = normalize_language(payload.language) or "Turkish"
     if not prompt:
         return _error_response(language, payload.chat_id, user_id, 400, "prompt_required")
+
+    model = DEFAULT_MODEL if DEFAULT_MODEL.startswith("models/") else f"models/{DEFAULT_MODEL}"
+    usage_context = _build_usage_context(payload, user_id, model, request)
+    usage_data: Dict[str, int] = {}
+    start_time = time.monotonic()
+    status = "success"
+    error_code = None
+
     try:
         api_key = os.getenv("GEMINI_API_KEY", "")
-        model = DEFAULT_MODEL if DEFAULT_MODEL.startswith("models/") else f"models/{DEFAULT_MODEL}"
 
         logger.info(
             "WebSearch start userId=%s chatId=%s lang=%s urls=%s",
@@ -213,6 +273,7 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
             followup_language=language,
         )
         result = await _call_gemini_web_search(prompt, api_key, model, payload.urls, system_message)
+        usage_data = parse_gemini_usage(result)
         text = _strip_markdown_stars(_extract_text(result))
         if not text:
             logger.error(
@@ -265,11 +326,25 @@ async def run_web_search(payload: WebSearchRequest, user_id: str) -> Dict[str, A
             logger.warning("WebSearch response logging failed")
         return response_payload
     except HTTPException as he:
+        status = "error"
+        if isinstance(he.detail, dict):
+            error_code = he.detail.get("error")
+        error_code = error_code or _map_error_key(he.status_code)
         logger.error("WebSearch HTTPException", exc_info=he)
         return _error_response(language, payload.chat_id, user_id, he.status_code, he.detail)
     except Exception as exc:
+        status = "error"
+        error_code = "web_search_failed"
         logger.exception("WebSearch unexpected error")
         return _error_response(language, payload.chat_id, user_id, 500, str(exc))
+    finally:
+        _enqueue_usage_event(
+            usage_context,
+            usage_data,
+            int((time.monotonic() - start_time) * 1000),
+            status=status,
+            error_code=error_code,
+        )
 
 
 @router.post("")
@@ -281,7 +356,7 @@ async def web_search_endpoint(payload: WebSearchRequest, request: Request) -> Di
             detail={"success": False, "error": "unauthorized", "message": "Kullanıcı kimliği gerekiyor."},
         )
 
-    return await run_web_search(payload, user_id)
+    return await run_web_search(payload, user_id, request)
 
 
 __all__ = ["router", "run_web_search"]

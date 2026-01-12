@@ -156,7 +156,7 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
 
     selected_action = str(merged_params.get("selectedAction") or merged_params.get("selected_action") or "").lower().replace("-", "_")
     if selected_action == "deep_research":
-        from endpoints.deep_research import run_deep_research
+        from endpoints.deep_research import deep_research_endpoint
 
         dr_payload = DeepResearchRequest(
             prompt=payload.prompt or (latest_user.content if latest_user else ""),
@@ -170,7 +170,8 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to deep_research chatId=%s userId=%s", payload.chat_id, effective_user)
-        resp = await run_deep_research(dr_payload, effective_user)
+        internal_request = build_internal_request(effective_user)
+        resp = await deep_research_endpoint(dr_payload, internal_request)
         _log_resp("dispatcher_deep_research", resp)
         return resp
     if selected_action == "web_search":
@@ -188,7 +189,8 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to web_search chatId=%s userId=%s", payload.chat_id, effective_user)
-        resp = await run_web_search(ws_payload, effective_user)
+        internal_request = build_internal_request(effective_user)
+        resp = await run_web_search(ws_payload, effective_user, internal_request)
         _log_resp("dispatcher_web_search", resp)
         return resp
     if selected_action == "web_link":
@@ -206,7 +208,8 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to web_link chatId=%s userId=%s", payload.chat_id, effective_user)
-        resp = await run_web_link(wl_payload, effective_user)
+        internal_request = build_internal_request(effective_user)
+        resp = await run_web_link(wl_payload, effective_user, internal_request)
         _log_resp("dispatcher_web_link", resp)
         return resp
     if selected_action == "social_posts":
@@ -224,7 +227,8 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
             client_message_id=client_message_id,
         )
         logger.info("Dispatcher short-circuit to social_posts chatId=%s userId=%s", payload.chat_id, effective_user)
-        resp = await run_social_posts(sp_payload, effective_user)
+        internal_request = build_internal_request(effective_user)
+        resp = await run_social_posts(sp_payload, effective_user, internal_request)
         _log_resp("dispatcher_social_posts", resp)
         return resp
     if selected_action == "ai_real_check":

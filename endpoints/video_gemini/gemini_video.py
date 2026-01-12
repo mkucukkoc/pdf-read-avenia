@@ -10,12 +10,57 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 
 from core.language_support import normalize_language
+from core.firebase import db
 from schemas import GeminiVideoRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
+from usage_tracking import build_base_event, finalize_event, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.gemini_video")
 
 router = APIRouter(prefix="/api/v1/video", tags=["Video"])
+
+
+def _build_usage_context(request: Request, user_id: str, model: str) -> Optional[Dict[str, Any]]:
+    if not user_id:
+        return None
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    request_id = (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or f"req_{int(time.time() * 1000)}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint="video_gemini",
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for gemini_video", exc_info=True)
 
 
 def _get_storage():
@@ -180,13 +225,18 @@ async def generate_gemini_video(payload: GeminiVideoRequest, request: Request) -
     language = normalize_language(payload.language)
     prompt = payload.prompt.strip()
     gemini_key = os.getenv("GEMINI_API_KEY")
+    model_name = "veo-3.1-generate-preview"
+    usage_context = _build_usage_context(request, user_id, model_name)
+    start_time = time.monotonic()
+    status = "success"
+    error_code = None
 
     tmp_file_path = None
     final_url: Optional[str] = None
 
     try:
         # Step 1: Kick off Veo generateVideo
-        op_info = await _call_veo_generate(prompt, gemini_key)
+        op_info = await _call_veo_generate(prompt, gemini_key, model=model_name)
         operation_name = op_info["operation_name"]
         logger.info("Veo operation started", extra={"operation_name": operation_name})
 
@@ -217,23 +267,34 @@ async def generate_gemini_video(payload: GeminiVideoRequest, request: Request) -
             "videoUrl": final_url,
             "chatId": payload.chat_id,
             "language": language,
-            "model": "veo-3.1-generate-preview",
+            "model": model_name,
         }
         logger.info("Gemini video response ready", extra={"videoUrl": final_url, "chatId": payload.chat_id})
         return result
-    except HTTPException:
+    except HTTPException as exc:
+        status = "error"
+        if isinstance(exc.detail, dict):
+            error_code = exc.detail.get("error")
+        error_code = error_code or "gemini_video_error"
         raise
     except Exception as exc:
+        status = "error"
+        error_code = "gemini_video_error"
         logger.error("Gemini video generation failed", exc_info=exc)
         raise HTTPException(
             status_code=500,
             detail={"success": False, "error": "gemini_video_error", "message": str(exc)},
         ) from exc
     finally:
+        _enqueue_usage_event(
+            usage_context,
+            int((time.monotonic() - start_time) * 1000),
+            status=status,
+            error_code=error_code,
+        )
         if tmp_file_path:
             try:
                 os.remove(tmp_file_path)
                 logger.info("Temp video file removed", extra={"path": tmp_file_path})
             except OSError:
                 logger.warning("Temp video cleanup failed", extra={"path": tmp_file_path})
-

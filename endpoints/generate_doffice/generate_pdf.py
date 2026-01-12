@@ -3,16 +3,19 @@ import logging
 import os
 import tempfile
 import uuid
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fpdf import FPDF
 from firebase_admin import storage
 
 from core.gemini_prompt import build_system_message, merge_parts_with_system
+from core.firebase import db
 from schemas import PdfGenRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
+from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_pdf")
 router = APIRouter()
@@ -32,7 +35,51 @@ def _effective_model() -> str:
     return model
 
 
-async def _call_gemini_json(prompt: str, system_message: Optional[str]) -> Dict[str, Any]:
+def _build_usage_context(request: Request, user_id: str, model: str) -> Optional[Dict[str, Any]]:
+    if not user_id:
+        return None
+    token_payload = getattr(request.state, "token_payload", {}) or {}
+    request_id = (
+        request.headers.get("x-request-id")
+        or request.headers.get("x-requestid")
+        or f"req_{uuid.uuid4().hex}"
+    )
+    return build_base_event(
+        request_id=request_id,
+        user_id=user_id,
+        endpoint="generate_pdf",
+        provider="gemini",
+        model=model,
+        token_payload=token_payload,
+        request=request,
+    )
+
+
+def _enqueue_usage_event(
+    usage_context: Optional[Dict[str, Any]],
+    usage_data: Dict[str, int],
+    latency_ms: int,
+    *,
+    status: str,
+    error_code: Optional[str],
+) -> None:
+    if not usage_context or not db:
+        return
+    try:
+        event = finalize_event(
+            usage_context,
+            input_tokens=usage_data.get("inputTokens", 0),
+            output_tokens=usage_data.get("outputTokens", 0),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=error_code,
+        )
+        enqueue_usage_update(db, event)
+    except Exception:
+        logger.warning("Usage tracking failed for generate_pdf", exc_info=True)
+
+
+async def _call_gemini_json(prompt: str, system_message: Optional[str]) -> tuple[Dict[str, Any], Dict[str, Any]]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(
@@ -105,7 +152,7 @@ async def _call_gemini_json(prompt: str, system_message: Optional[str]) -> Dict[
             status_code=500,
             detail={"success": False, "error": "invalid_json", "message": "Gemini returned non-JSON content"},
         )
-    return parsed
+    return parsed, response_json
 
 
 def _add_font_if_available(pdf: FPDF) -> Optional[str]:
@@ -159,10 +206,19 @@ def _build_pdf_from_json(doc_data: Dict[str, Any]) -> str:
 
 
 @router.post("/generate-pdf")
-async def generate_pdf(data: PdfGenRequest):
+async def generate_pdf(data: PdfGenRequest, request: Request):
     logger.info("Generate PDF request received", extra={"prompt_length": len(data.prompt or "")})
+    payload = getattr(request.state, "token_payload", {}) or {}
+    user_id = payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
+    usage_context: Optional[Dict[str, Any]] = None
+    usage_data: Dict[str, int] = {}
+    start_time = time.monotonic()
+    status = "success"
+    error_code = None
     try:
         # 1) Gemini'den yapılandırılmış JSON al
+        model = _effective_model()
+        usage_context = _build_usage_context(request, user_id, model)
         system_message = build_system_message(
             language=None,
             tone_key=data.tone_key,
@@ -170,7 +226,8 @@ async def generate_pdf(data: PdfGenRequest):
             include_response_style=False,
             include_followup=False,
         )
-        doc_json = await _call_gemini_json(data.prompt, system_message)
+        doc_json, response_json = await _call_gemini_json(data.prompt, system_message)
+        usage_data = parse_gemini_usage(response_json)
         logger.debug("Gemini PDF JSON parsed", extra={"keys": list(doc_json.keys())})
 
         # 2) PDF dosyasını oluştur
@@ -193,9 +250,23 @@ async def generate_pdf(data: PdfGenRequest):
         logger.debug("Generate PDF response payload", extra={"response": response_payload})
         return response_payload
 
-    except HTTPException:
+    except HTTPException as exc:
+        status = "error"
+        if isinstance(exc.detail, dict):
+            error_code = exc.detail.get("error")
+        error_code = error_code or "generate_pdf_failed"
         logger.exception("Generate PDF failed (HTTPException)")
         raise
     except Exception as e:
+        status = "error"
+        error_code = "generate_pdf_failed"
         logger.exception("Generate PDF failed")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        _enqueue_usage_event(
+            usage_context,
+            usage_data,
+            int((time.monotonic() - start_time) * 1000),
+            status=status,
+            error_code=error_code,
+        )
