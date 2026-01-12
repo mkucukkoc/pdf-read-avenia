@@ -73,18 +73,14 @@ def _extract_text_response(resp_json: Dict[str, Any]) -> Optional[str]:
 def _build_image_system_instruction(language: Optional[str], tone_key: Optional[str]) -> str:
     tone_line = ""
     if tone_key:
-        tone_line = f"\nTONE: {tone_key}. Apply this tone to both the visual mood and the caption."
+        tone_line = f"\nTONE: {tone_key}. Apply this tone to the visual style (mood/colors/composition)."
     lang = language or "en"
     return (
         "System: You are an IMAGE generation model inside an app named Avenia.\n"
-        "Task:\n"
-        f"- Generate an IMAGE and ALSO a SHORT caption in {lang}.\n"
-        "Return output as TWO parts:\n"
-        f"1) text: a 1–2 sentence caption ({lang})\n"
-        "2) inline_data: the image (base64)\n"
-        "Rules:\n"
-        "- Do NOT ask follow-up questions.\n"
-        "- Keep the caption short and friendly."
+        "Task: Generate an IMAGE result. Do NOT answer with only text.\n"
+        "Return the image as inline_data (base64) in the response parts.\n"
+        f"If any text is returned, it must be in {lang}.\n"
+        "Do NOT ask follow-up questions."
         f"{tone_line}"
     )
 
@@ -149,7 +145,7 @@ def _call_gemini_edit_api(
                 ],
             }
         ],
-        "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+        "generationConfig": {"responseModalities": ["IMAGE"]},
     }
 
     log_gemini_request(
@@ -408,33 +404,6 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 },
             )
         logger.info("Inline data extracted (edit)", extra={"mimeType": inline_data.get("mimeType")})
-        response_text = _extract_text_response(response_json)
-        caption_text = response_text or get_image_gen_message(language, "edited")
-        if streaming_enabled and payload.chat_id:
-            if caption_text:
-                await stream_manager.emit_chunk(
-                    payload.chat_id,
-                    {
-                        "chatId": payload.chat_id,
-                        "messageId": message_id,
-                        "tool": "image_edit_gemini",
-                        "content": caption_text,
-                        "isFinal": False,
-                        "type": "text",
-                    },
-                )
-            await stream_manager.emit_chunk(
-                payload.chat_id,
-                {
-                    "chatId": payload.chat_id,
-                    "messageId": message_id,
-                    "tool": "image_edit_gemini",
-                    "isFinal": True,
-                    "type": "image",
-                    "imageBase64": inline_data["data"],
-                    "mimeType": inline_data["mimeType"],
-                },
-            )
         tmp_file_path = _save_temp_image(inline_data["data"], inline_data["mimeType"])
         logger.info("Temp file ready for upload (edit)", extra={"tmp_path": tmp_file_path})
         await emit_status(None)
@@ -474,7 +443,8 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 "model": effective_model,
             },
         )
-        edited_msg = caption_text
+        response_text = _extract_text_response(response_json)
+        edited_msg = response_text or get_image_gen_message(language, "edited")
         _save_message_to_firestore(
             user_id=user_id,
             chat_id=payload.chat_id or "",
