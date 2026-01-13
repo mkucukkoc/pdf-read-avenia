@@ -278,8 +278,9 @@ def _build_aggregate_update(
 
     latency_ms = event.get("latencyMs")
     if latency_ms is not None:
-        prev_avg = (snapshot.get("stats", {}) or {}).get("avgLatencyMs")
-        prev_p95 = (snapshot.get("stats", {}) or {}).get("p95LatencyMs", 0)
+        stats_snapshot = snapshot.get("stats") or {}
+        prev_avg = stats_snapshot.get("avgLatencyMs")
+        prev_p95 = stats_snapshot.get("p95LatencyMs", 0)
         prev_count = previous_total_requests
         new_avg = latency_ms if prev_avg is None else ((prev_avg * prev_count) + latency_ms) / max(prev_count + 1, 1)
         update.setdefault("stats", {})
