@@ -4,6 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
+import requests  # type: ignore[import-unresolved]
 from google.cloud import firestore
 
 from .dedup import acquire_request_lock
@@ -11,6 +12,12 @@ from .dedup import acquire_request_lock
 DEFAULT_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 LOGGER = logging.getLogger("pdf_read_refresh.usage_tracking")
 DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "").lower() in ("1", "true", "yes", "on")
+USAGE_SERVICE_URL = os.getenv("USAGE_SERVICE_URL", "").strip().rstrip("/")
+USAGE_SERVICE_INTERNAL_KEY = os.getenv("USAGE_SERVICE_INTERNAL_KEY", "").strip()
+USAGE_SERVICE_TIMEOUT_S = float(os.getenv("USAGE_SERVICE_TIMEOUT_S", "2"))
+USAGE_TRACKING_FIRESTORE_ENABLED = (
+    os.getenv("USAGE_TRACKING_FIRESTORE_ENABLED", "").lower() in ("1", "true", "yes", "on")
+)
 
 
 def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
@@ -127,30 +134,33 @@ def enqueue_usage_update(db: firestore.Client, event: Dict[str, Any]) -> None:
     """Fire-and-forget helper to log events and update aggregates."""
 
     def _work() -> None:
-        try:
-            log_event(db, event)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning(
-                "UsageTracking log_event failed",
-                extra={
-                    "requestId": event.get("requestId"),
-                    "userId": event.get("userId"),
-                    "error": str(exc),
-                },
-                exc_info=DEBUG_LOGS,
-            )
-        try:
-            update_aggregates(db, event)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning(
-                "UsageTracking update_aggregates failed",
-                extra={
-                    "requestId": event.get("requestId"),
-                    "userId": event.get("userId"),
-                    "error": str(exc),
-                },
-                exc_info=DEBUG_LOGS,
-            )
+        _post_usage_event(event)
+
+        if USAGE_TRACKING_FIRESTORE_ENABLED and db:
+            try:
+                log_event(db, event)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "UsageTracking log_event failed",
+                    extra={
+                        "requestId": event.get("requestId"),
+                        "userId": event.get("userId"),
+                        "error": str(exc),
+                    },
+                    exc_info=DEBUG_LOGS,
+                )
+            try:
+                update_aggregates(db, event)
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning(
+                    "UsageTracking update_aggregates failed",
+                    extra={
+                        "requestId": event.get("requestId"),
+                        "userId": event.get("userId"),
+                        "error": str(exc),
+                    },
+                    exc_info=DEBUG_LOGS,
+                )
 
     if DEBUG_LOGS:
         LOGGER.info(
@@ -162,6 +172,51 @@ def enqueue_usage_update(db: firestore.Client, event: Dict[str, Any]) -> None:
             },
         )
     DEFAULT_EXECUTOR.submit(_work)
+
+
+def _post_usage_event(event: Dict[str, Any]) -> None:
+    if not USAGE_SERVICE_URL:
+        log_fn = LOGGER.warning if DEBUG_LOGS else LOGGER.info
+        log_fn(
+            "UsageTracking usage-service URL missing; event dropped",
+            extra={
+                "requestId": event.get("requestId"),
+                "userId": event.get("userId"),
+            },
+        )
+        return
+
+    headers = {"Content-Type": "application/json"}
+    if USAGE_SERVICE_INTERNAL_KEY:
+        headers["X-Internal-Key"] = USAGE_SERVICE_INTERNAL_KEY
+
+    url = f"{USAGE_SERVICE_URL}/v1/usage/events"
+    try:
+        response = requests.post(
+            url, json=event, headers=headers, timeout=USAGE_SERVICE_TIMEOUT_S
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "UsageTracking usage-service request failed",
+            extra={
+                "requestId": event.get("requestId"),
+                "userId": event.get("userId"),
+                "error": str(exc),
+            },
+            exc_info=DEBUG_LOGS,
+        )
+        return
+
+    if response.status_code >= 400:
+        LOGGER.warning(
+            "UsageTracking usage-service rejected event",
+            extra={
+                "requestId": event.get("requestId"),
+                "userId": event.get("userId"),
+                "statusCode": response.status_code,
+                "responseBody": (response.text or "")[:1000],
+            },
+        )
 
 
 def _build_aggregate_update(
