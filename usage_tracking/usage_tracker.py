@@ -171,8 +171,9 @@ def _build_aggregate_update(
     is_monthly: bool = False,
 ) -> Dict[str, Any]:
     now = firestore.SERVER_TIMESTAMP
-    started_at = snapshot.get("startedAt") if snapshot.exists else None
-    existing_usage = snapshot.get("usage") or {}
+    snapshot_data = snapshot.to_dict() if snapshot.exists else {}
+    started_at = snapshot_data.get("startedAt")
+    existing_usage = snapshot_data.get("usage") or {}
     previous_total_requests = existing_usage.get("totalRequests", 0)
 
     total_requests = 1
@@ -278,7 +279,7 @@ def _build_aggregate_update(
 
     latency_ms = event.get("latencyMs")
     if latency_ms is not None:
-        stats_snapshot = snapshot.get("stats") or {}
+        stats_snapshot = snapshot_data.get("stats") or {}
         prev_avg = stats_snapshot.get("avgLatencyMs")
         prev_p95 = stats_snapshot.get("p95LatencyMs", 0)
         prev_count = previous_total_requests
