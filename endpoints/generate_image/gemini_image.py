@@ -52,7 +52,7 @@ def _build_usage_context(
         or request.headers.get("x-requestid")
         or f"req_{uuid.uuid4().hex}"
     )
-    return build_base_event(
+    event = build_base_event(
         request_id=request_id,
         user_id=user_id,
         endpoint=endpoint,
@@ -61,6 +61,17 @@ def _build_usage_context(
         token_payload=token_payload,
         request=request,
     )
+    logger.info(
+        "UsageTracking image endpoint built base event",
+        extra={
+            "requestId": event.get("requestId"),
+            "userId": event.get("userId"),
+            "endpoint": endpoint,
+            "model": model,
+            "action": event.get("action"),
+        },
+    )
+    return event
 
 
 def _enqueue_usage_event(
@@ -72,14 +83,38 @@ def _enqueue_usage_event(
     error_code: Optional[str],
 ) -> None:
     if not usage_context or not db:
+        logger.info(
+            "UsageTracking image endpoint skipped enqueue (missing context or db)",
+            extra={"hasContext": bool(usage_context), "hasDb": bool(db)},
+        )
         return
     try:
+        logger.info(
+            "UsageTracking image endpoint finalize_event start",
+            extra={
+                "requestId": usage_context.get("requestId"),
+                "userId": usage_context.get("userId"),
+                "endpoint": usage_context.get("endpoint"),
+                "status": status,
+                "errorCode": error_code,
+                "latencyMs": latency_ms,
+            },
+        )
         event = finalize_event(
             usage_context,
             raw_usage=usage_data or None,
             latency_ms=latency_ms,
             status=status,
             error_code=error_code,
+        )
+        logger.info(
+            "UsageTracking image endpoint enqueue_usage_update",
+            extra={
+                "requestId": event.get("requestId"),
+                "userId": event.get("userId"),
+                "endpoint": event.get("endpoint"),
+                "payload": event,
+            },
         )
         enqueue_usage_update(db, event)
     except Exception:
