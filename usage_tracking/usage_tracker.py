@@ -7,10 +7,17 @@ import requests  # type: ignore[import-unresolved]
 
 DEFAULT_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 LOGGER = logging.getLogger("pdf_read_refresh.usage_tracking")
-DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "").lower() in ("1", "true", "yes", "on")
-USAGE_SERVICE_URL = os.getenv("USAGE_SERVICE_URL", "").strip().rstrip("/")
-USAGE_SERVICE_INTERNAL_KEY = os.getenv("USAGE_SERVICE_INTERNAL_KEY", "").strip()
-USAGE_SERVICE_TIMEOUT_S = float(os.getenv("USAGE_SERVICE_TIMEOUT_S", "2"))
+DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "1").lower() in ("1", "true", "yes", "on")
+USAGE_SERVICE_URL = os.getenv("USAGE_SERVICE_URL", "https://usage-service.onrender.com").strip().rstrip("/")
+USAGE_SERVICE_INTERNAL_KEY = os.getenv("USAGE_SERVICE_INTERNAL_KEY", "usageservice2025aveniaaichat.com").strip()
+_RAW_TIMEOUT = os.getenv("USAGE_SERVICE_TIMEOUT_S", "30")
+try:
+    _CONFIGURED_TIMEOUT = float(_RAW_TIMEOUT)
+except ValueError:
+    _CONFIGURED_TIMEOUT = 30.0
+
+# Enforce a sensible floor so very small timeouts don't cause silent drops.
+USAGE_SERVICE_TIMEOUT_S = max(_CONFIGURED_TIMEOUT, 30.0)
 
 
 def enqueue_usage_update(_db: Any, event: Dict[str, Any]) -> None:

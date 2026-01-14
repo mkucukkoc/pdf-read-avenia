@@ -464,14 +464,47 @@ class ChatService:
         error_code: Optional[str],
     ) -> None:
         if not usage_context or not self._db:
+            logger.info(
+                "UsageTracking chat endpoint skipped enqueue",
+                extra={
+                    "hasContext": bool(usage_context),
+                    "hasDb": bool(self._db),
+                    "status": status,
+                    "errorCode": error_code,
+                    "latencyMs": latency_ms,
+                },
+            )
             return
         try:
+            logger.info(
+                "UsageTracking chat endpoint finalize_event start",
+                extra={
+                    "requestId": usage_context.get("requestId"),
+                    "userId": usage_context.get("userId"),
+                    "endpoint": usage_context.get("endpoint"),
+                    "status": status,
+                    "errorCode": error_code,
+                    "latencyMs": latency_ms,
+                    "rawUsagePreview": (usage_data or {}) if DEBUG else None,
+                },
+            )
             event = finalize_event(
                 usage_context,
                 raw_usage=usage_data or None,
                 latency_ms=latency_ms,
                 status=status,
                 error_code=error_code,
+            )
+            logger.info(
+                "UsageTracking chat endpoint enqueue_usage_update",
+                extra={
+                    "requestId": event.get("requestId"),
+                    "userId": event.get("userId"),
+                    "endpoint": event.get("endpoint"),
+                    "status": status,
+                    "errorCode": error_code,
+                    "payload": event,
+                },
             )
             enqueue_usage_update(self._db, event)
         except Exception:
