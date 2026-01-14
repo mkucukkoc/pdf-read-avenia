@@ -28,7 +28,7 @@ from endpoints.logging.utils_logging import (
     log_request,
     log_response,
 )
-from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
+from usage_tracking import build_base_event, finalize_event, extract_gemini_usage_metadata, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.files_pdf.utils")
 
@@ -281,7 +281,7 @@ def call_gemini_generate_stream(
     api_key: str,
     model: Optional[str] = None,
     system_instruction: Optional[str] = None,
-    usage_out: Optional[Dict[str, int]] = None,
+    usage_out: Optional[Dict[str, Any]] = None,
 ) -> Generator[str, None, None]:
     if not api_key:
         raise HTTPException(
@@ -346,7 +346,7 @@ def call_gemini_generate_stream(
             status_code=resp.status_code,
             response=obj,
         )
-        usage = parse_gemini_usage(obj)
+        usage = extract_gemini_usage_metadata(obj)
         if usage_out is not None and usage:
             usage_out.update(usage)
         candidates = obj.get("candidates") or []
@@ -447,7 +447,7 @@ async def stream_gemini_text(
     api_key: str,
     model: Optional[str] = None,
     system_instruction: Optional[str] = None,
-    usage_out: Optional[Dict[str, int]] = None,
+    usage_out: Optional[Dict[str, Any]] = None,
 ) -> AsyncGenerator[str, None]:
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
@@ -504,7 +504,7 @@ async def generate_text_with_optional_stream(
         followup_language=followup_language or tone_language,
     )
     usage_error: Optional[str] = None
-    usage_data: Dict[str, int] = {}
+    usage_data: Dict[str, Any] = {}
     start_time = time.monotonic()
 
     if not stream or not chat_id:
@@ -516,7 +516,7 @@ async def generate_text_with_optional_stream(
                 effective_model,
                 system_instruction,
             )
-            usage_data = parse_gemini_usage(response_json)
+            usage_data = extract_gemini_usage_metadata(response_json)
             candidates = response_json.get("candidates", [])
             if not candidates:
                 feedback = response_json.get("promptFeedback", {}) or {}
@@ -542,7 +542,7 @@ async def generate_text_with_optional_stream(
     # Use dedicated uuid4 import to avoid accidental shadowing
     message_id = f"{tool}_{_uuid4().hex}"
     accumulated: list[str] = []
-    usage_out: Dict[str, int] = {}
+    usage_out: Dict[str, Any] = {}
     stream_error = False
     try:
         async for chunk in stream_gemini_text(
@@ -606,7 +606,7 @@ async def generate_text_with_optional_stream(
 
 def _finalize_usage_event(
     usage_context: Optional[Dict[str, Any]],
-    usage_data: Dict[str, int],
+    usage_data: Dict[str, Any],
     latency_ms: int,
     *,
     status: str,
@@ -617,8 +617,7 @@ def _finalize_usage_event(
     try:
         event = finalize_event(
             usage_context,
-            input_tokens=usage_data.get("inputTokens", 0),
-            output_tokens=usage_data.get("outputTokens", 0),
+            raw_usage=usage_data or None,
             latency_ms=latency_ms,
             status=status,
             error_code=error_code,

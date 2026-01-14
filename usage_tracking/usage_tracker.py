@@ -15,9 +15,6 @@ DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "").lower() in ("1", "true", "yes
 USAGE_SERVICE_URL = os.getenv("USAGE_SERVICE_URL", "").strip().rstrip("/")
 USAGE_SERVICE_INTERNAL_KEY = os.getenv("USAGE_SERVICE_INTERNAL_KEY", "").strip()
 USAGE_SERVICE_TIMEOUT_S = float(os.getenv("USAGE_SERVICE_TIMEOUT_S", "2"))
-USAGE_TRACKING_FIRESTORE_ENABLED = (
-    os.getenv("USAGE_TRACKING_FIRESTORE_ENABLED", "").lower() in ("1", "true", "yes", "on")
-)
 
 
 def log_event(db: firestore.Client, event: Dict[str, Any]) -> None:
@@ -131,36 +128,10 @@ def update_aggregates(db: firestore.Client, event: Dict[str, Any]) -> bool:
 
 
 def enqueue_usage_update(db: firestore.Client, event: Dict[str, Any]) -> None:
-    """Fire-and-forget helper to log events and update aggregates."""
+    """Fire-and-forget helper to forward usage events to usage-service."""
 
     def _work() -> None:
         _post_usage_event(event)
-
-        if USAGE_TRACKING_FIRESTORE_ENABLED and db:
-            try:
-                log_event(db, event)
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning(
-                    "UsageTracking log_event failed",
-                    extra={
-                        "requestId": event.get("requestId"),
-                        "userId": event.get("userId"),
-                        "error": str(exc),
-                    },
-                    exc_info=DEBUG_LOGS,
-                )
-            try:
-                update_aggregates(db, event)
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning(
-                    "UsageTracking update_aggregates failed",
-                    extra={
-                        "requestId": event.get("requestId"),
-                        "userId": event.get("userId"),
-                        "error": str(exc),
-                    },
-                    exc_info=DEBUG_LOGS,
-                )
 
     if DEBUG_LOGS:
         LOGGER.info(
@@ -186,25 +157,6 @@ def _post_usage_event(event: Dict[str, Any]) -> None:
         )
         return
 
-    # usage-service şeması: timestamp (epoch seconds) ve action alanı bekliyor.
-    payload = dict(event)
-    if "timestamp" in payload:
-        try:
-            ts = payload["timestamp"]
-            if isinstance(ts, str):
-                payload["timestamp"] = int(dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
-            elif isinstance(ts, dt.datetime):
-                payload["timestamp"] = int(ts.timestamp())
-            else:
-                payload["timestamp"] = int(ts)
-        except Exception:
-            payload["timestamp"] = int(dt.datetime.utcnow().timestamp())
-    else:
-        payload["timestamp"] = int(dt.datetime.utcnow().timestamp())
-
-    payload.setdefault("action", payload.get("endpoint"))
-    payload.setdefault("eventId", payload.get("requestId"))
-
     headers = {"Content-Type": "application/json"}
     if USAGE_SERVICE_INTERNAL_KEY:
         headers["X-Internal-Key"] = USAGE_SERVICE_INTERNAL_KEY
@@ -212,7 +164,7 @@ def _post_usage_event(event: Dict[str, Any]) -> None:
     url = f"{USAGE_SERVICE_URL}/v1/usage/events"
     try:
         response = requests.post(
-            url, json=payload, headers=headers, timeout=USAGE_SERVICE_TIMEOUT_S
+            url, json=event, headers=headers, timeout=USAGE_SERVICE_TIMEOUT_S
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(

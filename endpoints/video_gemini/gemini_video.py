@@ -52,8 +52,7 @@ def _enqueue_usage_event(
     try:
         event = finalize_event(
             usage_context,
-            input_tokens=0,
-            output_tokens=0,
+            raw_usage=None,
             latency_ms=latency_ms,
             status=status,
             error_code=error_code,

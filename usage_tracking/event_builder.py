@@ -1,17 +1,10 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
 from typing import Any, Dict, Optional
 
-from .fx import FxRateCache
-from .pricing import calculate_cost_usd
-
-DEFAULT_COST_CALCULATION_VERSION = os.getenv("COST_CALCULATION_VERSION", "pricing_v1.2")
 DEFAULT_CURRENCY = "USD"
 DEFAULT_PROVIDER = "gemini"
-
-_FX_CACHE = FxRateCache()
 
 
 def build_base_event(
@@ -19,6 +12,7 @@ def build_base_event(
     request_id: str,
     user_id: str,
     endpoint: str,
+    action: Optional[str] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None,
     token_payload: Optional[Dict[str, Any]] = None,
@@ -43,6 +37,7 @@ def build_base_event(
         "requestId": request_id,
         "userId": user_id,
         "endpoint": endpoint,
+        "action": action or endpoint,
         "provider": provider or payload.get("provider") or DEFAULT_PROVIDER,
         "model": model or payload.get("model"),
         "timestamp": timestamp,
@@ -58,40 +53,25 @@ def build_base_event(
 def finalize_event(
     base_event: Dict[str, Any],
     *,
-    input_tokens: int,
-    output_tokens: int,
+    raw_usage: Optional[Dict[str, Any]] = None,
     cached_tokens: int = 0,
     is_cache_hit: bool = False,
     latency_ms: Optional[int] = None,
     status: str = "success",
     error_code: Optional[str] = None,
-    cost_calculation_version: Optional[str] = None,
     throttling_decision: Optional[Dict[str, Any]] = None,
     quotas: Optional[Dict[str, Any]] = None,
     credits: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    model = base_event.get("model") or ""
-    currency = base_event.get("userCurrency") or DEFAULT_CURRENCY
-    total_tokens = input_tokens + output_tokens
-
-    cost_usd = _calculate_cost_usd_safe(model, input_tokens, output_tokens)
-    cost_local, fx_payload = _calculate_local_cost(cost_usd, currency)
-
     event: Dict[str, Any] = dict(base_event)
     event.update(
         {
-            "inputTokens": input_tokens,
-            "outputTokens": output_tokens,
-            "totalTokens": total_tokens,
+            "rawUsage": raw_usage or None,
             "cachedTokens": cached_tokens,
             "isCacheHit": is_cache_hit,
             "latencyMs": latency_ms,
             "status": status,
             "errorCode": error_code,
-            "cost": {"amount": round(cost_local, 6), "currency": currency},
-            "costUSD": round(cost_usd, 6),
-            "fx": fx_payload,
-            "costCalculationVersion": cost_calculation_version or DEFAULT_COST_CALCULATION_VERSION,
         }
     )
     if throttling_decision:
@@ -103,73 +83,9 @@ def finalize_event(
     return _compact(event)
 
 
-def parse_gemini_usage(response_json: Dict[str, Any]) -> Dict[str, int]:
+def extract_gemini_usage_metadata(response_json: Dict[str, Any]) -> Dict[str, Any]:
     usage = response_json.get("usageMetadata") or response_json.get("usage_metadata") or response_json.get("usage") or {}
-    input_tokens = _to_int(
-        usage.get("promptTokenCount")
-        or usage.get("prompt_tokens")
-        or usage.get("inputTokens")
-        or usage.get("input_tokens")
-    )
-    output_tokens = _to_int(
-        usage.get("candidatesTokenCount")
-        or usage.get("completionTokenCount")
-        or usage.get("completion_tokens")
-        or usage.get("outputTokens")
-        or usage.get("output_tokens")
-    )
-    total_tokens = _to_int(
-        usage.get("totalTokenCount")
-        or usage.get("total_tokens")
-        or usage.get("totalTokens")
-        or input_tokens + output_tokens
-    )
-    return {
-        "inputTokens": input_tokens,
-        "outputTokens": output_tokens,
-        "totalTokens": total_tokens,
-    }
-
-
-def _calculate_cost_usd_safe(model: str, input_tokens: int, output_tokens: int) -> float:
-    if not model:
-        return 0.0
-    normalized = _normalize_model_name(model)
-    try:
-        _, _, total_cost = calculate_cost_usd(normalized, input_tokens, output_tokens)
-        return total_cost
-    except KeyError:
-        return 0.0
-
-
-def _calculate_local_cost(cost_usd: float, currency: str) -> tuple[float, Optional[Dict[str, Any]]]:
-    if not currency:
-        return cost_usd, None
-    if currency.upper() == "USD":
-        return cost_usd, {
-            "base": "USD",
-            "quote": "USD",
-            "rate": 1.0,
-            "updatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-        }
-    fx = _FX_CACHE.get_or_fetch("USD", currency)
-    return cost_usd * fx.rate, {
-        "base": fx.base,
-        "quote": fx.quote,
-        "rate": fx.rate,
-        "updatedAt": fx.updated_at.replace(tzinfo=dt.timezone.utc).isoformat(),
-    }
-
-
-def _normalize_model_name(model: str) -> str:
-    return model.replace("models/", "", 1)
-
-
-def _to_int(value: Any) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
+    return usage if isinstance(usage, dict) else {}
 
 
 def _merge_metadata(

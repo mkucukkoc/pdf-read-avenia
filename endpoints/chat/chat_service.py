@@ -16,7 +16,7 @@ from endpoints.helper_fail_response import build_success_error_response
 from google.cloud import firestore as firestore_client
 
 from core.firebase import db
-from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
+from usage_tracking import build_base_event, finalize_event, extract_gemini_usage_metadata, enqueue_usage_update
 from core.useChatPersistence import chat_persistence
 from core.tone_instructions import build_tone_instruction
 from schemas import ChatMessagePayload, ChatRequestPayload
@@ -231,7 +231,7 @@ class ChatService:
                     token_payload=usage_request.get("token_payload"),
                     request=usage_request.get("request"),
                 )
-            usage_data: Dict[str, int] = {}
+            usage_data: Dict[str, Any] = {}
             try:
                 assistant_content, usage_data = await asyncio.to_thread(
                     self._call_gemini_generate_content,
@@ -457,7 +457,7 @@ class ChatService:
     def _enqueue_usage_event(
         self,
         usage_context: Optional[Dict[str, Any]],
-        usage_data: Dict[str, int],
+        usage_data: Dict[str, Any],
         latency_ms: int,
         *,
         status: str,
@@ -468,8 +468,7 @@ class ChatService:
         try:
             event = finalize_event(
                 usage_context,
-                input_tokens=usage_data.get("inputTokens", 0),
-                output_tokens=usage_data.get("outputTokens", 0),
+                raw_usage=usage_data or None,
                 latency_ms=latency_ms,
                 status=status,
                 error_code=error_code,
@@ -496,7 +495,7 @@ class ChatService:
         )
         start_time = datetime.now(timezone.utc)
         usage_context = None
-        usage_out: Dict[str, int] = {}
+        usage_out: Dict[str, Any] = {}
         selected_model = self._select_model(payload)
         if usage_request:
             usage_context = build_base_event(
@@ -731,7 +730,7 @@ class ChatService:
         prompt_text: str,
         model: str,
         system_instruction: Optional[str] = None,
-    ) -> tuple[str, Dict[str, int]]:
+    ) -> tuple[str, Dict[str, Any]]:
         if not self._gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY not configured")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self._gemini_api_key}"
@@ -767,20 +766,20 @@ class ChatService:
         data = response_json
         candidates = data.get("candidates") or []
         if not candidates:
-            return "", parse_gemini_usage(data)
+            return "", extract_gemini_usage_metadata(data)
         parts = (candidates[0].get("content") or {}).get("parts") or []
         texts: List[str] = []
         for part in parts:
             if "text" in part and isinstance(part["text"], str):
                 texts.append(part["text"])
-        return "\n".join(texts).strip(), parse_gemini_usage(data)
+        return "\n".join(texts).strip(), extract_gemini_usage_metadata(data)
 
     def _call_gemini_generate_content_stream(
         self,
         prompt_text: str,
         model: str,
         system_instruction: Optional[str] = None,
-        usage_out: Optional[Dict[str, int]] = None,
+        usage_out: Optional[Dict[str, Any]] = None,
     ):
         """
         Streams text deltas from Gemini (streamGenerateContent). Yields delta strings.
@@ -851,7 +850,7 @@ class ChatService:
                     response=obj,
                 )
                 logger.debug("Gemini stream chunk parsed keys=%s", list(obj.keys()))
-                usage = parse_gemini_usage(obj)
+                usage = extract_gemini_usage_metadata(obj)
                 if usage_out is not None and usage:
                     usage_out.update(usage)
                 candidates = obj.get("candidates") or []

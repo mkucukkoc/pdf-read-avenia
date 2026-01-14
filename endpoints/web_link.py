@@ -17,7 +17,7 @@ from core.websocket_manager import stream_manager
 from schemas import WebSearchRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
 from errors_response.api_errors import get_api_error_message
-from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
+from usage_tracking import build_base_event, finalize_event, extract_gemini_usage_metadata, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.web_link")
 
@@ -55,7 +55,7 @@ def _build_usage_context(
 
 def _enqueue_usage_event(
     usage_context: Optional[Dict[str, Any]],
-    usage_data: Dict[str, int],
+    usage_data: Dict[str, Any],
     latency_ms: int,
     *,
     status: str,
@@ -66,8 +66,7 @@ def _enqueue_usage_event(
     try:
         event = finalize_event(
             usage_context,
-            input_tokens=usage_data.get("inputTokens", 0),
-            output_tokens=usage_data.get("outputTokens", 0),
+            raw_usage=usage_data or None,
             latency_ms=latency_ms,
             status=status,
             error_code=error_code,
@@ -243,7 +242,7 @@ async def run_web_link(payload: WebSearchRequest, user_id: str, request: Optiona
 
     model = DEFAULT_MODEL if DEFAULT_MODEL.startswith("models/") else f"models/{DEFAULT_MODEL}"
     usage_context = _build_usage_context(payload, user_id, model, request)
-    usage_data: Dict[str, int] = {}
+    usage_data: Dict[str, Any] = {}
     start_time = time.monotonic()
     status = "success"
     error_code = None
@@ -273,7 +272,7 @@ async def run_web_link(payload: WebSearchRequest, user_id: str, request: Optiona
             payload.urls,
             system_instruction=tone_instruction,
         )
-        usage_data = parse_gemini_usage(result)
+        usage_data = extract_gemini_usage_metadata(result)
         text = _strip_markdown_stars(_extract_text(result))
         if not text:
             logger.error(

@@ -15,7 +15,7 @@ from core.gemini_prompt import build_system_message, merge_parts_with_system
 from core.firebase import db
 from schemas import DocRequest
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response
-from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
+from usage_tracking import build_base_event, finalize_event, extract_gemini_usage_metadata, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.endpoints.generate_doc")
 router = APIRouter()
@@ -57,7 +57,7 @@ def _build_usage_context(request: Request, user_id: str, model: str) -> Optional
 
 def _enqueue_usage_event(
     usage_context: Optional[Dict[str, Any]],
-    usage_data: Dict[str, int],
+    usage_data: Dict[str, Any],
     latency_ms: int,
     *,
     status: str,
@@ -68,8 +68,7 @@ def _enqueue_usage_event(
     try:
         event = finalize_event(
             usage_context,
-            input_tokens=usage_data.get("inputTokens", 0),
-            output_tokens=usage_data.get("outputTokens", 0),
+            raw_usage=usage_data or None,
             latency_ms=latency_ms,
             status=status,
             error_code=error_code,
@@ -185,7 +184,7 @@ async def generate_doc(data: DocRequest, request: Request):
     payload = getattr(request.state, "token_payload", {}) or {}
     user_id = payload.get("uid") or payload.get("userId") or payload.get("sub") or ""
     usage_context: Optional[Dict[str, Any]] = None
-    usage_data: Dict[str, int] = {}
+    usage_data: Dict[str, Any] = {}
     start_time = time.monotonic()
     status = "success"
     error_code = None
@@ -201,7 +200,7 @@ async def generate_doc(data: DocRequest, request: Request):
             include_followup=False,
         )
         doc_json, response_json = await _call_gemini_json(data.prompt, system_message)
-        usage_data = parse_gemini_usage(response_json)
+        usage_data = extract_gemini_usage_metadata(response_json)
         logger.debug("Gemini JSON parsed", extra={"keys": list(doc_json.keys())})
 
         # 2) Word dosyasını oluştur
@@ -244,4 +243,3 @@ async def generate_doc(data: DocRequest, request: Request):
             status=status,
             error_code=error_code,
         )
-

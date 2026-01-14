@@ -23,7 +23,7 @@ from errors_response.api_errors import get_api_error_message
 from schemas import GeminiImageEditRequest
 from endpoints.files_pdf.utils import attach_streaming_payload
 from endpoints.logging.utils_logging import log_gemini_request, log_gemini_response, log_request, log_response
-from usage_tracking import build_base_event, finalize_event, parse_gemini_usage, enqueue_usage_update
+from usage_tracking import build_base_event, finalize_event, extract_gemini_usage_metadata, enqueue_usage_update
 
 logger = logging.getLogger("pdf_read_refresh.gemini_image_edit")
 
@@ -68,7 +68,7 @@ def _build_usage_context(
 
 def _enqueue_usage_event(
     usage_context: Optional[Dict[str, Any]],
-    usage_data: Dict[str, int],
+    usage_data: Dict[str, Any],
     latency_ms: int,
     *,
     status: str,
@@ -79,8 +79,7 @@ def _enqueue_usage_event(
     try:
         event = finalize_event(
             usage_context,
-            input_tokens=usage_data.get("inputTokens", 0),
-            output_tokens=usage_data.get("outputTokens", 0),
+            raw_usage=usage_data or None,
             latency_ms=latency_ms,
             status=status,
             error_code=error_code,
@@ -428,7 +427,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
         system_message = _build_image_system_instruction(language, payload.tone_key)
         prompt_text = f"{system_message}\n\nUSER PROMPT:\n{prompt}"
         usage_context = _build_usage_context(request, user_id, "createImages", effective_model, payload)
-        usage_data: Dict[str, int] = {}
+        usage_data: Dict[str, Any] = {}
         usage_status = "success"
         usage_error_code: Optional[str] = None
         start_time = time.monotonic()
@@ -441,7 +440,7 @@ async def edit_gemini_image(payload: GeminiImageEditRequest, request: Request) -
                 gemini_key,
                 effective_model,
             )
-            usage_data = parse_gemini_usage(response_json)
+            usage_data = extract_gemini_usage_metadata(response_json)
         except Exception:
             usage_status = "error"
             usage_error_code = "gemini_image_edit_failed"
