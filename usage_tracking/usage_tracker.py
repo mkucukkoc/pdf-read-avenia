@@ -186,6 +186,25 @@ def _post_usage_event(event: Dict[str, Any]) -> None:
         )
         return
 
+    # usage-service şeması: timestamp (epoch seconds) ve action alanı bekliyor.
+    payload = dict(event)
+    if "timestamp" in payload:
+        try:
+            ts = payload["timestamp"]
+            if isinstance(ts, str):
+                payload["timestamp"] = int(dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
+            elif isinstance(ts, dt.datetime):
+                payload["timestamp"] = int(ts.timestamp())
+            else:
+                payload["timestamp"] = int(ts)
+        except Exception:
+            payload["timestamp"] = int(dt.datetime.utcnow().timestamp())
+    else:
+        payload["timestamp"] = int(dt.datetime.utcnow().timestamp())
+
+    payload.setdefault("action", payload.get("endpoint"))
+    payload.setdefault("eventId", payload.get("requestId"))
+
     headers = {"Content-Type": "application/json"}
     if USAGE_SERVICE_INTERNAL_KEY:
         headers["X-Internal-Key"] = USAGE_SERVICE_INTERNAL_KEY
@@ -193,7 +212,7 @@ def _post_usage_event(event: Dict[str, Any]) -> None:
     url = f"{USAGE_SERVICE_URL}/v1/usage/events"
     try:
         response = requests.post(
-            url, json=event, headers=headers, timeout=USAGE_SERVICE_TIMEOUT_S
+            url, json=payload, headers=headers, timeout=USAGE_SERVICE_TIMEOUT_S
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning(
