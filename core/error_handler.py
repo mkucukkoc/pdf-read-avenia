@@ -240,8 +240,42 @@ def setup_error_handlers(app: FastAPI):
             return await call_next(request)
 
         max_bytes = int(os.getenv("REQUEST_LOG_MAX_BYTES", "20000"))
+        max_lines = int(os.getenv("REQUEST_LOG_MAX_LINES", "200"))
+        pretty_lines_enabled = os.getenv("REQUEST_LOG_PRETTY_LINES", "true").lower() != "false"
         content_type = (request.headers.get("content-type") or "").lower()
         content_length = request.headers.get("content-length")
+
+        def log_pretty_lines(kind: str, payload: Union[dict, list, str, None]):
+            if not pretty_lines_enabled or payload is None:
+                return
+            try:
+                if isinstance(payload, (dict, list)):
+                    pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+                else:
+                    pretty = str(payload)
+            except Exception as exc:
+                pretty = f"<unserializable:{exc}>"
+            lines = pretty.splitlines()
+            for idx, line in enumerate(lines[:max_lines], start=1):
+                logger.info(
+                    "%s line %s: %s %s (Request ID: %s) %s",
+                    kind,
+                    idx,
+                    request.method,
+                    request.url,
+                    request_id,
+                    line,
+                )
+            if len(lines) > max_lines:
+                logger.info(
+                    "%s lines truncated (%s/%s) %s %s (Request ID: %s)",
+                    kind,
+                    max_lines,
+                    len(lines),
+                    request.method,
+                    request.url,
+                    request_id,
+                )
 
         body_summary = None
         if content_type.startswith("multipart/") or content_type.startswith("application/octet-stream"):
@@ -249,6 +283,10 @@ def setup_error_handlers(app: FastAPI):
         else:
             try:
                 raw_body = await request.body()
+                # Recreate request with preserved body so downstream can read it safely.
+                async def receive() -> dict:
+                    return {"type": "http.request", "body": raw_body, "more_body": False}
+                request = Request(request.scope, receive)
                 if raw_body:
                     if content_type.startswith("application/json"):
                         try:
@@ -282,6 +320,7 @@ def setup_error_handlers(app: FastAPI):
             },
             body_summary,
         )
+        log_pretty_lines("Request payload", body_summary)
 
         response = await call_next(request)
 
@@ -315,6 +354,7 @@ def setup_error_handlers(app: FastAPI):
             response.status_code,
             response_preview,
         )
+        log_pretty_lines("Response payload", response_preview)
 
         return Response(
             content=response_body,
@@ -363,8 +403,6 @@ def log_business_event(event: str, user_id: str = None, metadata: dict = None):
         logger.info(f"User ID: {user_id}")
     if metadata:
         logger.info(f"Metadata: {metadata}")
-
-
 
 
 

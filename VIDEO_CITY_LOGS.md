@@ -34,12 +34,12 @@ Body example:
 
 ## Storage Paths
 Video flow:
-- Input image: `users_video/{uid}/uploads/{uuid}-input.{ext}`
-- Output video: `users_video/{uid}/generatevideos/{uuid}.{ext}`
+- Input image: `video/{uuid}/input.{ext}`
+- Output video: `video/{uuid}/output.{ext}`
 
 City flow:
-- Input image: `users_image/{uid}/uploads/city/{uuid}-input.{ext}`
-- Output image: `users_image/{uid}/generatedimages/{uuid}.{ext}`
+- Input image: `image/{uuid}/input.{ext}`
+- Output image: `image/{uuid}/output.{ext}`
 
 ## Firestore Collections
 - Video records: `users/{uid}/generatedVideos/{generatedId}`
