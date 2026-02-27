@@ -67,9 +67,6 @@ from endpoints.deep_research import router as deep_research_router
 from endpoints.web_search import router as web_search_router
 from endpoints.web_link import router as web_link_router
 from endpoints.social_posts import router as social_posts_router
-from endpoints.generate_doffice.generate_doc import router as generate_doc_router
-from endpoints.generate_doffice.generate_ppt import router as generate_ppt_router
-from endpoints.generate_doffice.generate_pdf import router as generate_pdf_router
 from endpoints.files_word import (
     word_summary_router,
     word_analyze_router,
@@ -97,8 +94,7 @@ from endpoints.files_pptx import (
     pptx_grounded_search_router,
     pptx_structure_export_router,
 )
-from endpoints.stt_and_tts import stt_router, tts_router
-from endpoints.file_export import router as export_chat_router
+from endpoints.stt_and_tts import stt_router
 from endpoints.files_pdf import (
     pdf_analyze_router,
     pdf_summary_router,
@@ -219,9 +215,6 @@ app.include_router(gemini_image_search_router)
 app.include_router(gemini_image_edit_router)
 app.include_router(gemini_image_analyze_router)
 # Office doc generation
-app.include_router(generate_doc_router)
-app.include_router(generate_ppt_router)
-app.include_router(generate_pdf_router)
 # Word/PPTX
 app.include_router(word_summary_router)
 app.include_router(word_analyze_router)
@@ -264,8 +257,6 @@ app.include_router(pdf_structure_export_router)
 app.include_router(pdf_test_router)
 # app.include_router(image_edit_router)
 app.include_router(stt_router)
-app.include_router(tts_router)
-app.include_router(export_chat_router)
 
 socket_app = socketio_lib.ASGIApp(sio, other_asgi_app=app)
 
@@ -291,6 +282,31 @@ def custom_openapi():
         description="Avenia PDF Read API",
         routes=app.routes,
     )
+    # Swagger'da görünmesini istemediğimiz (şimdilik kullanılmayan) endpointleri gizle
+    hidden_paths = {
+        "/generate-doc",
+        "/generate-ppt",
+        "/generate-pdf",
+        "/tts-chat",
+        "/export-chat",
+        "/generate-video/",
+        "/generate-video-prompt/",
+        "/generate-excel",
+        "/search-docs/",
+        "/generate-doc-advanced",
+        "/generate-ppt-advanced",
+        "/analyze-video",
+        "/check-ai",
+        "/pdf-to-word",
+        "/pdf-to-ppt",
+        "/pdf-to-excel",
+        "/word-to-pdf",
+        "/ppt-to-pdf",
+        "/excel-to-pdf",
+    }
+    if openapi_schema.get("paths"):
+        for path in hidden_paths:
+            openapi_schema["paths"].pop(path, None)
     openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})[
         "BearerAuth"
     ] = {
@@ -723,28 +739,7 @@ def _save_asst_message(user_id: str, chat_id: str, content: str, raw: dict, lang
         print("[/analyze-image] Firestore yazım hatası:", e)
         return None
 
-import endpoints.generate_doffice.generate_video
-import endpoints.generate_doffice.generate_video_prompt
-import endpoints.generate_doffice.generate_excel
-from endpoints.stt_and_tts import stt_router, tts_router
-import endpoints.search_docs
-import endpoints.healthz
 import endpoints.ai_or_not.ai_analyze_image
-import endpoints.generate_doffice.generate_doc_advanced
-import endpoints.generate_doffice.generate_ppt_advanced
-import endpoints.ai_or_not.ai_detect_video
-try:
-    import endpoints.ai_or_not.check_ai
-except Exception as exc:
-    logging.getLogger("pdfread.endpoints").warning(
-        "check_ai endpoint disabled (optional deps missing): %s", exc
-    )
-import endpoints.convert_office.pdf_to_word
-import endpoints.convert_office.pdf_to_ppt
-import endpoints.convert_office.pdf_to_excel
-import endpoints.convert_office.word_to_pdf
-import endpoints.convert_office.ppt_to_pdf
-import endpoints.convert_office.excel_to_pdf
 
 
 if __name__ == "__main__":

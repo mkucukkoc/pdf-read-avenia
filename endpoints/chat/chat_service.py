@@ -530,6 +530,7 @@ class ChatService:
         usage_context = None
         usage_out: Dict[str, Any] = {}
         selected_model = self._select_model(payload)
+        # Always build usage_context so usage-service is fed even if usage_request is missing.
         if usage_request:
             usage_context = build_base_event(
                 request_id=request_id,
@@ -539,6 +540,16 @@ class ChatService:
                 model=selected_model,
                 token_payload=usage_request.get("token_payload"),
                 request=usage_request.get("request"),
+            )
+        else:
+            usage_context = build_base_event(
+                request_id=request_id,
+                user_id=user_id,
+                endpoint="chat",
+                provider="gemini",
+                model=selected_model,
+                token_payload=None,
+                request=None,
             )
         producer_error: Optional[Exception] = None
         fallback_used = False
