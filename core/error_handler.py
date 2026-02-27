@@ -250,38 +250,56 @@ def setup_error_handlers(app: FastAPI):
         pretty_lines_enabled = os.getenv("REQUEST_LOG_PRETTY_LINES", "true").lower() != "false"
         content_type = (request.headers.get("content-type") or "").lower()
         content_length = request.headers.get("content-length")
+        try:
+            import time
+            start_time = time.perf_counter()
+        except Exception:
+            start_time = None
 
-        def log_pretty_lines(kind: str, payload: Union[dict, list, str, None]):
-            if not pretty_lines_enabled or payload is None:
-                return
+        def format_block(label: str, value: Union[dict, list, str, None]) -> str:
             try:
-                if isinstance(payload, (dict, list)):
-                    pretty = json.dumps(payload, ensure_ascii=False, indent=2)
+                if isinstance(value, (dict, list)):
+                    pretty = json.dumps(value, ensure_ascii=False, indent=2)
                 else:
-                    pretty = str(payload)
+                    pretty = str(value)
             except Exception as exc:
                 pretty = f"<unserializable:{exc}>"
+
             lines = pretty.splitlines()
-            for idx, line in enumerate(lines[:max_lines], start=1):
-                logger.info(
-                    "%s line %s: %s %s (Request ID: %s) %s",
-                    kind,
-                    idx,
-                    request.method,
-                    request.url,
-                    request_id,
-                    line,
-                )
             if len(lines) > max_lines:
-                logger.info(
-                    "%s lines truncated (%s/%s) %s %s (Request ID: %s)",
-                    kind,
-                    max_lines,
-                    len(lines),
-                    request.method,
-                    request.url,
-                    request_id,
-                )
+                pretty = "\n".join(lines[:max_lines]) + f"\n<truncated {len(lines)}/{max_lines} lines>"
+            indented = "\n".join(f"    {line}" for line in pretty.splitlines())
+            return f"{label}:\n{indented}"
+
+        def get_route_info(path_value: str) -> tuple[str, str]:
+            parts = [part for part in path_value.split("/") if part]
+            if not parts:
+                return ("root", "root")
+            if parts[0] == "api" and len(parts) > 1:
+                parts = parts[1:]
+            if parts and parts[0].startswith("v") and len(parts) > 1:
+                parts = parts[1:]
+            route_value = parts[0] if parts else "root"
+            endpoint_value = parts[-1] if parts else "root"
+            return (route_value, endpoint_value)
+
+        def log_payload_block(kind: str, payload: Union[dict, list, str, None], extra_fields: dict | None = None):
+            if not pretty_lines_enabled or payload is None:
+                return
+            route_value, endpoint_value = get_route_info(request.url.path)
+            header = f"[{route_value}] {kind} JSON ({endpoint_value})"
+            blocks = [
+                f'    request_id: "{request_id}"',
+                f'    method: "{request.method}"',
+                f'    path: "{request.url.path}"',
+                f'    route: "{route_value}"',
+                f'    endpoint: "{endpoint_value}"',
+            ]
+            if extra_fields:
+                for key, value in extra_fields.items():
+                    blocks.append(f'    {key}: "{value}"')
+            blocks.append(format_block(kind.lower(), payload))
+            logger.info("%s\n%s", header, "\n".join(blocks))
 
         body_summary = None
         if content_type.startswith("multipart/") or content_type.startswith("application/octet-stream"):
@@ -326,14 +344,7 @@ def setup_error_handlers(app: FastAPI):
             },
             "body": body_summary,
         }
-        logger.info(
-            "Request payload: %s %s (Request ID: %s) summary=%s",
-            request.method,
-            request.url,
-            request_id,
-            request_summary,
-        )
-        log_pretty_lines("Request payload", request_summary)
+        log_payload_block("Request", request_summary)
 
         response = await call_next(request)
 
@@ -367,15 +378,20 @@ def setup_error_handlers(app: FastAPI):
             },
             "body": response_preview,
         }
-        logger.info(
-            "Response payload: %s %s (Request ID: %s) status=%s body=%s",
-            request.method,
-            request.url,
-            request_id,
-            response.status_code,
-            response_preview,
-        )
-        log_pretty_lines("Response payload", response_summary)
+        duration_ms = None
+        if start_time is not None:
+            try:
+                import time
+                duration_ms = int((time.perf_counter() - start_time) * 1000)
+            except Exception:
+                duration_ms = None
+        response_extras = {
+            "statusCode": response.status_code,
+            "contentLength": response.headers.get("content-length"),
+        }
+        if duration_ms is not None:
+            response_extras["durationMs"] = duration_ms
+        log_payload_block("Response", response_summary, response_extras)
 
         return Response(
             content=response_body,
