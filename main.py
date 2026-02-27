@@ -288,31 +288,33 @@ def custom_openapi():
         description="Avenia PDF Read API",
         routes=app.routes,
     )
-    # Swagger'da görünmesini istemediğimiz (şimdilik kullanılmayan) endpointleri gizle
-    hidden_paths = {
-        "/generate-doc",
-        "/generate-ppt",
-        "/generate-pdf",
-        "/tts-chat",
-        "/export-chat",
-        "/generate-video/",
-        "/generate-video-prompt/",
-        "/generate-excel",
-        "/search-docs/",
-        "/generate-doc-advanced",
-        "/generate-ppt-advanced",
-        "/analyze-video",
-        "/check-ai",
-        "/pdf-to-word",
-        "/pdf-to-ppt",
-        "/pdf-to-excel",
-        "/word-to-pdf",
-        "/ppt-to-pdf",
-        "/excel-to-pdf",
-    }
-    if openapi_schema.get("paths"):
-        for path in hidden_paths:
-            openapi_schema["paths"].pop(path, None)
+    hide_unused = os.getenv("HIDE_UNUSED_SWAGGER_ENDPOINTS", "false").lower() == "true"
+    if hide_unused:
+        # Swagger'da görünmesini istemediğimiz (şimdilik kullanılmayan) endpointleri gizle
+        hidden_paths = {
+            "/generate-doc",
+            "/generate-ppt",
+            "/generate-pdf",
+            "/tts-chat",
+            "/export-chat",
+            "/generate-video/",
+            "/generate-video-prompt/",
+            "/generate-excel",
+            "/search-docs/",
+            "/generate-doc-advanced",
+            "/generate-ppt-advanced",
+            "/analyze-video",
+            "/check-ai",
+            "/pdf-to-word",
+            "/pdf-to-ppt",
+            "/pdf-to-excel",
+            "/word-to-pdf",
+            "/ppt-to-pdf",
+            "/excel-to-pdf",
+        }
+        if openapi_schema.get("paths"):
+            for path in hidden_paths:
+                openapi_schema["paths"].pop(path, None)
     openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})[
         "BearerAuth"
     ] = {

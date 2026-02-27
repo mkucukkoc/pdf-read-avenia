@@ -1,4 +1,5 @@
 import logging
+import json
 import traceback
 from pathlib import Path
 from typing import Union
@@ -219,6 +220,110 @@ def setup_error_handlers(app: FastAPI):
 
         return response
 
+    # Detailed payload logging for style/coin flows
+    @app.middleware("http")
+    async def log_payloads(request: Request, call_next):
+        import os
+        from fastapi.responses import Response
+
+        request_id = getattr(request.state, "request_id", None)
+        path = request.url.path
+        log_prefixes = (
+            "/api/styles",
+            "/api/v1/coins",
+            "/api/v1/jobs",
+            "/api/v1/webhooks/purchase",
+            "/webhooks/purchase",
+        )
+        should_log = any(path.startswith(prefix) for prefix in log_prefixes)
+        if not should_log:
+            return await call_next(request)
+
+        max_bytes = int(os.getenv("REQUEST_LOG_MAX_BYTES", "20000"))
+        content_type = (request.headers.get("content-type") or "").lower()
+        content_length = request.headers.get("content-length")
+
+        body_summary = None
+        if content_type.startswith("multipart/") or content_type.startswith("application/octet-stream"):
+            body_summary = f"<skipped body content-type={content_type} length={content_length}>"
+        else:
+            try:
+                raw_body = await request.body()
+                if raw_body:
+                    if content_type.startswith("application/json"):
+                        try:
+                            json_body = json.loads(raw_body.decode("utf-8", errors="replace"))
+                            body_summary = json_body
+                        except Exception:
+                            body_summary = raw_body[:max_bytes].decode("utf-8", errors="replace")
+                    else:
+                        body_summary = raw_body[:max_bytes].decode("utf-8", errors="replace")
+                    if len(raw_body) > max_bytes:
+                        body_summary = {
+                            "truncated": True,
+                            "length": len(raw_body),
+                            "preview": body_summary,
+                        }
+                else:
+                    body_summary = None
+            except Exception as exc:
+                body_summary = f"<failed to read body: {exc}>"
+
+        logger.info(
+            "Request payload: %s %s (Request ID: %s) headers=%s body=%s",
+            request.method,
+            request.url,
+            request_id,
+            {
+                "content-type": content_type,
+                "content-length": content_length,
+                "user-agent": request.headers.get("user-agent"),
+                "x-request-id": request.headers.get("x-request-id"),
+            },
+            body_summary,
+        )
+
+        response = await call_next(request)
+
+        response_body = b""
+        async for chunk in response.body_iterator:
+            response_body += chunk
+
+        response_preview = None
+        try:
+            if response_body:
+                response_text = response_body[:max_bytes].decode("utf-8", errors="replace")
+                if len(response_body) > max_bytes:
+                    response_preview = {
+                        "truncated": True,
+                        "length": len(response_body),
+                        "preview": response_text,
+                    }
+                else:
+                    try:
+                        response_preview = json.loads(response_text)
+                    except Exception:
+                        response_preview = response_text
+        except Exception as exc:
+            response_preview = f"<failed to decode response body: {exc}>"
+
+        logger.info(
+            "Response payload: %s %s (Request ID: %s) status=%s body=%s",
+            request.method,
+            request.url,
+            request_id,
+            response.status_code,
+            response_preview,
+        )
+
+        return Response(
+            content=response_body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+            background=response.background,
+        )
+
     # Health check endpoint
     @app.get("/health")
     async def health_check():
@@ -258,8 +363,6 @@ def log_business_event(event: str, user_id: str = None, metadata: dict = None):
         logger.info(f"User ID: {user_id}")
     if metadata:
         logger.info(f"Metadata: {metadata}")
-
-
 
 
 

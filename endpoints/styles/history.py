@@ -89,6 +89,7 @@ async def list_history(request: Request):
     if not user_id:
         raise HTTPException(status_code=401, detail={"error": "access_denied", "message": "Authentication required"})
 
+    logger.info("History list requested by user %s", user_id)
     video_items = _collect_history_items("generatedVideos", user_id)
     image_items = _collect_history_items("generatedImages", user_id)
     items = video_items + image_items
@@ -98,6 +99,13 @@ async def list_history(request: Request):
         item.pop("_createdAtRaw", None)
         trimmed.append(item)
 
+    logger.info(
+        "History list prepared for user %s (videos=%s, images=%s, total=%s)",
+        user_id,
+        len(video_items),
+        len(image_items),
+        len(trimmed),
+    )
     return JSONResponse(content={"items": trimmed})
 
 
@@ -107,6 +115,7 @@ async def delete_history(item_id: str, request: Request):
     if not user_id:
         raise HTTPException(status_code=401, detail={"error": "access_denied", "message": "Authentication required"})
 
+    logger.info("History delete requested by user %s for item %s", user_id, item_id)
     db = firestore.client()
     doc_ref = (
         db.collection("users")
@@ -137,4 +146,5 @@ async def delete_history(item_id: str, request: Request):
                 logger.warning("Failed to delete storage object %s: %s", path_value, exc)
 
     doc_ref.delete()
+    logger.info("History item deleted for user %s (item=%s)", user_id, item_id)
     return JSONResponse(content={"success": True, "id": item_id})

@@ -165,6 +165,18 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
 
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "styleId": style_id,
+            "cityName": city_name,
+            "userImageSourcePreview": summarize_url(user_image_source),
+            "model": requested_model,
+        },
+        "City generate request received",
+    )
+
     if not user_image_source or not city_name:
         raise HTTPException(
             status_code=400,
@@ -183,6 +195,17 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     )
     input_url = _get_signed_or_public_url(input_path)
 
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "inputPath": input_path,
+            "inputUrlPreview": summarize_url(input_url),
+            "inputMime": resolved_user_image.get("mimeType"),
+        },
+        "City generate input stored",
+    )
+
     generated = _generate_city_teleported_photo(input_url, city_name, requested_model)
 
     generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
@@ -196,6 +219,18 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
         metadata={"cacheControl": "public,max-age=31536000"},
     )
     output_url = _get_signed_or_public_url(generated_path)
+
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "generatedId": generated_id,
+            "outputPath": generated_path,
+            "outputUrlPreview": summarize_url(output_url),
+            "outputMimeType": generated.get("mimeType"),
+        },
+        "City generate output prepared",
+    )
 
     db = firestore.client()
     db.collection("users").doc(user_id).collection("generatedImages").doc(generated_id).set(
@@ -215,23 +250,45 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
         }
     )
 
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "generatedId": generated_id,
+        },
+        "City generate record saved",
+    )
+
+    response_payload = {
+        "request_id": request_id,
+        "style_id": style_id or None,
+        "user_id": user_id,
+        "input": {
+            "path": input_path,
+            "url": input_url,
+            "city_name": city_name,
+            "photo_shot": "medium_shot",
+            "camera_angle": "eye_level",
+        },
+        "output": {
+            "id": generated_id,
+            "path": generated_path,
+            "url": output_url,
+            "mimeType": generated.get("mimeType") or "image/png",
+        },
+    }
+
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "response": response_payload,
+        },
+        "City generate response sent",
+    )
+
     return JSONResponse(
         content={
-            "request_id": request_id,
-            "style_id": style_id or None,
-            "user_id": user_id,
-            "input": {
-                "path": input_path,
-                "url": input_url,
-                "city_name": city_name,
-                "photo_shot": "medium_shot",
-                "camera_angle": "eye_level",
-            },
-            "output": {
-                "id": generated_id,
-                "path": generated_path,
-                "url": output_url,
-                "mimeType": generated.get("mimeType") or "image/png",
-            },
+            **response_payload
         }
     )

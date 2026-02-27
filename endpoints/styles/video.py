@@ -338,6 +338,17 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
 
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "styleId": style_id,
+            "userImageSourcePreview": summarize_url(user_image_source),
+            "model": requested_model,
+        },
+        "Video generate request received",
+    )
+
     reference_video_url = _resolve_video_reference_url(style_id)
     if not reference_video_url:
         raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "Video URL could not be resolved"})
@@ -356,6 +367,18 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         metadata={"cacheControl": "public,max-age=31536000"},
     )
     input_url = _get_signed_or_public_url(input_path)
+
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "inputPath": input_path,
+            "inputUrlPreview": summarize_url(input_url),
+            "inputMime": resolved_user_image.get("mimeType"),
+            "referenceVideoUrlPreview": summarize_url(reference_video_url),
+        },
+        "Video generate input stored",
+    )
 
     provider_result = _generate_styled_video_with_fal(
         {
@@ -385,6 +408,19 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         )
         output_video_url = _get_signed_or_public_url(output_video_path)
 
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "generatedId": generated_id,
+            "outputVideoPath": output_video_path,
+            "outputVideoUrlPreview": summarize_url(output_video_url),
+            "outputMimeType": output_mime_type,
+            "usedFallback": provider_result.get("usedFallback"),
+        },
+        "Video generate output prepared",
+    )
+
     db = firestore.client()
     db.collection("users").doc(user_id).collection("generatedVideos").doc(generated_id).set(
         {
@@ -407,22 +443,44 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         }
     )
 
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "generatedId": generated_id,
+        },
+        "Video generate record saved",
+    )
+
+    response_payload = {
+        "request_id": request_id,
+        "style_id": style_id,
+        "user_id": user_id,
+        "input": {"path": input_path, "url": input_url},
+        "output": {
+            "id": generated_id,
+            "path": output_video_path,
+            "url": output_video_url,
+            "mimeType": output_mime_type,
+        },
+        "provider": {
+            "text": provider_result.get("providerText"),
+            "status": provider_result.get("providerStatus"),
+            "used_fallback": provider_result.get("usedFallback"),
+        },
+    }
+
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "response": response_payload,
+        },
+        "Video generate response sent",
+    )
+
     return JSONResponse(
         content={
-            "request_id": request_id,
-            "style_id": style_id,
-            "user_id": user_id,
-            "input": {"path": input_path, "url": input_url},
-            "output": {
-                "id": generated_id,
-                "path": output_video_path,
-                "url": output_video_url,
-                "mimeType": output_mime_type,
-            },
-            "provider": {
-                "text": provider_result.get("providerText"),
-                "status": provider_result.get("providerStatus"),
-                "used_fallback": provider_result.get("usedFallback"),
-            },
+            **response_payload
         }
     )
