@@ -44,11 +44,11 @@ def fal_subscribe(
     ensure_fal_configured()
     try:
         logger.info(
+            "FAL subscribe started | %s",
             {
                 "model": model,
                 "payloadPreview": summarize_payload(input_payload),
             },
-            "FAL subscribe started",
         )
     except Exception:
         logger.info("FAL subscribe started (payload preview failed)")
@@ -69,11 +69,11 @@ def fal_subscribe(
         )
     try:
         logger.info(
+            "FAL subscribe completed | %s",
             {
                 "model": model,
                 "resultPreview": summarize_payload(result),
             },
-            "FAL subscribe completed",
         )
     except Exception:
         logger.info("FAL subscribe completed (result preview failed)")

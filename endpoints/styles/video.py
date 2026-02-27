@@ -87,13 +87,13 @@ def _download_image_from_source(source: str) -> Dict[str, Any]:
     bucket: Any = storage.bucket()
     parsed = _resolve_storage_object_path(source)
     if parsed:
-        file = bucket.file(parsed)
-        exists = file.exists()
+        blob = bucket.blob(parsed)
+        exists = blob.exists()
         if isinstance(exists, tuple):
             exists = exists[0]
         if exists:
-            content = file.download_as_bytes()
-            mime_type = "image/png" if file.name.lower().endswith(".png") else "image/jpeg"
+            content = blob.download_as_bytes()
+            mime_type = "image/png" if blob.name.lower().endswith(".png") else "image/jpeg"
             return {"buffer": content, "mimeType": mime_type, "objectPath": parsed}
 
     if source.startswith("http://") or source.startswith("https://"):
@@ -140,9 +140,9 @@ def _download_video_from_source(source: str) -> Dict[str, Any]:
 
 def _get_signed_or_public_url(file_path: str) -> str:
     bucket: Any = storage.bucket()
-    file = bucket.file(file_path)
+    blob = bucket.blob(file_path)
     try:
-        signed_url = file.generate_signed_url(expiration="2099-12-31", method="GET")
+        signed_url = blob.generate_signed_url(expiration="2099-12-31", method="GET")
         return signed_url
     except Exception:
         bucket_name = bucket.name
@@ -182,6 +182,7 @@ def _generate_styled_video_with_fal(params: Dict[str, Any]) -> Dict[str, Any]:
 
     has_fal_key = bool(get_fal_key())
     logger.info(
+        "FAL video request prepared | %s",
         {
             "requestId": request_id,
             "step": "fal_video_request_prepared",
@@ -191,7 +192,6 @@ def _generate_styled_video_with_fal(params: Dict[str, Any]) -> Dict[str, Any]:
             "referenceVideoUrlPreview": summarize_url(reference_video_url),
             "hasFalKey": has_fal_key,
         },
-        "FAL video request prepared",
     )
 
     if not has_fal_key:
@@ -216,6 +216,7 @@ def _generate_styled_video_with_fal(params: Dict[str, Any]) -> Dict[str, Any]:
             input_payload["prompt"] = args["prompt"]
 
         logger.info(
+            "FAL Pixverse swap step started | %s",
             {
                 "requestId": request_id,
                 "step": f"{args['step']}_started",
@@ -226,19 +227,18 @@ def _generate_styled_video_with_fal(params: Dict[str, Any]) -> Dict[str, Any]:
                     "image_url": summarize_url(input_payload["image_url"]),
                 },
             },
-            "FAL Pixverse swap step started",
         )
 
         result = fal_subscribe(resolved_model, input_payload)
         output_url = extract_video_url_from_fal_response(result)
         logger.info(
+            "FAL Pixverse swap step completed | %s",
             {
                 "requestId": request_id,
                 "step": f"{args['step']}_completed",
                 "model": resolved_model,
                 "outputVideoUrlPreview": summarize_url(output_url),
             },
-            "FAL Pixverse swap step completed",
         )
         return {"result": result, "outputVideoUrl": output_url}
 
@@ -339,6 +339,7 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
 
     logger.info(
+        "Video generate request received | %s",
         {
             "requestId": request_id,
             "userId": user_id,
@@ -346,7 +347,6 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
             "userImageSourcePreview": summarize_url(user_image_source),
             "model": requested_model,
         },
-        "Video generate request received",
     )
 
     reference_video_url = _resolve_video_reference_url(style_id)
@@ -361,15 +361,16 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     input_ext = _ext_from_image_mime(resolved_user_image.get("mimeType") or "image/jpeg")
     input_upload_id = str(uuid4())
     input_path = f"video/{input_upload_id}/input.{input_ext}"
-    bucket.file(input_path).save(
+    input_blob = bucket.blob(input_path)
+    input_blob.cache_control = "public,max-age=31536000"
+    input_blob.upload_from_string(
         resolved_user_image["buffer"],
         content_type=resolved_user_image.get("mimeType") or "image/jpeg",
-        resumable=False,
-        metadata={"cacheControl": "public,max-age=31536000"},
     )
     input_url = _get_signed_or_public_url(input_path)
 
     logger.info(
+        "Video generate input stored | %s",
         {
             "requestId": request_id,
             "userId": user_id,
@@ -378,7 +379,6 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
             "inputMime": resolved_user_image.get("mimeType"),
             "referenceVideoUrlPreview": summarize_url(reference_video_url),
         },
-        "Video generate input stored",
     )
 
     provider_result = _generate_styled_video_with_fal(
@@ -401,15 +401,16 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         output_mime_type = downloaded.get("mimeType") or "video/mp4"
         video_ext = _ext_from_video_mime(output_mime_type)
         output_video_path = f"video/{generated_id}/output.{video_ext}"
-        bucket.file(output_video_path).save(
+        output_blob = bucket.blob(output_video_path)
+        output_blob.cache_control = "public,max-age=31536000"
+        output_blob.upload_from_string(
             downloaded["buffer"],
             content_type=output_mime_type,
-            resumable=False,
-            metadata={"cacheControl": "public,max-age=31536000"},
         )
         output_video_url = _get_signed_or_public_url(output_video_path)
 
     logger.info(
+        "Video generate output prepared | %s",
         {
             "requestId": request_id,
             "userId": user_id,
@@ -419,18 +420,17 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
             "outputMimeType": output_mime_type,
             "usedFallback": provider_result.get("usedFallback"),
         },
-        "Video generate output prepared",
     )
 
     db = firestore.client()
     logger.info(
+        "Video generate Firestore write started | %s",
         {
             "requestId": request_id,
             "userId": user_id,
             "collection": "users/{uid}/generatedVideos",
             "docId": generated_id,
         },
-        "Video generate Firestore write started",
     )
     db.collection("users").doc(user_id).collection("generatedVideos").doc(generated_id).set(
         {
@@ -454,12 +454,12 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     )
 
     logger.info(
+        "Video generate record saved | %s",
         {
             "requestId": request_id,
             "userId": user_id,
             "generatedId": generated_id,
         },
-        "Video generate record saved",
     )
 
     response_payload = {
@@ -481,12 +481,12 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     }
 
     logger.info(
+        "Video generate response sent | %s",
         {
             "requestId": request_id,
             "userId": user_id,
             "response": response_payload,
         },
-        "Video generate response sent",
     )
 
     return JSONResponse(

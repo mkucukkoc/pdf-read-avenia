@@ -58,13 +58,13 @@ def _download_image_from_source(source: str) -> Dict[str, Any]:
     bucket: Any = storage.bucket()
     parsed = _resolve_storage_object_path(source)
     if parsed:
-        file = bucket.file(parsed)
-        exists = file.exists()
+        blob = bucket.blob(parsed)
+        exists = blob.exists()
         if isinstance(exists, tuple):
             exists = exists[0]
         if exists:
-            content = file.download_as_bytes()
-            mime_type = "image/png" if file.name.lower().endswith(".png") else "image/jpeg"
+            content = blob.download_as_bytes()
+            mime_type = "image/png" if blob.name.lower().endswith(".png") else "image/jpeg"
             return {"buffer": content, "mimeType": mime_type, "objectPath": parsed}
 
     if source.startswith("http://") or source.startswith("https://"):
@@ -90,9 +90,9 @@ def _download_image_from_source(source: str) -> Dict[str, Any]:
 
 def _get_signed_or_public_url(file_path: str) -> str:
     bucket: Any = storage.bucket()
-    file = bucket.file(file_path)
+    blob = bucket.blob(file_path)
     try:
-        signed_url = file.generate_signed_url(expiration="2099-12-31", method="GET")
+        signed_url = blob.generate_signed_url(expiration="2099-12-31", method="GET")
         return signed_url
     except Exception:
         bucket_name = bucket.name
@@ -125,6 +125,7 @@ def _generate_city_teleported_photo(person_image_url: str, city_name: str, model
         "camera_angle": "eye_level",
     }
     logger.info(
+        "FAL city teleport request prepared | %s",
         {
             "model": resolved_model,
             "input": {
@@ -132,7 +133,6 @@ def _generate_city_teleported_photo(person_image_url: str, city_name: str, model
                 "person_image_url": summarize_url(person_image_url),
             },
         },
-        "FAL city teleport request prepared",
     )
 
     result = fal_subscribe(resolved_model, input_payload)
@@ -166,6 +166,7 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
 
     logger.info(
+        "City generate request received | %s",
         {
             "requestId": request_id,
             "userId": user_id,
@@ -174,7 +175,6 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "userImageSourcePreview": summarize_url(user_image_source),
             "model": requested_model,
         },
-        "City generate request received",
     )
 
     if not user_image_source or not city_name:
@@ -188,15 +188,16 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     input_ext = _ext_from_mime(resolved_user_image.get("mimeType") or "image/jpeg")
     input_upload_id = str(uuid4())
     input_path = f"image/{input_upload_id}/input.{input_ext}"
-    bucket.file(input_path).save(
+    input_blob = bucket.blob(input_path)
+    input_blob.cache_control = "public,max-age=31536000"
+    input_blob.upload_from_string(
         resolved_user_image["buffer"],
         content_type=resolved_user_image.get("mimeType") or "image/jpeg",
-        resumable=False,
-        metadata={"cacheControl": "public,max-age=31536000"},
     )
     input_url = _get_signed_or_public_url(input_path)
 
     logger.info(
+        "City generate input stored | %s",
         {
             "requestId": request_id,
             "userId": user_id,
@@ -204,7 +205,6 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "inputUrlPreview": summarize_url(input_url),
             "inputMime": resolved_user_image.get("mimeType"),
         },
-        "City generate input stored",
     )
 
     generated = _generate_city_teleported_photo(input_url, city_name, requested_model)
@@ -213,15 +213,16 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     generated_id = str(uuid4())
     generated_path = f"image/{generated_id}/output.{generated_ext}"
     generated_buffer = base64.b64decode(generated["data"])
-    bucket.file(generated_path).save(
+    output_blob = bucket.blob(generated_path)
+    output_blob.cache_control = "public,max-age=31536000"
+    output_blob.upload_from_string(
         generated_buffer,
         content_type=generated.get("mimeType") or "image/png",
-        resumable=False,
-        metadata={"cacheControl": "public,max-age=31536000"},
     )
     output_url = _get_signed_or_public_url(generated_path)
 
     logger.info(
+        "City generate output prepared | %s",
         {
             "requestId": request_id,
             "userId": user_id,
@@ -230,18 +231,17 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "outputUrlPreview": summarize_url(output_url),
             "outputMimeType": generated.get("mimeType"),
         },
-        "City generate output prepared",
     )
 
     db = firestore.client()
     logger.info(
+        "City generate Firestore write started | %s",
         {
             "requestId": request_id,
             "userId": user_id,
             "collection": "users/{uid}/generatedImages",
             "docId": generated_id,
         },
-        "City generate Firestore write started",
     )
     db.collection("users").doc(user_id).collection("generatedImages").doc(generated_id).set(
         {
@@ -261,12 +261,12 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     )
 
     logger.info(
+        "City generate record saved | %s",
         {
             "requestId": request_id,
             "userId": user_id,
             "generatedId": generated_id,
         },
-        "City generate record saved",
     )
 
     response_payload = {
@@ -289,12 +289,12 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     }
 
     logger.info(
+        "City generate response sent | %s",
         {
             "requestId": request_id,
             "userId": user_id,
             "response": response_payload,
         },
-        "City generate response sent",
     )
 
     return JSONResponse(

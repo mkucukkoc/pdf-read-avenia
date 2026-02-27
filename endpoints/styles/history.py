@@ -143,8 +143,8 @@ async def delete_history(item_id: str, request: Request):
     for path_key in ("outputImagePath", "outputVideoPath", "inputImagePath"):
         path_value = data.get(path_key)
         if isinstance(path_value, str) and path_value.strip():
-            try:
-                bucket.file(path_value).delete()
+                try:
+                    bucket.blob(path_value).delete()
                 logger.info("Deleted storage object %s for user %s", path_value, user_id)
             except Exception as exc:
                 logger.warning("Failed to delete storage object %s: %s", path_value, exc)

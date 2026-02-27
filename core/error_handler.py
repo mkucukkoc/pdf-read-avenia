@@ -198,7 +198,9 @@ def setup_error_handlers(app: FastAPI):
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
         import uuid
-        request_id = str(uuid.uuid4())
+        request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id")
+        if not request_id:
+            request_id = str(uuid.uuid4())
         request.state.request_id = request_id
 
         # Log incoming request
@@ -226,7 +228,11 @@ def setup_error_handlers(app: FastAPI):
         import os
         from fastapi.responses import Response
 
-        request_id = getattr(request.state, "request_id", None)
+        import uuid
+        request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id")
+        if not request_id:
+            request_id = str(uuid.uuid4())
+        request.state.request_id = request_id
         path = request.url.path
         log_prefixes = (
             "/api/styles",
@@ -307,20 +313,27 @@ def setup_error_handlers(app: FastAPI):
             except Exception as exc:
                 body_summary = f"<failed to read body: {exc}>"
 
-        logger.info(
-            "Request payload: %s %s (Request ID: %s) headers=%s body=%s",
-            request.method,
-            request.url,
-            request_id,
-            {
+        request_summary = {
+            "method": request.method,
+            "url": str(request.url),
+            "path": request.url.path,
+            "query": dict(request.query_params),
+            "headers": {
                 "content-type": content_type,
                 "content-length": content_length,
                 "user-agent": request.headers.get("user-agent"),
                 "x-request-id": request.headers.get("x-request-id"),
             },
-            body_summary,
+            "body": body_summary,
+        }
+        logger.info(
+            "Request payload: %s %s (Request ID: %s) summary=%s",
+            request.method,
+            request.url,
+            request_id,
+            request_summary,
         )
-        log_pretty_lines("Request payload", body_summary)
+        log_pretty_lines("Request payload", request_summary)
 
         response = await call_next(request)
 
@@ -346,6 +359,14 @@ def setup_error_handlers(app: FastAPI):
         except Exception as exc:
             response_preview = f"<failed to decode response body: {exc}>"
 
+        response_summary = {
+            "status": response.status_code,
+            "headers": {
+                "content-type": response.headers.get("content-type"),
+                "content-length": response.headers.get("content-length"),
+            },
+            "body": response_preview,
+        }
         logger.info(
             "Response payload: %s %s (Request ID: %s) status=%s body=%s",
             request.method,
@@ -354,7 +375,7 @@ def setup_error_handlers(app: FastAPI):
             response.status_code,
             response_preview,
         )
-        log_pretty_lines("Response payload", response_preview)
+        log_pretty_lines("Response payload", response_summary)
 
         return Response(
             content=response_body,
@@ -403,7 +424,6 @@ def log_business_event(event: str, user_id: str = None, metadata: dict = None):
         logger.info(f"User ID: {user_id}")
     if metadata:
         logger.info(f"Metadata: {metadata}")
-
 
 
 
