@@ -243,7 +243,7 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "docId": generated_id,
         },
     )
-    db.collection("users").doc(user_id).collection("generatedImages").doc(generated_id).set(
+    db.collection("users").document(user_id).collection("generatedImages").document(generated_id).set(
         {
             "id": generated_id,
             "styleType": "city",

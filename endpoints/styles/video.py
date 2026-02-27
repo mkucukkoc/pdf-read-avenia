@@ -432,7 +432,7 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
             "docId": generated_id,
         },
     )
-    db.collection("users").doc(user_id).collection("generatedVideos").doc(generated_id).set(
+    db.collection("users").document(user_id).collection("generatedVideos").document(generated_id).set(
         {
             "id": generated_id,
             "styleType": "video",
