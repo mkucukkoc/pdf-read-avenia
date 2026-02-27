@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger("pdf_read_refresh.styles.fal_utils")
@@ -41,21 +42,42 @@ def fal_subscribe(
     if fal_client is None:
         raise RuntimeError("fal_client is not installed")
     ensure_fal_configured()
+    try:
+        logger.info(
+            {
+                "model": model,
+                "payloadPreview": summarize_payload(input_payload),
+            },
+            "FAL subscribe started",
+        )
+    except Exception:
+        logger.info("FAL subscribe started (payload preview failed)")
     # Support multiple client signatures across versions.
     try:
-        return fal_client.subscribe(
+        result = fal_client.subscribe(
             model,
             arguments=input_payload,
             with_logs=True,
             on_queue_update=on_queue_update,
         )
     except TypeError:
-        return fal_client.subscribe(
+        result = fal_client.subscribe(
             model,
             input=input_payload,
             logs=True,
             on_queue_update=on_queue_update,
         )
+    try:
+        logger.info(
+            {
+                "model": model,
+                "resultPreview": summarize_payload(result),
+            },
+            "FAL subscribe completed",
+        )
+    except Exception:
+        logger.info("FAL subscribe completed (result preview failed)")
+    return result
 
 
 def extract_video_url_from_fal_response(payload: Any) -> Optional[str]:
@@ -97,3 +119,13 @@ def summarize_url(value: Optional[str], max_len: int = 180) -> Optional[str]:
     if not value:
         return None
     return value[:max_len]
+
+
+def summarize_payload(payload: Any, max_len: int = 2000) -> Any:
+    try:
+        serialized = json.dumps(payload, default=str)
+    except Exception:
+        return str(payload)[:max_len]
+    if len(serialized) <= max_len:
+        return payload
+    return f"{serialized[:max_len]}...[len={len(serialized)}]"

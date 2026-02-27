@@ -117,23 +117,26 @@ async def delete_history(item_id: str, request: Request):
 
     logger.info("History delete requested by user %s for item %s", user_id, item_id)
     db = firestore.client()
+    target_collection = "generatedVideos"
     doc_ref = (
         db.collection("users")
         .document(user_id)
-        .collection("generatedVideos")
+        .collection(target_collection)
         .document(item_id)
     )
     snapshot = doc_ref.get()
     if not snapshot.exists:
+        target_collection = "generatedImages"
         doc_ref = (
             db.collection("users")
             .document(user_id)
-            .collection("generatedImages")
+            .collection(target_collection)
             .document(item_id)
         )
         snapshot = doc_ref.get()
         if not snapshot.exists:
             raise HTTPException(status_code=404, detail={"error": "not_found", "message": "History item not found"})
+    logger.info("History item found in collection %s for user %s", target_collection, user_id)
 
     data = snapshot.to_dict() or {}
     bucket: Any = storage.bucket()
@@ -142,6 +145,7 @@ async def delete_history(item_id: str, request: Request):
         if isinstance(path_value, str) and path_value.strip():
             try:
                 bucket.file(path_value).delete()
+                logger.info("Deleted storage object %s for user %s", path_value, user_id)
             except Exception as exc:
                 logger.warning("Failed to delete storage object %s: %s", path_value, exc)
 

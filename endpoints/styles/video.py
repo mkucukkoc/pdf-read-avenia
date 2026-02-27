@@ -359,7 +359,8 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     bucket: Any = storage.bucket()
     resolved_user_image = _download_image_from_source(user_image_source)
     input_ext = _ext_from_image_mime(resolved_user_image.get("mimeType") or "image/jpeg")
-    input_path = f"users_video/{user_id}/uploads/{uuid4()}-input.{input_ext}"
+    input_upload_id = str(uuid4())
+    input_path = f"video/{input_upload_id}/input.{input_ext}"
     bucket.file(input_path).save(
         resolved_user_image["buffer"],
         content_type=resolved_user_image.get("mimeType") or "image/jpeg",
@@ -399,7 +400,7 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         downloaded = _download_video_from_source(output_video_url)
         output_mime_type = downloaded.get("mimeType") or "video/mp4"
         video_ext = _ext_from_video_mime(output_mime_type)
-        output_video_path = f"users_video/{user_id}/generatevideos/{generated_id}.{video_ext}"
+        output_video_path = f"video/{generated_id}/output.{video_ext}"
         bucket.file(output_video_path).save(
             downloaded["buffer"],
             content_type=output_mime_type,
@@ -422,6 +423,15 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     )
 
     db = firestore.client()
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "collection": "users/{uid}/generatedVideos",
+            "docId": generated_id,
+        },
+        "Video generate Firestore write started",
+    )
     db.collection("users").doc(user_id).collection("generatedVideos").doc(generated_id).set(
         {
             "id": generated_id,

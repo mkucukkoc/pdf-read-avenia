@@ -186,7 +186,8 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     bucket: Any = storage.bucket()
     resolved_user_image = _download_image_from_source(user_image_source)
     input_ext = _ext_from_mime(resolved_user_image.get("mimeType") or "image/jpeg")
-    input_path = f"users_image/{user_id}/uploads/city/{uuid4()}-input.{input_ext}"
+    input_upload_id = str(uuid4())
+    input_path = f"image/{input_upload_id}/input.{input_ext}"
     bucket.file(input_path).save(
         resolved_user_image["buffer"],
         content_type=resolved_user_image.get("mimeType") or "image/jpeg",
@@ -210,7 +211,7 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
 
     generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
     generated_id = str(uuid4())
-    generated_path = f"users_image/{user_id}/generatedimages/{generated_id}.{generated_ext}"
+    generated_path = f"image/{generated_id}/output.{generated_ext}"
     generated_buffer = base64.b64decode(generated["data"])
     bucket.file(generated_path).save(
         generated_buffer,
@@ -233,6 +234,15 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     )
 
     db = firestore.client()
+    logger.info(
+        {
+            "requestId": request_id,
+            "userId": user_id,
+            "collection": "users/{uid}/generatedImages",
+            "docId": generated_id,
+        },
+        "City generate Firestore write started",
+    )
     db.collection("users").doc(user_id).collection("generatedImages").doc(generated_id).set(
         {
             "id": generated_id,
