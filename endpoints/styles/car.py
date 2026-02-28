@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 from firebase_admin import firestore, storage
 
-from .car_assets import get_car_asset_url, get_car_brand_label, normalize_car_brand
+from .car_assets import get_car_asset_url, get_car_brand_label, get_car_prompt, normalize_car_brand
 from .fal_utils import extract_image_url_from_fal_response, fal_subscribe, get_fal_key, summarize_url
 
 logger = logging.getLogger("pdf_read_refresh.styles.car")
@@ -249,7 +249,8 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
             raise ValueError("Unknown car brand")
 
         brand_label = get_car_brand_label(car_brand)
-        prompt_text = prompt_override or (
+        mapped_prompt = get_car_prompt(car_brand)
+        prompt_text = mapped_prompt or prompt_override or (
             f"{brand_label} arabanin direksiyon koltugunda oturan ve kapisi acik, gercekci bir fotograf cekin."
         )
 
