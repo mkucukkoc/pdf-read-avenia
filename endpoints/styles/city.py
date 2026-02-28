@@ -1,6 +1,8 @@
 import base64
+import json
 import logging
 import os
+import time
 from typing import Any, Dict, Optional
 from uuid import uuid4
 from urllib.parse import urlparse
@@ -113,6 +115,42 @@ def _get_request_user_id(request: Request) -> str:
     )
 
 
+def _format_log_block(label: str, value: Any) -> str:
+    try:
+        if isinstance(value, (dict, list)):
+            pretty = json.dumps(value, ensure_ascii=False, indent=2)
+        else:
+            pretty = str(value)
+    except Exception as exc:
+        pretty = f"<unserializable:{exc}>"
+    indented = "\n".join(f"    {line}" for line in pretty.splitlines())
+    return f"{label}:\n{indented}"
+
+
+def _log_json_block(
+    kind: str,
+    request: Request,
+    request_id: Optional[str],
+    payload: Any,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> None:
+    route_value = "styles"
+    endpoint_value = "city"
+    header = f"[{route_value}] {kind} JSON ({endpoint_value})"
+    blocks = [
+        f'    request_id: "{request_id}"',
+        f'    method: "{request.method}"',
+        f'    path: "{request.url.path}"',
+        f'    route: "{route_value}"',
+        f'    endpoint: "{endpoint_value}"',
+    ]
+    if extra_fields:
+        for key, value in extra_fields.items():
+            blocks.append(f'    {key}: "{value}"')
+    blocks.append(_format_log_block(kind.lower(), payload))
+    logger.info("%s\n%s", header, "\n".join(blocks))
+
+
 def _generate_city_teleported_photo(person_image_url: str, city_name: str, model: Optional[str]) -> Dict[str, Any]:
     resolved_model = model or os.getenv("FAL_CITY_MODEL", "fal-ai/image-apps-v2/city-teleport")
     if not get_fal_key():
@@ -151,6 +189,7 @@ def _generate_city_teleported_photo(person_image_url: str, city_name: str, model
 
 @router.post("/city/generate-photo")
 async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Request = None):
+    started_at = time.perf_counter()
     user_id = _get_request_user_id(request)
     if not user_id:
         raise HTTPException(status_code=401, detail={"error": "access_denied", "message": "Authentication required"})
@@ -164,6 +203,19 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     city_name = payload.get("city_name") if isinstance(payload.get("city_name"), str) else ""
     request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
+
+    _log_json_block(
+        "Request",
+        request,
+        request_id,
+        {
+            "style_id": style_id,
+            "user_id": user_id,
+            "city_name": city_name,
+            "user_image_url": summarize_url(user_image_source),
+            "model": requested_model,
+        },
+    )
 
     logger.info(
         "City generate request received | %s",
@@ -287,6 +339,24 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "mimeType": generated.get("mimeType") or "image/png",
         },
     }
+
+    try:
+        response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
+        content_length = len(response_bytes)
+    except Exception:
+        content_length = None
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    _log_json_block(
+        "Response",
+        request,
+        request_id,
+        response_payload,
+        {
+            "statusCode": 200,
+            "contentLength": content_length,
+            "durationMs": duration_ms,
+        },
+    )
 
     logger.info(
         "City generate response sent | %s",

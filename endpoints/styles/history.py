@@ -1,4 +1,6 @@
+import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -18,6 +20,42 @@ def _get_request_user_id(request: Request) -> str:
         or payload.get("sub")
         or ""
     )
+
+
+def _format_log_block(label: str, value: Any) -> str:
+    try:
+        if isinstance(value, (dict, list)):
+            pretty = json.dumps(value, ensure_ascii=False, indent=2)
+        else:
+            pretty = str(value)
+    except Exception as exc:
+        pretty = f"<unserializable:{exc}>"
+    indented = "\n".join(f"    {line}" for line in pretty.splitlines())
+    return f"{label}:\n{indented}"
+
+
+def _log_json_block(
+    kind: str,
+    request: Request,
+    request_id: Optional[str],
+    payload: Any,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> None:
+    route_value = "styles"
+    endpoint_value = "history"
+    header = f"[{route_value}] {kind} JSON ({endpoint_value})"
+    blocks = [
+        f'    request_id: "{request_id}"',
+        f'    method: "{request.method}"',
+        f'    path: "{request.url.path}"',
+        f'    route: "{route_value}"',
+        f'    endpoint: "{endpoint_value}"',
+    ]
+    if extra_fields:
+        for key, value in extra_fields.items():
+            blocks.append(f'    {key}: "{value}"')
+    blocks.append(_format_log_block(kind.lower(), payload))
+    logger.info("%s\n%s", header, "\n".join(blocks))
 
 
 def _serialize_timestamp(value: Any) -> str:
@@ -85,9 +123,21 @@ def _collect_history_items(collection_name: str, user_id: str) -> List[Dict[str,
 
 @router.get("/history")
 async def list_history(request: Request):
+    started_at = time.perf_counter()
+    request_id = request.headers.get("x-request-id")
     user_id = _get_request_user_id(request)
     if not user_id:
         raise HTTPException(status_code=401, detail={"error": "access_denied", "message": "Authentication required"})
+
+    _log_json_block(
+        "Request",
+        request,
+        request_id,
+        {
+            "user_id": user_id,
+            "query": dict(request.query_params),
+        },
+    )
 
     logger.info("History list requested by user %s", user_id)
     video_items = _collect_history_items("generatedVideos", user_id)
@@ -106,14 +156,44 @@ async def list_history(request: Request):
         len(image_items),
         len(trimmed),
     )
-    return JSONResponse(content={"items": trimmed})
+    response_payload = {"items": trimmed}
+    try:
+        response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
+        content_length = len(response_bytes)
+    except Exception:
+        content_length = None
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    _log_json_block(
+        "Response",
+        request,
+        request_id,
+        response_payload,
+        {
+            "statusCode": 200,
+            "contentLength": content_length,
+            "durationMs": duration_ms,
+        },
+    )
+    return JSONResponse(content=response_payload)
 
 
 @router.delete("/history/{item_id}")
 async def delete_history(item_id: str, request: Request):
+    started_at = time.perf_counter()
+    request_id = request.headers.get("x-request-id")
     user_id = _get_request_user_id(request)
     if not user_id:
         raise HTTPException(status_code=401, detail={"error": "access_denied", "message": "Authentication required"})
+
+    _log_json_block(
+        "Request",
+        request,
+        request_id,
+        {
+            "user_id": user_id,
+            "item_id": item_id,
+        },
+    )
 
     logger.info("History delete requested by user %s for item %s", user_id, item_id)
     db = firestore.client()
@@ -151,4 +231,22 @@ async def delete_history(item_id: str, request: Request):
 
     doc_ref.delete()
     logger.info("History item deleted for user %s (item=%s)", user_id, item_id)
-    return JSONResponse(content={"success": True, "id": item_id})
+    response_payload = {"success": True, "id": item_id}
+    try:
+        response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
+        content_length = len(response_bytes)
+    except Exception:
+        content_length = None
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    _log_json_block(
+        "Response",
+        request,
+        request_id,
+        response_payload,
+        {
+            "statusCode": 200,
+            "contentLength": content_length,
+            "durationMs": duration_ms,
+        },
+    )
+    return JSONResponse(content=response_payload)
