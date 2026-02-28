@@ -114,8 +114,21 @@ async def determine_agent_and_run(payload: AgentDispatchRequest, user_id: str) -
         }
 
     # Usage increment (backend-enforced)
+    premium_param_present = ("isPremiumUser" in merged_params) or ("premium" in merged_params)
+    is_premium_flag = bool(merged_params.get("isPremiumUser") or merged_params.get("premium"))
     try:
-        increment_usage(effective_user, is_premium=bool(merged_params.get("isPremiumUser") or merged_params.get("premium")))
+        usage_snapshot = increment_usage(effective_user, is_premium=is_premium_flag)
+        if premium_param_present and usage_snapshot and usage_snapshot.get("blocked"):
+            logger.info("Usage limit reached userId=%s count=%s", effective_user, usage_snapshot.get("count"))
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "usage_limit_reached",
+                    "message": "Free usage limit reached. Upgrade to Premium to continue.",
+                },
+            )
+    except HTTPException:
+        raise
     except Exception:
         logger.warning("Usage increment failed userId=%s", effective_user)
 

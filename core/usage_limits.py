@@ -10,22 +10,15 @@ from .firebase import db
 
 logger = logging.getLogger("pdf_read_refresh.usage_limits")
 
-FREE_DAILY_LIMIT = 3
+FREE_DAILY_LIMIT = 2
 
 
 def _date_key() -> str:
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc)
-    return now.strftime("%Y-%m-%d")
+    return "total"
 
 
-def _reset_iso() -> str:
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc)
-    reset = now + timedelta(days=1)
-    return reset.isoformat()
+def _reset_iso() -> Optional[str]:
+    return None
 
 
 def _resolve_tier(is_premium: bool) -> str:
@@ -64,26 +57,41 @@ def increment_usage(user_id: str, *, is_premium: bool) -> Optional[dict]:
     )
 
     try:
-        usage_ref.set(
-            {
+        transaction = db.transaction()
+
+        @firestore_client.transactional
+        def _apply(transaction_ref: firestore_client.Transaction) -> dict:
+            snapshot = usage_ref.get(transaction=transaction_ref)
+            data = snapshot.to_dict() or {}
+            count = int(data.get("count") or 0)
+
+            if not is_premium and count >= FREE_DAILY_LIMIT:
+                result = _build_snapshot(count, is_premium)
+                result["blocked"] = True
+                return result
+
+            new_count = count + 1
+            payload = {
                 "tier": _resolve_tier(is_premium),
                 "resetAt": _reset_iso(),
                 "updatedAt": firestore_client.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
-        usage_ref.set({"count": firestore_client.Increment(1)}, merge=True)
-        snapshot = usage_ref.get()
-        data = snapshot.to_dict() or {}
-        count = data.get("count", 0)
-        result = _build_snapshot(count, is_premium)
+                "count": new_count,
+            }
+            if not snapshot.exists:
+                payload["createdAt"] = firestore_client.SERVER_TIMESTAMP
+
+            transaction_ref.set(usage_ref, payload, merge=True)
+            return _build_snapshot(new_count, is_premium)
+
+        result = _apply(transaction)
         logger.info(
             "Usage incremented",
             extra={
                 "userId": user_id,
                 "dateKey": date_key,
-                "count": count,
+                "count": result.get("count"),
                 "premium": is_premium,
+                "blocked": result.get("blocked", False),
             },
         )
         return result
@@ -93,6 +101,4 @@ def increment_usage(user_id: str, *, is_premium: bool) -> Optional[dict]:
 
 
 __all__ = ["increment_usage", "FREE_DAILY_LIMIT"]
-
-
 
