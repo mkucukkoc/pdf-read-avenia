@@ -24,6 +24,8 @@ CAR_BRAND_LABELS = {
 
 def normalize_car_brand(value: Optional[str]) -> str:
     raw = (value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if raw.startswith("car_"):
+        raw = raw[4:]
     replacements = {
         "ı": "i",
         "ğ": "g",
@@ -34,7 +36,12 @@ def normalize_car_brand(value: Optional[str]) -> str:
     }
     for src, dest in replacements.items():
         raw = raw.replace(src, dest)
-    return raw
+    aliases = {
+        "arkaya_bakan_yesil_bmw": "bmw_yesil",
+        "kiz_kulesi_mercedes_ustu_acik": "kiz_kulesi_mercedes",
+        "mercedes_ustuacik": "mercedes_ustu_acik",
+    }
+    return aliases.get(raw, raw)
 
 
 def get_car_asset_url(brand: Optional[str]) -> Optional[str]:

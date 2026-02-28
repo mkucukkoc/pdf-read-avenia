@@ -211,6 +211,8 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
         elif isinstance(payload.get("user_image_path"), str):
             user_image_source = payload.get("user_image_path") or ""
         car_brand = payload.get("car_brand") if isinstance(payload.get("car_brand"), str) else ""
+        if not car_brand and isinstance(payload.get("style_id"), str):
+            car_brand = payload.get("style_id") or ""
         request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
         requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
         prompt_override = payload.get("prompt") if isinstance(payload.get("prompt"), str) else None
