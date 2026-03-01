@@ -220,7 +220,14 @@ async def delete_history(item_id: str, request: Request):
 
     data = snapshot.to_dict() or {}
     bucket: Any = storage.bucket()
-    for path_key in ("outputImagePath", "outputVideoPath", "inputImagePath"):
+    for path_key in (
+        "outputImagePath",
+        "outputVideoPath",
+        "inputImagePath",
+        "inputMotherImagePath",
+        "inputFatherImagePath",
+        "inputBabyImagePath",
+    ):
         path_value = data.get(path_key)
         if isinstance(path_value, str) and path_value.strip():
             try:

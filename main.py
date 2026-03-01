@@ -70,6 +70,7 @@ from endpoints.social_posts import router as social_posts_router
 from endpoints.styles import video_router as styles_video_router
 from endpoints.styles import city_router as styles_city_router
 from endpoints.styles import car_router as styles_car_router
+from endpoints.styles import family_router as styles_family_router
 from endpoints.styles import history_router as styles_history_router
 from endpoints.files_word import (
     word_summary_router,
@@ -221,6 +222,7 @@ app.include_router(gemini_image_analyze_router)
 app.include_router(styles_video_router)
 app.include_router(styles_city_router)
 app.include_router(styles_car_router)
+app.include_router(styles_family_router)
 app.include_router(styles_history_router)
 # Office doc generation
 # Word/PPTX
