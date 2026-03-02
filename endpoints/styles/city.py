@@ -115,6 +115,33 @@ def _get_request_user_id(request: Request) -> str:
     )
 
 
+PHOTO_SHOT_VALUES = {
+    "extreme_close_up",
+    "close_up",
+    "medium_close_up",
+    "medium_shot",
+    "medium_long_shot",
+    "long_shot",
+    "full_body",
+}
+
+CAMERA_ANGLE_VALUES = {
+    "eye_level",
+    "low_angle",
+    "high_angle",
+    "birds_eye_view",
+    "worm_eye_view",
+}
+
+
+def _normalize_enum(value: Optional[str], allowed: set, fallback: str) -> str:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized in allowed:
+            return normalized
+    return fallback
+
+
 def _format_log_block(label: str, value: Any) -> str:
     try:
         if isinstance(value, (dict, list)):
@@ -151,7 +178,13 @@ def _log_json_block(
     logger.info("%s\n%s", header, "\n".join(blocks))
 
 
-def _generate_city_teleported_photo(person_image_url: str, city_name: str, model: Optional[str]) -> Dict[str, Any]:
+def _generate_city_teleported_photo(
+    person_image_url: str,
+    city_name: str,
+    model: Optional[str],
+    photo_shot: str,
+    camera_angle: str,
+) -> Dict[str, Any]:
     resolved_model = model or os.getenv("FAL_CITY_MODEL", "fal-ai/image-apps-v2/city-teleport")
     if not get_fal_key():
         raise ValueError("FAL_KEY is not configured")
@@ -159,8 +192,8 @@ def _generate_city_teleported_photo(person_image_url: str, city_name: str, model
     input_payload = {
         "person_image_url": person_image_url,
         "city_name": city_name,
-        "photo_shot": "medium_shot",
-        "camera_angle": "eye_level",
+        "photo_shot": photo_shot,
+        "camera_angle": camera_angle,
     }
     logger.info(
         "FAL city teleport request prepared | %s",
@@ -203,6 +236,8 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     city_name = payload.get("city_name") if isinstance(payload.get("city_name"), str) else ""
     request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
+    photo_shot = _normalize_enum(payload.get("photo_shot"), PHOTO_SHOT_VALUES, "medium_shot")
+    camera_angle = _normalize_enum(payload.get("camera_angle"), CAMERA_ANGLE_VALUES, "eye_level")
 
     _log_json_block(
         "Request",
@@ -213,6 +248,8 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "user_id": user_id,
             "city_name": city_name,
             "user_image_url": summarize_url(user_image_source),
+            "photo_shot": photo_shot,
+            "camera_angle": camera_angle,
             "model": requested_model,
         },
     )
@@ -224,6 +261,8 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "userId": user_id,
             "styleId": style_id,
             "cityName": city_name,
+            "photoShot": photo_shot,
+            "cameraAngle": camera_angle,
             "userImageSourcePreview": summarize_url(user_image_source),
             "model": requested_model,
         },
@@ -239,7 +278,7 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     resolved_user_image = _download_image_from_source(user_image_source)
     input_ext = _ext_from_mime(resolved_user_image.get("mimeType") or "image/jpeg")
     input_upload_id = str(uuid4())
-    input_path = f"image/{input_upload_id}/input.{input_ext}"
+    input_path = f"image_coin/{user_id}/upload/{input_upload_id}/input.{input_ext}"
     input_blob = bucket.blob(input_path)
     input_blob.cache_control = "public,max-age=31536000"
     input_blob.upload_from_string(
@@ -259,11 +298,11 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
         },
     )
 
-    generated = _generate_city_teleported_photo(input_url, city_name, requested_model)
+    generated = _generate_city_teleported_photo(input_url, city_name, requested_model, photo_shot, camera_angle)
 
     generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
     generated_id = str(uuid4())
-    generated_path = f"image/{generated_id}/output.{generated_ext}"
+    generated_path = f"image_coin/{user_id}/isinlanma/{generated_id}/output.{generated_ext}"
     generated_buffer = base64.b64decode(generated["data"])
     output_blob = bucket.blob(generated_path)
     output_blob.cache_control = "public,max-age=31536000"
@@ -302,6 +341,8 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "styleId": style_id or None,
             "requestId": request_id,
             "cityName": city_name,
+            "photoShot": photo_shot,
+            "cameraAngle": camera_angle,
             "inputImagePath": input_path,
             "inputImageUrl": input_url,
             "outputImagePath": generated_path,
@@ -329,8 +370,8 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
             "path": input_path,
             "url": input_url,
             "city_name": city_name,
-            "photo_shot": "medium_shot",
-            "camera_angle": "eye_level",
+            "photo_shot": photo_shot,
+            "camera_angle": camera_angle,
         },
         "output": {
             "id": generated_id,

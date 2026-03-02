@@ -260,7 +260,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
         resolved_user_image = _download_image_from_source(user_image_source)
         input_ext = _ext_from_mime(resolved_user_image.get("mimeType") or "image/jpeg")
         input_upload_id = str(uuid4())
-        input_path = f"image/{input_upload_id}/input.{input_ext}"
+        input_path = f"image_coin/{user_id}/upload/{input_upload_id}/input.{input_ext}"
         input_blob = bucket.blob(input_path)
         input_blob.cache_control = "public,max-age=31536000"
         input_blob.upload_from_string(
@@ -285,7 +285,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
 
         generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
         generated_id = str(uuid4())
-        generated_path = f"image/{generated_id}/output.{generated_ext}"
+        generated_path = f"image_coin/{user_id}/araba_pozlari/{generated_id}/output.{generated_ext}"
         generated_buffer = base64.b64decode(generated["data"])
         output_blob = bucket.blob(generated_path)
         output_blob.cache_control = "public,max-age=31536000"

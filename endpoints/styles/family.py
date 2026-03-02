@@ -262,9 +262,9 @@ async def generate_family_photo(payload: Dict[str, Any] = Body(...), request: Re
         mother_ext = _ext_from_mime(resolved_mother.get("mimeType") or "image/jpeg")
         father_ext = _ext_from_mime(resolved_father.get("mimeType") or "image/jpeg")
         baby_ext = _ext_from_mime(resolved_baby.get("mimeType") or "image/jpeg")
-        mother_path = f"image/{input_upload_id}/mother.{mother_ext}"
-        father_path = f"image/{input_upload_id}/father.{father_ext}"
-        baby_path = f"image/{input_upload_id}/baby.{baby_ext}"
+        mother_path = f"image_coin/{user_id}/upload/{input_upload_id}/mother.{mother_ext}"
+        father_path = f"image_coin/{user_id}/upload/{input_upload_id}/father.{father_ext}"
+        baby_path = f"image_coin/{user_id}/upload/{input_upload_id}/baby.{baby_ext}"
 
         for path, resolved in (
             (mother_path, resolved_mother),
@@ -297,7 +297,7 @@ async def generate_family_photo(payload: Dict[str, Any] = Body(...), request: Re
 
         generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
         generated_id = str(uuid4())
-        generated_path = f"image/{generated_id}/output.{generated_ext}"
+        generated_path = f"image_coin/{user_id}/aile_yasami/{generated_id}/output.{generated_ext}"
         generated_buffer = base64.b64decode(generated["data"])
         output_blob = bucket.blob(generated_path)
         output_blob.cache_control = "public,max-age=31536000"
