@@ -265,7 +265,12 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
             f"{brand_label} arabanin direksiyon koltugunda oturan ve kapisi acik, gercekci bir fotograf cekin."
         )
         weather_prompt = get_weather_style_prompt(weather_style)
-        prompt_text = f"{base_prompt} {weather_prompt}".strip() if weather_prompt else base_prompt
+        if weather_prompt and "{weather}" in base_prompt:
+            prompt_text = base_prompt.replace("{weather}", weather_prompt)
+        elif weather_prompt:
+            prompt_text = f"{base_prompt} {weather_prompt}".strip()
+        else:
+            prompt_text = base_prompt
 
         bucket: Any = storage.bucket()
         resolved_user_image = _download_image_from_source(user_image_source)
