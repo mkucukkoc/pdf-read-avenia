@@ -12,7 +12,13 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 from firebase_admin import firestore, storage
 
-from .car_assets import get_car_asset_url, get_car_brand_label, get_car_prompt, normalize_car_brand
+from .car_assets import (
+    get_car_asset_url,
+    get_car_brand_label,
+    get_car_prompt,
+    get_weather_style_prompt,
+    normalize_car_brand,
+)
 from .fal_utils import extract_image_url_from_fal_response, fal_subscribe, get_fal_key, summarize_url
 
 logger = logging.getLogger("pdf_read_refresh.styles.car")
@@ -216,6 +222,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
         request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
         requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
         prompt_override = payload.get("prompt") if isinstance(payload.get("prompt"), str) else None
+        weather_style = payload.get("weather_style") if isinstance(payload.get("weather_style"), str) else None
 
         _log_json_block(
             "Request",
@@ -225,6 +232,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
                 "style_id": style_id,
                 "user_id": user_id,
                 "car_brand": car_brand,
+                "weather_style": weather_style,
                 "user_image_url": summarize_url(user_image_source),
                 "model": requested_model,
                 "prompt": prompt_override,
@@ -238,6 +246,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
                 "userId": user_id,
                 "styleId": style_id,
                 "carBrand": car_brand,
+                "weatherStyle": weather_style,
                 "userImageSourcePreview": summarize_url(user_image_source),
                 "model": requested_model,
             },
@@ -252,9 +261,11 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
 
         brand_label = get_car_brand_label(car_brand)
         mapped_prompt = get_car_prompt(car_brand)
-        prompt_text = mapped_prompt or prompt_override or (
+        base_prompt = mapped_prompt or prompt_override or (
             f"{brand_label} arabanin direksiyon koltugunda oturan ve kapisi acik, gercekci bir fotograf cekin."
         )
+        weather_prompt = get_weather_style_prompt(weather_style)
+        prompt_text = f"{base_prompt} {weather_prompt}".strip() if weather_prompt else base_prompt
 
         bucket: Any = storage.bucket()
         resolved_user_image = _download_image_from_source(user_image_source)
@@ -324,6 +335,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
                 "styleId": style_id or None,
                 "requestId": request_id,
                 "carBrand": normalize_car_brand(car_brand),
+                "weatherStyle": weather_style,
                 "prompt": prompt_text,
                 "inputImagePath": input_path,
                 "inputImageUrl": input_url,
@@ -352,6 +364,7 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
                 "path": input_path,
                 "url": input_url,
                 "car_brand": normalize_car_brand(car_brand),
+                "weather_style": weather_style,
                 "prompt": prompt_text,
             },
             "output": {
