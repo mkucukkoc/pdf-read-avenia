@@ -27,9 +27,9 @@ DEFAULT_CAR_ASSETS = {
 }
 
 DEFAULT_CAR_PROMPTS = {
-    "bmw_Alp_dag": "Alp dag yolu, {weather} hava durumunda, arabanin direksiyon koltugunda oturan  ve direksiyon sol da olan ,kisiyi arka koltuktan ve hafif yukaridan cekin; sinematik isik, net detay.",
+    "bmw_alp_dag": "Alp dag yolu, {weather} hava durumunda, arabanin direksiyon koltugunda oturan  ve direksiyon sol da olan ,kisiyi arka koltuktan ve hafif yukaridan cekin; sinematik isik, net detay.",
     "mercedes": "Paris gece sokagi, {weather} hava durumunda, kapisi acik mercedes icinde oturan kisiyi yandan cekin; luks editoryal, yumusak bokeh.",
-    "audi": "Tokyo modern cadde, {weather} hava durumunda, araba önünde arabanın on kaputuun üstüne oturmuş şekilde dilini çıkarmiş şekilde oturmuş kişinin ,neon yansimalar, sinematik olarak fotografını çekin",
+    "audi": "Tokyo modern cadde, {weather} hava durumunda, araba onunde arabanin on kaputuun ustune oturmus sekilde dilini cikarmis sekilde oturmus kisinin ,neon yansimalar, sinematik olarak fotografini cekin",
     "porsche": "Monaco sahil yolu, {weather} hava durumunda, arabaya yaslanmis kisiyi 3/4 acidan cekin; premium yasam stili.",
     "ferrari": "Monza pist kenari, {weather} hava durumunda, direksiyon basinda atletik poz; dramatik kenar isigi.",
     "lamborghini": "Dubai gece skyline, {weather} hava durumunda, kapisi yukari acik lambo yaninda guclu poz; yuksek kontrast.",
