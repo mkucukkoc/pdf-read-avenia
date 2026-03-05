@@ -82,9 +82,11 @@ def _download_image_from_source(source: str) -> Dict[str, Any]:
 def _get_signed_or_public_url(path: str) -> str:
     bucket = storage.bucket()
     blob = bucket.blob(path)
-    if blob.public_url:
+    try:
+        # Always prefer signed URLs because this bucket is not public.
+        return blob.generate_signed_url(version="v4", expiration=3600, method="GET")
+    except Exception:
         return blob.public_url
-    return blob.generate_signed_url(version="v4", expiration=3600, method="GET")
 
 
 def _generate_aesthetic_photo(
