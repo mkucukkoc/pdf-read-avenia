@@ -18,6 +18,7 @@ from .fal_utils import (
     get_fal_key,
     summarize_url,
 )
+from .notify_webhook import send_generation_webhook
 
 logger = logging.getLogger("pdf_read_refresh.styles.video")
 
@@ -383,191 +384,235 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         user_image_source = payload.get("user_image_path") or ""
     request_id = payload.get("request_id") if isinstance(payload.get("request_id"), str) else request.headers.get("x-request-id")
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
+    try:
+        _log_json_block(
+            "Request",
+            request,
+            request_id,
+            {
+                "style_id": style_id,
+                "user_id": user_id,
+                "user_image_url": summarize_url(user_image_source),
+                "model": requested_model,
+            },
+        )
 
-    _log_json_block(
-        "Request",
-        request,
-        request_id,
-        {
+        logger.info(
+            "Video generate request received | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "styleId": style_id,
+                "userImageSourcePreview": summarize_url(user_image_source),
+                "model": requested_model,
+            },
+        )
+
+        reference_video_url = _resolve_video_reference_url(style_id)
+        if not reference_video_url:
+            raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "Video URL could not be resolved"})
+
+        if not user_image_source:
+            raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "user_image_url is required"})
+
+        bucket: Any = storage.bucket()
+        resolved_user_image = _download_image_from_source(user_image_source)
+        input_ext = _ext_from_image_mime(resolved_user_image.get("mimeType") or "image/jpeg")
+        input_filename = f"{_now_slug()}.{input_ext}"
+        input_path = f"video_coin/{user_id}/upload/{input_filename}"
+        input_blob = bucket.blob(input_path)
+        input_blob.cache_control = "public,max-age=31536000"
+        input_blob.upload_from_string(
+            resolved_user_image["buffer"],
+            content_type=resolved_user_image.get("mimeType") or "image/jpeg",
+        )
+        input_url = _get_signed_or_public_url(input_path)
+
+        logger.info(
+            "Video generate input stored | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "inputPath": input_path,
+                "inputUrlPreview": summarize_url(input_url),
+                "inputMime": resolved_user_image.get("mimeType"),
+                "referenceVideoUrlPreview": summarize_url(reference_video_url),
+            },
+        )
+
+        provider_result = _generate_styled_video_with_fal(
+            {
+                "styleId": style_id,
+                "userImageUrl": input_url,
+                "referenceVideoUrl": reference_video_url,
+                "requestId": request_id,
+                "model": requested_model,
+            }
+        )
+
+        generated_id = str(uuid4())
+        output_video_url = provider_result.get("outputVideoUrl")
+        output_video_path: Optional[str] = None
+        output_mime_type = "video/mp4"
+
+        if not provider_result.get("usedFallback"):
+            downloaded = _download_video_from_source(output_video_url)
+            output_mime_type = downloaded.get("mimeType") or "video/mp4"
+            video_ext = _ext_from_video_mime(output_mime_type)
+            output_filename = f"{_now_slug()}.{video_ext}"
+            output_video_path = f"video_coin/{user_id}/generate_video/{output_filename}"
+            output_blob = bucket.blob(output_video_path)
+            output_blob.cache_control = "public,max-age=31536000"
+            output_blob.upload_from_string(
+                downloaded["buffer"],
+                content_type=output_mime_type,
+            )
+            output_video_url = _get_signed_or_public_url(output_video_path)
+
+        logger.info(
+            "Video generate output prepared | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "generatedId": generated_id,
+                "outputVideoPath": output_video_path,
+                "outputVideoUrlPreview": summarize_url(output_video_url),
+                "outputMimeType": output_mime_type,
+                "usedFallback": provider_result.get("usedFallback"),
+            },
+        )
+
+        db = firestore.client()
+        logger.info(
+            "Video generate Firestore write started | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "collection": "users/{uid}/generatedVideos",
+                "docId": generated_id,
+            },
+        )
+        db.collection("users").document(user_id).collection("generatedVideos").document(generated_id).set(
+            {
+                "id": generated_id,
+                "styleType": "video",
+                "styleId": style_id,
+                "requestId": request_id,
+                "inputImagePath": input_path,
+                "inputImageUrl": input_url,
+                "outputVideoUrl": output_video_url,
+                "outputVideoPath": output_video_path,
+                "outputImageUrl": None,
+                "outputMimeType": output_mime_type,
+                "providerText": provider_result.get("providerText"),
+                "providerStatus": provider_result.get("providerStatus"),
+                "providerRaw": provider_result.get("providerRaw"),
+                "usedFallback": provider_result.get("usedFallback"),
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            }
+        )
+
+        logger.info(
+            "Video generate record saved | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "generatedId": generated_id,
+            },
+        )
+
+        response_payload = {
+            "request_id": request_id,
             "style_id": style_id,
             "user_id": user_id,
-            "user_image_url": summarize_url(user_image_source),
-            "model": requested_model,
-        },
-    )
-
-    logger.info(
-        "Video generate request received | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "styleId": style_id,
-            "userImageSourcePreview": summarize_url(user_image_source),
-            "model": requested_model,
-        },
-    )
-
-    reference_video_url = _resolve_video_reference_url(style_id)
-    if not reference_video_url:
-        raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "Video URL could not be resolved"})
-
-    if not user_image_source:
-        raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "user_image_url is required"})
-
-    bucket: Any = storage.bucket()
-    resolved_user_image = _download_image_from_source(user_image_source)
-    input_ext = _ext_from_image_mime(resolved_user_image.get("mimeType") or "image/jpeg")
-    input_filename = f"{_now_slug()}.{input_ext}"
-    input_path = f"video_coin/{user_id}/upload/{input_filename}"
-    input_blob = bucket.blob(input_path)
-    input_blob.cache_control = "public,max-age=31536000"
-    input_blob.upload_from_string(
-        resolved_user_image["buffer"],
-        content_type=resolved_user_image.get("mimeType") or "image/jpeg",
-    )
-    input_url = _get_signed_or_public_url(input_path)
-
-    logger.info(
-        "Video generate input stored | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "inputPath": input_path,
-            "inputUrlPreview": summarize_url(input_url),
-            "inputMime": resolved_user_image.get("mimeType"),
-            "referenceVideoUrlPreview": summarize_url(reference_video_url),
-        },
-    )
-
-    provider_result = _generate_styled_video_with_fal(
-        {
-            "styleId": style_id,
-            "userImageUrl": input_url,
-            "referenceVideoUrl": reference_video_url,
-            "requestId": request_id,
-            "model": requested_model,
+            "input": {"path": input_path, "url": input_url},
+            "output": {
+                "id": generated_id,
+                "path": output_video_path,
+                "url": output_video_url,
+                "mimeType": output_mime_type,
+            },
+            "provider": {
+                "text": provider_result.get("providerText"),
+                "status": provider_result.get("providerStatus"),
+                "used_fallback": provider_result.get("usedFallback"),
+            },
         }
-    )
 
-    generated_id = str(uuid4())
-    output_video_url = provider_result.get("outputVideoUrl")
-    output_video_path: Optional[str] = None
-    output_mime_type = "video/mp4"
-
-    if not provider_result.get("usedFallback"):
-        downloaded = _download_video_from_source(output_video_url)
-        output_mime_type = downloaded.get("mimeType") or "video/mp4"
-        video_ext = _ext_from_video_mime(output_mime_type)
-        output_filename = f"{_now_slug()}.{video_ext}"
-        output_video_path = f"video_coin/{user_id}/generate_video/{output_filename}"
-        output_blob = bucket.blob(output_video_path)
-        output_blob.cache_control = "public,max-age=31536000"
-        output_blob.upload_from_string(
-            downloaded["buffer"],
-            content_type=output_mime_type,
+        try:
+            response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
+            content_length = len(response_bytes)
+        except Exception:
+            content_length = None
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        _log_json_block(
+            "Response",
+            request,
+            request_id,
+            response_payload,
+            {
+                "statusCode": 200,
+                "contentLength": content_length,
+                "durationMs": duration_ms,
+            },
         )
-        output_video_url = _get_signed_or_public_url(output_video_path)
 
-    logger.info(
-        "Video generate output prepared | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "generatedId": generated_id,
-            "outputVideoPath": output_video_path,
-            "outputVideoUrlPreview": summarize_url(output_video_url),
-            "outputMimeType": output_mime_type,
-            "usedFallback": provider_result.get("usedFallback"),
-        },
-    )
+        logger.info(
+            "Video generate response sent | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "response": response_payload,
+            },
+        )
 
-    db = firestore.client()
-    logger.info(
-        "Video generate Firestore write started | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "collection": "users/{uid}/generatedVideos",
-            "docId": generated_id,
-        },
-    )
-    db.collection("users").document(user_id).collection("generatedVideos").document(generated_id).set(
-        {
-            "id": generated_id,
-            "styleType": "video",
-            "styleId": style_id,
-            "requestId": request_id,
-            "inputImagePath": input_path,
-            "inputImageUrl": input_url,
-            "outputVideoUrl": output_video_url,
-            "outputVideoPath": output_video_path,
-            "outputImageUrl": None,
-            "outputMimeType": output_mime_type,
-            "providerText": provider_result.get("providerText"),
-            "providerStatus": provider_result.get("providerStatus"),
-            "providerRaw": provider_result.get("providerRaw"),
-            "usedFallback": provider_result.get("usedFallback"),
-            "createdAt": firestore.SERVER_TIMESTAMP,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
-        }
-    )
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "success",
+                "kind": "video",
+                "style_type": "video",
+                "style_id": style_id,
+                "title": style_id,
+                "output_url": output_video_url,
+            }
+        )
 
-    logger.info(
-        "Video generate record saved | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "generatedId": generated_id,
-        },
-    )
-
-    response_payload = {
-        "request_id": request_id,
-        "style_id": style_id,
-        "user_id": user_id,
-        "input": {"path": input_path, "url": input_url},
-        "output": {
-            "id": generated_id,
-            "path": output_video_path,
-            "url": output_video_url,
-            "mimeType": output_mime_type,
-        },
-        "provider": {
-            "text": provider_result.get("providerText"),
-            "status": provider_result.get("providerStatus"),
-            "used_fallback": provider_result.get("usedFallback"),
-        },
-    }
-
-    try:
-        response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
-        content_length = len(response_bytes)
-    except Exception:
-        content_length = None
-    duration_ms = int((time.perf_counter() - started_at) * 1000)
-    _log_json_block(
-        "Response",
-        request,
-        request_id,
-        response_payload,
-        {
-            "statusCode": 200,
-            "contentLength": content_length,
-            "durationMs": duration_ms,
-        },
-    )
-
-    logger.info(
-        "Video generate response sent | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "response": response_payload,
-        },
-    )
-
-    return JSONResponse(
-        content={
-            **response_payload
-        }
-    )
+        return JSONResponse(content={**response_payload})
+    except HTTPException as exc:
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "video",
+                "style_type": "video",
+                "style_id": style_id,
+                "title": style_id,
+                "error_message": str(exc.detail) if getattr(exc, "detail", None) else str(exc),
+            }
+        )
+        raise
+    except Exception as exc:
+        logger.error(
+            "Video generate failed | %s",
+            {"requestId": request_id, "userId": user_id, "error": str(exc)},
+        )
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "video",
+                "style_type": "video",
+                "style_id": style_id,
+                "title": style_id,
+                "error_message": str(exc),
+            }
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"message": "Hata olustu, lutfen tekrar deneyin."}},
+        )

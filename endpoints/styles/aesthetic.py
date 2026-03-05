@@ -14,6 +14,7 @@ from firebase_admin import firestore, storage
 
 from .fal_utils import extract_image_url_from_fal_response, fal_subscribe, get_fal_key, summarize_url
 from .aesthetic_assets import get_aesthetic_prompt, normalize_aesthetic_key
+from .notify_webhook import send_generation_webhook
 
 logger = logging.getLogger("pdf_read_refresh.styles.aesthetic")
 
@@ -257,6 +258,19 @@ async def generate_aesthetic_photo(payload: Dict[str, Any] = Body(...), request:
             {"statusCode": 200, "durationMs": duration_ms},
         )
 
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "success",
+                "kind": "photo",
+                "style_type": "aesthetic",
+                "style_id": resolved_key,
+                "title": resolved_key,
+                "output_url": output_url,
+            }
+        )
+
         return JSONResponse(content=response_payload)
     except Exception as exc:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
@@ -267,5 +281,17 @@ async def generate_aesthetic_photo(payload: Dict[str, Any] = Body(...), request:
             request_id,
             {"error": {"message": "Hata olustu, lutfen tekrar deneyin."}},
             {"statusCode": 500, "durationMs": duration_ms},
+        )
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "photo",
+                "style_type": "aesthetic",
+                "style_id": payload.get("style_id") if isinstance(payload, dict) else None,
+                "title": payload.get("style_id") if isinstance(payload, dict) else None,
+                "error_message": str(exc),
+            }
         )
         raise HTTPException(status_code=500, detail={"error": {"message": "Hata olustu, lutfen tekrar deneyin."}})

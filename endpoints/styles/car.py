@@ -21,6 +21,7 @@ from .car_assets import (
     normalize_car_brand,
 )
 from .fal_utils import extract_image_url_from_fal_response, fal_subscribe, get_fal_key, summarize_url
+from .notify_webhook import send_generation_webhook
 
 logger = logging.getLogger("pdf_read_refresh.styles.car")
 
@@ -413,6 +414,19 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
             },
         )
 
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "success",
+                "kind": "photo",
+                "style_type": "car",
+                "style_id": style_id or None,
+                "title": get_car_brand_label(car_brand),
+                "output_url": output_url,
+            }
+        )
+
         return JSONResponse(content={**response_payload})
     except HTTPException:
         raise
@@ -424,6 +438,18 @@ async def generate_car_photo(payload: Dict[str, Any] = Body(...), request: Reque
                 "userId": user_id,
                 "error": str(exc),
             },
+        )
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "photo",
+                "style_type": "car",
+                "style_id": style_id if "style_id" in locals() else None,
+                "title": get_car_brand_label(car_brand) if "car_brand" in locals() else None,
+                "error_message": str(exc),
+            }
         )
         return JSONResponse(
             status_code=500,

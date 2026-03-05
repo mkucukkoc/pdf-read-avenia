@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from firebase_admin import firestore, storage
 
 from .fal_utils import extract_image_url_from_fal_response, fal_subscribe, get_fal_key, summarize_url
+from .notify_webhook import send_generation_webhook
 
 logger = logging.getLogger("pdf_read_refresh.styles.city")
 
@@ -243,179 +244,223 @@ async def generate_city_photo(payload: Dict[str, Any] = Body(...), request: Requ
     requested_model = payload.get("model") if isinstance(payload.get("model"), str) else None
     photo_shot = _normalize_enum(payload.get("photo_shot"), PHOTO_SHOT_VALUES, "medium_shot")
     camera_angle = _normalize_enum(payload.get("camera_angle"), CAMERA_ANGLE_VALUES, "eye_level")
-
-    _log_json_block(
-        "Request",
-        request,
-        request_id,
-        {
-            "style_id": style_id,
-            "user_id": user_id,
-            "city_name": city_name,
-            "user_image_url": summarize_url(user_image_source),
-            "photo_shot": photo_shot,
-            "camera_angle": camera_angle,
-            "model": requested_model,
-        },
-    )
-
-    logger.info(
-        "City generate request received | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "styleId": style_id,
-            "cityName": city_name,
-            "photoShot": photo_shot,
-            "cameraAngle": camera_angle,
-            "userImageSourcePreview": summarize_url(user_image_source),
-            "model": requested_model,
-        },
-    )
-
-    if not user_image_source or not city_name:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": "invalid_request", "message": "user_image_url and city_name are required"},
+    try:
+        _log_json_block(
+            "Request",
+            request,
+            request_id,
+            {
+                "style_id": style_id,
+                "user_id": user_id,
+                "city_name": city_name,
+                "user_image_url": summarize_url(user_image_source),
+                "photo_shot": photo_shot,
+                "camera_angle": camera_angle,
+                "model": requested_model,
+            },
         )
 
-    bucket: Any = storage.bucket()
-    resolved_user_image = _download_image_from_source(user_image_source)
-    input_ext = _ext_from_mime(resolved_user_image.get("mimeType") or "image/jpeg")
-    input_filename = f"{_now_slug()}.{input_ext}"
-    input_path = f"image_coin/{user_id}/upload/{input_filename}"
-    input_blob = bucket.blob(input_path)
-    input_blob.cache_control = "public,max-age=31536000"
-    input_blob.upload_from_string(
-        resolved_user_image["buffer"],
-        content_type=resolved_user_image.get("mimeType") or "image/jpeg",
-    )
-    input_url = _get_signed_or_public_url(input_path)
+        logger.info(
+            "City generate request received | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "styleId": style_id,
+                "cityName": city_name,
+                "photoShot": photo_shot,
+                "cameraAngle": camera_angle,
+                "userImageSourcePreview": summarize_url(user_image_source),
+                "model": requested_model,
+            },
+        )
 
-    logger.info(
-        "City generate input stored | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "inputPath": input_path,
-            "inputUrlPreview": summarize_url(input_url),
-            "inputMime": resolved_user_image.get("mimeType"),
-        },
-    )
+        if not user_image_source or not city_name:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "invalid_request", "message": "user_image_url and city_name are required"},
+            )
 
-    generated = _generate_city_teleported_photo(input_url, city_name, requested_model, photo_shot, camera_angle)
+        bucket: Any = storage.bucket()
+        resolved_user_image = _download_image_from_source(user_image_source)
+        input_ext = _ext_from_mime(resolved_user_image.get("mimeType") or "image/jpeg")
+        input_filename = f"{_now_slug()}.{input_ext}"
+        input_path = f"image_coin/{user_id}/upload/{input_filename}"
+        input_blob = bucket.blob(input_path)
+        input_blob.cache_control = "public,max-age=31536000"
+        input_blob.upload_from_string(
+            resolved_user_image["buffer"],
+            content_type=resolved_user_image.get("mimeType") or "image/jpeg",
+        )
+        input_url = _get_signed_or_public_url(input_path)
 
-    generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
-    generated_id = str(uuid4())
-    generated_filename = f"{_now_slug()}.{generated_ext}"
-    generated_path = f"image_coin/{user_id}/isinlanma/{generated_filename}"
-    generated_buffer = base64.b64decode(generated["data"])
-    output_blob = bucket.blob(generated_path)
-    output_blob.cache_control = "public,max-age=31536000"
-    output_blob.upload_from_string(
-        generated_buffer,
-        content_type=generated.get("mimeType") or "image/png",
-    )
-    output_url = _get_signed_or_public_url(generated_path)
+        logger.info(
+            "City generate input stored | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "inputPath": input_path,
+                "inputUrlPreview": summarize_url(input_url),
+                "inputMime": resolved_user_image.get("mimeType"),
+            },
+        )
 
-    logger.info(
-        "City generate output prepared | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "generatedId": generated_id,
-            "outputPath": generated_path,
-            "outputUrlPreview": summarize_url(output_url),
-            "outputMimeType": generated.get("mimeType"),
-        },
-    )
+        generated = _generate_city_teleported_photo(input_url, city_name, requested_model, photo_shot, camera_angle)
 
-    db = firestore.client()
-    logger.info(
-        "City generate Firestore write started | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "collection": "users/{uid}/generatedImages",
-            "docId": generated_id,
-        },
-    )
-    db.collection("users").document(user_id).collection("generatedImages").document(generated_id).set(
-        {
-            "id": generated_id,
-            "styleType": "city",
-            "styleId": style_id or None,
-            "requestId": request_id,
-            "cityName": city_name,
-            "photoShot": photo_shot,
-            "cameraAngle": camera_angle,
-            "inputImagePath": input_path,
-            "inputImageUrl": input_url,
-            "outputImagePath": generated_path,
-            "outputImageUrl": output_url,
-            "outputMimeType": generated.get("mimeType") or "image/png",
-            "createdAt": firestore.SERVER_TIMESTAMP,
-            "updatedAt": firestore.SERVER_TIMESTAMP,
+        generated_ext = _ext_from_mime(generated.get("mimeType") or "image/png")
+        generated_id = str(uuid4())
+        generated_filename = f"{_now_slug()}.{generated_ext}"
+        generated_path = f"image_coin/{user_id}/isinlanma/{generated_filename}"
+        generated_buffer = base64.b64decode(generated["data"])
+        output_blob = bucket.blob(generated_path)
+        output_blob.cache_control = "public,max-age=31536000"
+        output_blob.upload_from_string(
+            generated_buffer,
+            content_type=generated.get("mimeType") or "image/png",
+        )
+        output_url = _get_signed_or_public_url(generated_path)
+
+        logger.info(
+            "City generate output prepared | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "generatedId": generated_id,
+                "outputPath": generated_path,
+                "outputUrlPreview": summarize_url(output_url),
+                "outputMimeType": generated.get("mimeType"),
+            },
+        )
+
+        db = firestore.client()
+        logger.info(
+            "City generate Firestore write started | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "collection": "users/{uid}/generatedImages",
+                "docId": generated_id,
+            },
+        )
+        db.collection("users").document(user_id).collection("generatedImages").document(generated_id).set(
+            {
+                "id": generated_id,
+                "styleType": "city",
+                "styleId": style_id or None,
+                "requestId": request_id,
+                "cityName": city_name,
+                "photoShot": photo_shot,
+                "cameraAngle": camera_angle,
+                "inputImagePath": input_path,
+                "inputImageUrl": input_url,
+                "outputImagePath": generated_path,
+                "outputImageUrl": output_url,
+                "outputMimeType": generated.get("mimeType") or "image/png",
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+            }
+        )
+
+        logger.info(
+            "City generate record saved | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "generatedId": generated_id,
+            },
+        )
+
+        response_payload = {
+            "request_id": request_id,
+            "style_id": style_id or None,
+            "user_id": user_id,
+            "input": {
+                "path": input_path,
+                "url": input_url,
+                "city_name": city_name,
+                "photo_shot": photo_shot,
+                "camera_angle": camera_angle,
+            },
+            "output": {
+                "id": generated_id,
+                "path": generated_path,
+                "url": output_url,
+                "mimeType": generated.get("mimeType") or "image/png",
+            },
         }
-    )
 
-    logger.info(
-        "City generate record saved | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "generatedId": generated_id,
-        },
-    )
+        try:
+            response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
+            content_length = len(response_bytes)
+        except Exception:
+            content_length = None
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        _log_json_block(
+            "Response",
+            request,
+            request_id,
+            response_payload,
+            {
+                "statusCode": 200,
+                "contentLength": content_length,
+                "durationMs": duration_ms,
+            },
+        )
 
-    response_payload = {
-        "request_id": request_id,
-        "style_id": style_id or None,
-        "user_id": user_id,
-        "input": {
-            "path": input_path,
-            "url": input_url,
-            "city_name": city_name,
-            "photo_shot": photo_shot,
-            "camera_angle": camera_angle,
-        },
-        "output": {
-            "id": generated_id,
-            "path": generated_path,
-            "url": output_url,
-            "mimeType": generated.get("mimeType") or "image/png",
-        },
-    }
+        logger.info(
+            "City generate response sent | %s",
+            {
+                "requestId": request_id,
+                "userId": user_id,
+                "response": response_payload,
+            },
+        )
 
-    try:
-        response_bytes = json.dumps(response_payload, ensure_ascii=False).encode("utf-8")
-        content_length = len(response_bytes)
-    except Exception:
-        content_length = None
-    duration_ms = int((time.perf_counter() - started_at) * 1000)
-    _log_json_block(
-        "Response",
-        request,
-        request_id,
-        response_payload,
-        {
-            "statusCode": 200,
-            "contentLength": content_length,
-            "durationMs": duration_ms,
-        },
-    )
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "success",
+                "kind": "photo",
+                "style_type": "city",
+                "style_id": style_id or None,
+                "title": city_name,
+                "output_url": output_url,
+            }
+        )
 
-    logger.info(
-        "City generate response sent | %s",
-        {
-            "requestId": request_id,
-            "userId": user_id,
-            "response": response_payload,
-        },
-    )
-
-    return JSONResponse(
-        content={
-            **response_payload
-        }
-    )
+        return JSONResponse(content={**response_payload})
+    except HTTPException as exc:
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "photo",
+                "style_type": "city",
+                "style_id": style_id or None,
+                "title": city_name or None,
+                "error_message": str(exc.detail) if getattr(exc, "detail", None) else str(exc),
+            }
+        )
+        raise
+    except Exception as exc:
+        logger.error(
+            "City generate failed | %s",
+            {"requestId": request_id, "userId": user_id, "error": str(exc)},
+        )
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "photo",
+                "style_type": "city",
+                "style_id": style_id or None,
+                "title": city_name or None,
+                "error_message": str(exc),
+            }
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"message": "Hata olustu, lutfen tekrar deneyin."}},
+        )

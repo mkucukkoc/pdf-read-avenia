@@ -15,6 +15,7 @@ from firebase_admin import firestore, storage
 
 from .family_assets import get_family_prompt, resolve_family_style_id
 from .fal_utils import extract_image_url_from_fal_response, fal_subscribe, get_fal_key, summarize_url
+from .notify_webhook import send_generation_webhook
 
 logger = logging.getLogger("pdf_read_refresh.styles.family")
 
@@ -386,11 +387,36 @@ async def generate_family_photo(payload: Dict[str, Any] = Body(...), request: Re
             },
         )
 
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "success",
+                "kind": "photo",
+                "style_type": "lifestyle",
+                "style_id": resolved_style_id or style_id or None,
+                "title": resolved_style_id or style_id or None,
+                "output_url": output_url,
+            }
+        )
+
         return JSONResponse(content=response_payload)
     except HTTPException:
         raise
     except Exception as exc:
         logger.error("Family lifestyle generate failed | %s", {"error": str(exc), "requestId": request_id, "userId": user_id})
+        send_generation_webhook(
+            {
+                "request_id": request_id,
+                "user_id": user_id,
+                "status": "failed",
+                "kind": "photo",
+                "style_type": "lifestyle",
+                "style_id": resolved_style_id or style_id or None,
+                "title": resolved_style_id or style_id or None,
+                "error_message": str(exc),
+            }
+        )
         return JSONResponse(
             status_code=500,
             content={"error": {"message": "Hata olustu, lutfen tekrar deneyin."}},
