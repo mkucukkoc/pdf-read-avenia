@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
 from typing import Any, Dict, Optional
 from uuid import uuid4
 from urllib.parse import urlparse
@@ -155,6 +156,10 @@ def _get_signed_or_public_url(file_path: str) -> str:
             f"{requests.utils.quote(file_path, safe='')}"
             "?alt=media"
         )
+
+
+def _now_slug() -> str:
+    return datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
 
 
 def _get_request_user_id(request: Request) -> str:
@@ -412,8 +417,8 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
     bucket: Any = storage.bucket()
     resolved_user_image = _download_image_from_source(user_image_source)
     input_ext = _ext_from_image_mime(resolved_user_image.get("mimeType") or "image/jpeg")
-    input_upload_id = str(uuid4())
-    input_path = f"video_coin/{user_id}/upload/{input_upload_id}/input.{input_ext}"
+    input_filename = f"{_now_slug()}.{input_ext}"
+    input_path = f"video_coin/{user_id}/upload/{input_filename}"
     input_blob = bucket.blob(input_path)
     input_blob.cache_control = "public,max-age=31536000"
     input_blob.upload_from_string(
@@ -453,7 +458,8 @@ async def generate_video(payload: Dict[str, Any] = Body(...), request: Request =
         downloaded = _download_video_from_source(output_video_url)
         output_mime_type = downloaded.get("mimeType") or "video/mp4"
         video_ext = _ext_from_video_mime(output_mime_type)
-        output_video_path = f"video_coin/{user_id}/generate_video/{generated_id}/output.{video_ext}"
+        output_filename = f"{_now_slug()}.{video_ext}"
+        output_video_path = f"video_coin/{user_id}/generate_video/{output_filename}"
         output_blob = bucket.blob(output_video_path)
         output_blob.cache_control = "public,max-age=31536000"
         output_blob.upload_from_string(
