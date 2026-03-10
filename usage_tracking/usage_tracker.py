@@ -8,6 +8,7 @@ import requests  # type: ignore[import-unresolved]
 DEFAULT_EXECUTOR = ThreadPoolExecutor(max_workers=4)
 LOGGER = logging.getLogger("pdf_read_refresh.usage_tracking")
 DEBUG_LOGS = os.getenv("USAGE_TRACKING_DEBUG", "1").lower() in ("1", "true", "yes", "on")
+USAGE_TRACKING_ENABLED = os.getenv("USAGE_TRACKING_ENABLED", "0").lower() in ("1", "true", "yes", "on")
 USAGE_SERVICE_URL = os.getenv("USAGE_SERVICE_URL", "https://usage-service.onrender.com").strip().rstrip("/")
 USAGE_SERVICE_INTERNAL_KEY = os.getenv("USAGE_SERVICE_INTERNAL_KEY", "usageservice2025aveniaaichat.com").strip()
 _RAW_TIMEOUT = os.getenv("USAGE_SERVICE_TIMEOUT_S", "30")
@@ -22,6 +23,8 @@ USAGE_SERVICE_TIMEOUT_S = max(_CONFIGURED_TIMEOUT, 30.0)
 
 def enqueue_usage_update(_db: Any, event: Dict[str, Any]) -> None:
     """Fire-and-forget helper to forward usage events to usage-service."""
+    if not USAGE_TRACKING_ENABLED:
+        return
 
     LOGGER.info(
         "UsageTracking enqueue_usage_update received event",
@@ -55,6 +58,8 @@ def enqueue_usage_update(_db: Any, event: Dict[str, Any]) -> None:
 
 
 def _post_usage_event(event: Dict[str, Any]) -> None:
+    if not USAGE_TRACKING_ENABLED:
+        return
     _log_env_config()
 
     if not USAGE_SERVICE_URL:

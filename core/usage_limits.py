@@ -10,7 +10,7 @@ from .firebase import db
 
 logger = logging.getLogger("pdf_read_refresh.usage_limits")
 
-FREE_DAILY_LIMIT = 2
+FREE_DAILY_LIMIT = 0
 
 
 def _date_key() -> str:
@@ -101,4 +101,3 @@ def increment_usage(user_id: str, *, is_premium: bool) -> Optional[dict]:
 
 
 __all__ = ["increment_usage", "FREE_DAILY_LIMIT"]
-
