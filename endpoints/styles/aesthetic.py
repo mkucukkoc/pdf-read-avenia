@@ -85,10 +85,15 @@ def _get_signed_or_public_url(path: str) -> str:
     bucket = storage.bucket()
     blob = bucket.blob(path)
     try:
-        # Always prefer signed URLs because this bucket is not public.
-        return blob.generate_signed_url(version="v4", expiration=3600, method="GET")
+        # Match other style endpoints: long-lived signed URL.
+        return blob.generate_signed_url(expiration="2099-12-31", method="GET")
     except Exception:
-        return blob.public_url
+        bucket_name = bucket.name
+        return (
+            f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/"
+            f"{requests.utils.quote(path, safe='')}"
+            "?alt=media"
+        )
 
 
 def _now_slug() -> str:

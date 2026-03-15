@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -89,6 +90,20 @@ def _timestamp_sort_key(value: Any) -> float:
     return 0.0
 
 
+def _get_signed_or_public_url(path: str) -> str:
+    bucket: Any = storage.bucket()
+    blob = bucket.blob(path)
+    try:
+        return blob.generate_signed_url(expiration="2099-12-31", method="GET")
+    except Exception:
+        bucket_name = bucket.name
+        return (
+            f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}/o/"
+            f"{quote(path, safe='')}"
+            "?alt=media"
+        )
+
+
 def _collect_history_items(collection_name: str, user_id: str) -> List[Dict[str, Any]]:
     db = firestore.client()
     query = (
@@ -147,6 +162,12 @@ async def list_history(request: Request):
     trimmed: List[Dict[str, Any]] = []
     for item in items[:200]:
         item.pop("_createdAtRaw", None)
+        output_image_path = item.get("outputImagePath")
+        if isinstance(output_image_path, str) and output_image_path.strip():
+            item["outputImageUrl"] = _get_signed_or_public_url(output_image_path)
+        output_video_path = item.get("outputVideoPath")
+        if isinstance(output_video_path, str) and output_video_path.strip():
+            item["outputVideoUrl"] = _get_signed_or_public_url(output_video_path)
         trimmed.append(item)
 
     logger.info(
